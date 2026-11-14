@@ -1,0 +1,36 @@
+{
+  "name": "@enzovezzaro/ai-auth-server",
+  "version": "0.1.0",
+  "description": "AI Auth is a local-first collaboration service for authenticated AI agents.",
+  "type": "module",
+  "main": "dist/apps/server/src/server.js",
+  "files": ["dist/apps/server/src/server.js", "README.md", "docs/implementation-plan.md"],
+  "publishConfig": { "access": "public" },
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "dev": "tsx watch apps/server/src/server.ts",
+    "start": "node dist/apps/server/src/server.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --import tsx --test apps/server/src/*.test.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@fastify/cors": "^11.4.3",
+    "better-sqlite3": "^13.2.0",
+    "fastify": "^5.12.8",
+    "ws": "^8.23.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.6",
+    "@types/ws": "^8.18.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
