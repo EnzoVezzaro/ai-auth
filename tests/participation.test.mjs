@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { afterEach } from "node:test";
 import { webcrypto } from "node:crypto";
 import {
   createParticipationPolicy,
@@ -24,6 +24,24 @@ const ROOM = "research";
 const tick = async (n = 6) => {
   for (let i = 0; i < n; i++) await new Promise((r) => setImmediate(r));
 };
+
+// Poll for a condition instead of guessing how many event-loop turns the
+// async signature checks need; fail loudly (not by hanging) on timeout.
+async function waitFor(condition, label = "condition", timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() > deadline)
+      throw new Error(`Timed out waiting for ${label}`);
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+// Every participant is closed even when an assertion fails mid-test, so a
+// failure can never leave a heartbeat interval keeping the process alive.
+const participants = [];
+afterEach(async () => {
+  await Promise.all(participants.splice(0).map((p) => p.leave()));
+});
 
 async function makeWallet(name) {
   const keys = await crypto.subtle.generateKey(
@@ -104,8 +122,7 @@ async function join(hub, wallet, options = {}) {
   });
   const seen = [];
   room.subscribe((e) => e.direction === "in" && seen.push(e.envelope.body));
-  await adapter.start();
-  return {
+  const participant = {
     wallet,
     room,
     adapter,
@@ -118,6 +135,9 @@ async function join(hub, wallet, options = {}) {
       await room.close();
     },
   };
+  participants.push(participant);
+  await adapter.start();
+  return participant;
 }
 
 async function setup() {
@@ -167,15 +187,25 @@ test("an uninvited wallet that knows origin and room cannot act or read", async 
   );
   // Mallory runs a plain open room and knows the origin + room name.
   const malP = await join(hub, ctx.mallory);
-  await tick(12);
-  assert.ok(hostP.room.policy.isMember(ctx.alice.id));
+  await waitFor(
+    () => hostP.room.policy.isMember(ctx.alice.id),
+    "alice admitted",
+  );
+  await waitFor(
+    () => aliceP.room.policy.isMember(ctx.host.id),
+    "host admitted",
+  );
   assert.equal(hostP.room.policy.isMember(ctx.mallory.id), false);
 
   await malP.room.send("agent/action", { name: "danger", state: "started" });
   await malP.room.send("collab/text", { text: "let me in" });
   await hostP.room.send("collab/text", { text: "restricted secret" });
   await hostP.room.send("agent/action", { kind: "tool-catalog", tools: [] });
-  await tick(12);
+  await waitFor(
+    () => aliceP.types(ctx.host.id).includes("collab/text"),
+    "host text at alice",
+  );
+  await tick(20);
 
   assert.equal(hostP.types(ctx.mallory.id).length, 0);
   assert.equal(aliceP.types(ctx.mallory.id).length, 0);
@@ -189,7 +219,6 @@ test("an uninvited wallet that knows origin and room cannot act or read", async 
     malP.inbox().some((e) => JSON.stringify(e).includes("restricted secret")),
     false,
   );
-  for (const p of [hostP, aliceP, malP]) await p.leave();
 });
 
 test("forged, expired, cross-room, cross-origin, wrong-subject and stolen proofs are rejected", async () => {
@@ -272,12 +301,11 @@ test("a stolen proof replayed by a different wallet over the wire is ignored", a
   const malP = await join(hub, ctx.mallory, {
     participation: { policy: ctx.policy(), membership: aliceProof },
   });
-  await tick(12);
+  await waitFor(() => malP.room.directPeerCount > 0, "mallory linked");
   await malP.room.send("collab/text", { text: "using alice's proof" });
-  await tick(8);
+  await tick(30);
   assert.equal(hostP.types(ctx.mallory.id).length, 0);
   assert.equal(hostP.room.policy.roleOf(ctx.mallory.id), null);
-  for (const p of [hostP, malP]) await p.leave();
 });
 
 test("remove and block take effect immediately, in both directions", async () => {
@@ -295,16 +323,25 @@ test("remove and block take effect immediately, in both directions", async () =>
     ctx.alice,
     await ctx.proofFor(ctx.alice.id),
   );
-  await tick(12);
+  await waitFor(
+    () => hostP.room.policy.isMember(ctx.alice.id),
+    "alice admitted",
+  );
+  await waitFor(
+    () => aliceP.room.policy.isMember(ctx.host.id),
+    "host admitted",
+  );
   await aliceP.room.send("collab/text", { text: "one" });
-  await tick(6);
-  assert.ok(hostP.types(ctx.alice.id).includes("collab/text"));
+  await waitFor(
+    () => hostP.types(ctx.alice.id).includes("collab/text"),
+    "alice text at host",
+  );
 
   const before = aliceP.inbox().length;
   hostP.room.policy.remove(ctx.alice.id);
   await aliceP.room.send("collab/text", { text: "two" });
   await hostP.room.send("collab/text", { text: "after removal" });
-  await tick(10); // alice's heartbeats re-present the (now revoked) proof
+  await tick(30); // alice's heartbeats re-present the (now revoked) proof
   assert.equal(
     hostP.types(ctx.alice.id).filter((t) => t === "collab/text").length,
     1,
@@ -329,7 +366,6 @@ test("remove and block take effect immediately, in both directions", async () =>
   assert.equal(hostP.room.policy.isMember(ctx.alice.id), false);
   assert.equal(hostP.room.policy.can(ctx.alice.id, "messages.send"), false);
   assert.equal((await hostP.room.policy.admit(ctx.alice.id, fresh)).ok, false);
-  for (const p of [hostP, aliceP]) await p.leave();
 });
 
 test("join, leave and reconnect keep the same verified identity", async () => {
@@ -343,22 +379,29 @@ test("join, leave and reconnect keep the same verified identity", async () => {
   );
   const proof = await ctx.proofFor(ctx.alice.id);
   const first = await joinRestricted(hub, ctx, ctx.alice, proof);
-  await tick(12);
+  await waitFor(
+    () => hostP.room.policy.isMember(ctx.alice.id),
+    "alice admitted",
+  );
   const firstSession = first.room.session;
   assert.equal(hostP.room.policy.roleOf(ctx.alice.id), "member");
   await first.leave();
-  await tick(4);
 
   const second = await joinRestricted(hub, ctx, ctx.alice, proof);
-  await tick(12);
+  await waitFor(
+    () => second.room.directPeerCount > 0,
+    "reconnected alice linked",
+  );
   assert.notEqual(second.room.session, firstSession);
   await second.room.send("collab/text", { text: "back" });
-  await tick(6);
+  await waitFor(
+    () => hostP.seen.some((b) => b.type === "collab/text"),
+    "alice text after reconnect",
+  );
   const texts = hostP.seen.filter((b) => b.type === "collab/text");
   assert.equal(texts.length, 1);
   assert.equal(texts[0].issuer, ctx.alice.id);
   assert.equal(hostP.room.policy.roleOf(ctx.alice.id), "member");
-  for (const p of [hostP, second]) await p.leave();
 });
 
 test("a nickname is never identity and observers cannot exceed their scopes", async () => {
@@ -395,10 +438,14 @@ test("open mode is unaffected and carries a disclosure", async () => {
   const b = await join(hub, ctx.alice);
   assert.equal(a.room.participationMode, "open");
   assert.match(a.room.disclosure, /Open room/u);
-  await tick(12);
   await b.room.send("collab/text", { text: "hello public" });
   await a.room.send("collab/text", { text: "hello back" });
-  await tick(8);
+  await waitFor(
+    () =>
+      a.types(ctx.alice.id).includes("collab/text") &&
+      b.types(ctx.host.id).includes("collab/text"),
+    "open-room texts delivered",
+  );
   assert.ok(a.types(ctx.alice.id).includes("collab/text"));
   assert.ok(b.types(ctx.host.id).includes("collab/text"));
   assert.throws(
@@ -415,5 +462,4 @@ test("open mode is unaffected and carries a disclosure", async () => {
       }),
     /must match/u,
   );
-  for (const p of [a, b]) await p.leave();
 });
