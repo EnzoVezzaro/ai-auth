@@ -466,6 +466,26 @@ test("tenant deletion does not reset lifetime creation quotas", async () => {
   });
 });
 
+test("malformed member identifiers return a client error without reaching storage", async () => {
+  const owner = await wallet();
+  const ownerSession = await login(owner, OWNER_SCOPES);
+  const created = await call("/v1/tenants", {
+    method: "POST",
+    token: ownerSession.token,
+    body: { name: "Malformed member path" },
+  });
+  const { tenant } = await created.json();
+
+  const malformed = await call(
+    `/v1/tenants/${tenant.tenantId}/members/%E0%A4%A`,
+    { method: "DELETE", token: ownerSession.token },
+  );
+  expect(malformed.status).toBe(400);
+  await expect(malformed.json()).resolves.toEqual({
+    error: "Invalid member identifier",
+  });
+});
+
 test("expired invitations are purged and active invitation storage is capped", async () => {
   const owner = await wallet();
   const guest = await wallet();

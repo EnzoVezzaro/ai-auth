@@ -409,7 +409,16 @@ async function handleFetch(request, env) {
         subpath[1] &&
         request.method === "DELETE"
       ) {
-        internalPath = `/internal/members/${encodeURIComponent(decodeURIComponent(subpath[1]))}`;
+        let memberAgentId;
+        try {
+          memberAgentId = decodeURIComponent(subpath[1]);
+        } catch {
+          return cors(
+            json({ error: "Invalid member identifier" }, 400),
+            origin,
+          );
+        }
+        internalPath = `/internal/members/${encodeURIComponent(memberAgentId)}`;
       } else if (subpath[0] === "join" && request.method === "POST") {
         internalPath = "/internal/join";
         data.grant = (await readJson(request))?.grant;
