@@ -575,3 +575,5 @@ export type {
 
 export * from "./links.js";
 export * from "./membership.js";
+export * from "./revocation.js";
+export * from "./agent-identity.js";

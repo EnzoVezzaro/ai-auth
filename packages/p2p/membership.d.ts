@@ -22,8 +22,57 @@ export interface MembershipProof {
   scopes: string[];
   issuedAt: number;
   expiresAt: number;
+  /** Authorization epoch; absent means epoch 0. */
+  epoch?: number;
+  durationKind?: DurationKind;
   signature: string;
 }
+
+export type DurationKind = "short" | "configured" | "long" | "until-revoked";
+export type MembershipDuration =
+  | { kind: "short"; ttlMs?: number }
+  | { kind: "configured"; ttlMs: number }
+  | { kind: "long"; ttlMs: number }
+  | { kind: "until-revoked" };
+
+/** Short-lived, renewable permission to run protected operations. */
+export interface ExecutionGrant {
+  type: "ai-auth-execution-grant";
+  v: 1;
+  id: string;
+  issuer: MembershipIssuerKey;
+  subject: string;
+  origin: string;
+  room: string;
+  membershipId: string;
+  scopes: string[];
+  epoch: number;
+  issuedAt: number;
+  expiresAt: number;
+  signature: string;
+}
+
+export type ExecutionGrantVerification =
+  | {
+      ok: true;
+      id: string;
+      issuerId: string;
+      subject: string;
+      membershipId: string;
+      scopes: readonly string[];
+      epoch: number;
+      expiresAt: number;
+    }
+  | { ok: false; reason: string };
+
+export type ProtectedAuthorization =
+  | {
+      allow: true;
+      reason: "ok";
+      role: MembershipRole;
+      grantExpiresAt: number;
+    }
+  | { allow: false; reason: string };
 
 export interface MembershipTrustPolicy {
   /** Trusted issuer public keys (JWK) or `agent:` identity ids. */
@@ -39,6 +88,8 @@ export type MembershipVerification =
       role: MembershipRole;
       scopes: readonly string[];
       expiresAt: number;
+      epoch: number;
+      durationKind: DurationKind | null;
     }
   | { ok: false; reason: string };
 
@@ -58,9 +109,60 @@ export function issueMembership(
     role?: MembershipRole;
     scopes?: string[];
     ttlMs?: number;
+    /** Overrides `ttlMs`. `until-revoked` never grants execution by itself. */
+    duration?: MembershipDuration;
+    epoch?: number;
     now?: number;
   },
 ): Promise<Readonly<MembershipProof>>;
+
+export const EXECUTION_GRANT_TYPE: "ai-auth-execution-grant";
+export const MAX_EXECUTION_GRANT_TTL_MS: number;
+export const DEFAULT_EXECUTION_GRANT_TTL_MS: number;
+export const DURATION_KINDS: readonly DurationKind[];
+export const DURATION_LIMITS: Readonly<Record<DurationKind, number>>;
+
+export function resolveDuration(
+  duration: MembershipDuration,
+): Readonly<{ kind: DurationKind; ttlMs: number }>;
+
+export function issueExecutionGrant(
+  issuerWallet: { publicKey: JsonWebKey; privateKey: CryptoKey },
+  options: {
+    subject: string;
+    origin: string;
+    room: string;
+    membershipId: string;
+    scopes?: string[];
+    epoch?: number;
+    ttlMs?: number;
+    now?: number;
+  },
+): Promise<Readonly<ExecutionGrant>>;
+
+export function renewExecutionGrant(
+  issuerWallet: { publicKey: JsonWebKey; privateKey: CryptoKey },
+  grant: ExecutionGrant,
+  options?: { ttlMs?: number; now?: number },
+): Promise<Readonly<ExecutionGrant>>;
+
+export function verifyExecutionGrant(
+  grant: unknown,
+  options: {
+    trustPolicy: MembershipTrustPolicy;
+    expectedOrigin: string;
+    expectedRoom: string;
+    expectedSubject: string;
+    now?: number | (() => number);
+  },
+): Promise<ExecutionGrantVerification>;
+
+export function authorizeProtected(input: {
+  policy: ParticipationPolicy;
+  walletId: string;
+  scope: string;
+  now?: number | (() => number);
+}): ProtectedAuthorization;
 
 export function verifyMembership(
   proof: unknown,
@@ -79,6 +181,26 @@ export interface ParticipationPolicy {
   readonly room: string;
   /** Text the UI should show for open rooms; null for restricted rooms. */
   readonly disclosure: string | null;
+  /** Latest known authorization epoch (monotonic). */
+  readonly epoch: number;
+  /** Invalidate all proofs and grants issued under an older epoch. */
+  bumpEpoch(): number;
+  /** Raise (never lower) the epoch to a value learned elsewhere. */
+  observeEpoch(epoch: number): number;
+  /** Shaped for `verifyLink({ revokedLinks })`. */
+  readonly revokedLinks: { has(linkId: string): boolean };
+  admitGrant(
+    walletId: string,
+    grant: unknown,
+  ): Promise<ExecutionGrantVerification>;
+  applyRevocation(
+    record: unknown,
+  ): Promise<
+    | { ok: true; applied: boolean; kind?: "membership" | "link" | "wallet" }
+    | { ok: false; reason: string }
+  >;
+  isRevoked(kind: "membership" | "link" | "wallet", target: string): boolean;
+  inspect(walletId: string, now?: number): unknown;
   admit(
     peerWalletId: string,
     proof: unknown,
@@ -96,6 +218,8 @@ export interface ParticipationPolicy {
     role: MembershipRole;
     scopes: readonly string[];
     expiresAt: number;
+    epoch: number;
+    durationKind: DurationKind | null;
   }>[];
 }
 
@@ -104,5 +228,6 @@ export function createParticipationPolicy(options: {
   trustPolicy?: MembershipTrustPolicy;
   origin: string;
   room: string;
+  epoch?: number;
   now?: () => number;
 }): ParticipationPolicy;

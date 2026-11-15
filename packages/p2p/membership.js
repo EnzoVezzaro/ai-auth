@@ -1,4 +1,12 @@
 import { canonicalize, identityFor } from "./index.js";
+import {
+  isObject,
+  publicJwk,
+  randomId,
+  signDomain,
+  verifyDomain,
+} from "./codec.js";
+import { verifyRevocation } from "./revocation.js";
 
 export const MEMBERSHIP_TYPE = "ai-auth-membership";
 export const MEMBERSHIP_VERSION = 1;
@@ -9,7 +17,27 @@ export const ROLES = Object.freeze(["owner", "member", "observer"]);
 export const OPEN_ROOM_DISCLOSURE =
   "Open room: anyone who knows this site's origin and room name can join, see public content, and send events. The room topic hash is public. Do not share private data here.";
 
+export const EXECUTION_GRANT_TYPE = "ai-auth-execution-grant";
+export const MAX_EXECUTION_GRANT_TTL_MS = 15 * 60 * 1000;
+export const DEFAULT_EXECUTION_GRANT_TTL_MS = 5 * 60 * 1000;
+export const DURATION_KINDS = Object.freeze([
+  "short",
+  "configured",
+  "long",
+  "until-revoked",
+]);
+/** Upper bound (ms) of the signed lifetime for each duration kind. */
+export const DURATION_LIMITS = Object.freeze({
+  short: 60 * 60 * 1000,
+  configured: 24 * 60 * 60 * 1000,
+  long: 30 * 24 * 60 * 60 * 1000,
+  "until-revoked": 365 * 24 * 60 * 60 * 1000,
+});
+
 const DOMAIN = "ai-auth-membership/v1\n";
+const GRANT_DOMAIN = "ai-auth-execution-grant/v1\n";
+const MAX_REVOCATIONS = 4096;
+const DEFAULT_SHORT_TTL_MS = 15 * 60 * 1000;
 const MAX_SCOPES = 32;
 const MAX_MEMBERS = 256;
 const MAX_TRACKED = 1024;
@@ -31,22 +59,24 @@ const KEYS = [
   "issuedAt",
   "expiresAt",
 ];
-const encoder = new TextEncoder();
-
-function b64u(bytes) {
-  let s = "";
-  for (const b of new Uint8Array(bytes)) s += String.fromCharCode(b);
-  return btoa(s).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
-}
-function unb64u(value) {
-  if (typeof value !== "string" || !/^[A-Za-z0-9_-]*$/u.test(value))
-    throw new TypeError("Invalid base64url");
-  const padded = value.replaceAll("-", "+").replaceAll("_", "/");
-  const bin = atob(padded.padEnd(Math.ceil(padded.length / 4) * 4, "="));
-  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
-}
-const publicJwk = (k) => ({ kty: k.kty, crv: k.crv, x: k.x, y: k.y });
-const isObject = (v) => v && typeof v === "object" && !Array.isArray(v);
+// Optional signed fields; absent on proofs issued without them, so existing
+// proofs keep verifying byte-for-byte.
+const OPTIONAL_KEYS = ["epoch", "durationKind"];
+const GRANT_KEYS = [
+  "type",
+  "v",
+  "id",
+  "issuer",
+  "subject",
+  "origin",
+  "room",
+  "membershipId",
+  "scopes",
+  "epoch",
+  "issuedAt",
+  "expiresAt",
+];
+const validEpoch = (n) => Number.isSafeInteger(n) && n >= 0;
 
 function validScopes(scopes, role) {
   if (
@@ -60,10 +90,32 @@ function validScopes(scopes, role) {
   return role === "owner" || !scopes.includes("*");
 }
 
-function signingBytes(fields) {
+function signedBody(fields) {
   const body = {};
-  for (const key of KEYS) body[key] = fields[key];
-  return encoder.encode(DOMAIN + canonicalize(body));
+  for (const key of [...KEYS, ...OPTIONAL_KEYS])
+    if (key in fields && (KEYS.includes(key) || fields[key] !== undefined))
+      body[key] = fields[key];
+  return canonicalize(body);
+}
+
+/**
+ * Resolve a membership `duration` policy to a signed lifetime. `long` is
+ * clamped to its cap; `until-revoked` has no caller-chosen ttl and is signed
+ * with a fixed one-year horizon (renew by re-issuing).
+ */
+export function resolveDuration(duration) {
+  if (!isObject(duration) || !DURATION_KINDS.includes(duration.kind))
+    throw new TypeError("Unknown membership duration kind");
+  const { kind } = duration;
+  if (kind === "until-revoked")
+    return Object.freeze({ kind, ttlMs: DURATION_LIMITS[kind] });
+  const ttl =
+    duration.ttlMs ?? (kind === "short" ? DEFAULT_SHORT_TTL_MS : undefined);
+  if (!Number.isFinite(ttl) || ttl <= 0)
+    throw new TypeError("Membership duration needs a positive ttlMs");
+  if (kind === "configured" && ttl > DURATION_LIMITS.configured)
+    throw new TypeError("Configured membership lifetime is out of bounds");
+  return Object.freeze({ kind, ttlMs: Math.min(ttl, DURATION_LIMITS[kind]) });
 }
 
 /** Issue a site/host-signed, room- and origin-bound membership proof. */
@@ -76,6 +128,8 @@ export async function issueMembership(
     role = "member",
     scopes = [],
     ttlMs = DEFAULT_MEMBERSHIP_TTL_MS,
+    duration,
+    epoch,
     now = Date.now(),
   } = {},
 ) {
@@ -89,12 +143,20 @@ export async function issueMembership(
     throw new TypeError("A valid room name is required");
   if (!ROLES.includes(role)) throw new TypeError("Unknown role");
   if (!validScopes(scopes, role)) throw new TypeError("Invalid scopes");
-  if (!Number.isFinite(ttlMs) || ttlMs <= 0 || ttlMs > MAX_MEMBERSHIP_TTL_MS)
+  const resolved = duration === undefined ? null : resolveDuration(duration);
+  const lifetime = resolved?.ttlMs ?? ttlMs;
+  if (
+    !Number.isFinite(lifetime) ||
+    lifetime <= 0 ||
+    (!resolved && lifetime > MAX_MEMBERSHIP_TTL_MS)
+  )
     throw new TypeError("Membership lifetime is out of bounds");
+  if (epoch !== undefined && !validEpoch(epoch))
+    throw new TypeError("epoch must be a non-negative integer");
   const fields = {
     type: MEMBERSHIP_TYPE,
     v: MEMBERSHIP_VERSION,
-    id: b64u(crypto.getRandomValues(new Uint8Array(18))),
+    id: randomId(),
     issuer: publicJwk(issuerWallet.publicKey),
     subject,
     origin,
@@ -102,14 +164,16 @@ export async function issueMembership(
     role,
     scopes: [...scopes],
     issuedAt: now,
-    expiresAt: now + ttlMs,
+    expiresAt: now + lifetime,
+    ...(epoch === undefined ? {} : { epoch }),
+    ...(resolved ? { durationKind: resolved.kind } : {}),
   };
-  const signature = await crypto.subtle.sign(
-    { name: "ECDSA", hash: "SHA-256" },
+  const signature = await signDomain(
     issuerWallet.privateKey,
-    signingBytes(fields),
+    DOMAIN,
+    signedBody(fields),
   );
-  return Object.freeze({ ...fields, signature: b64u(signature) });
+  return Object.freeze({ ...fields, signature });
 }
 
 async function trustedIssuerIds(issuers) {
@@ -131,7 +195,14 @@ function shapeError(p, now) {
   if (!isObject(p) || p.type !== MEMBERSHIP_TYPE || p.v !== MEMBERSHIP_VERSION)
     return "malformed";
   const keys = Object.keys(p);
-  if (keys.length !== KEYS.length + 1 || !KEYS.every((k) => k in p))
+  const optional = OPTIONAL_KEYS.filter((k) => k in p);
+  if (
+    keys.length !== KEYS.length + 1 + optional.length ||
+    !KEYS.every((k) => k in p)
+  )
+    return "malformed";
+  if ("epoch" in p && !validEpoch(p.epoch)) return "malformed";
+  if ("durationKind" in p && !DURATION_KINDS.includes(p.durationKind))
     return "malformed";
   if (
     typeof p.id !== "string" ||
@@ -147,34 +218,12 @@ function shapeError(p, now) {
     return "malformed";
   if (!Number.isFinite(p.issuedAt) || !Number.isFinite(p.expiresAt))
     return "malformed";
-  if (
-    p.expiresAt <= p.issuedAt ||
-    p.expiresAt - p.issuedAt > MAX_MEMBERSHIP_TTL_MS
-  )
+  const maxLifetime = DURATION_LIMITS[p.durationKind] ?? MAX_MEMBERSHIP_TTL_MS;
+  if (p.expiresAt <= p.issuedAt || p.expiresAt - p.issuedAt > maxLifetime)
     return "lifetime-out-of-bounds";
   if (p.issuedAt > now + CLOCK_SKEW_MS) return "not-yet-valid";
   if (p.expiresAt <= now) return "expired";
   return null;
-}
-
-async function signatureValid(proof) {
-  try {
-    const key = await crypto.subtle.importKey(
-      "jwk",
-      publicJwk(proof.issuer),
-      { name: "ECDSA", namedCurve: "P-256" },
-      false,
-      ["verify"],
-    );
-    return await crypto.subtle.verify(
-      { name: "ECDSA", hash: "SHA-256" },
-      key,
-      unb64u(proof.signature),
-      signingBytes(proof),
-    );
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -202,7 +251,15 @@ export async function verifyMembership(
   }
   const trusted = await trustedIssuerIds(trustPolicy?.issuers);
   if (!trusted.has(issuerId)) return fail("untrusted-issuer");
-  if (!(await signatureValid(proof))) return fail("bad-signature");
+  if (
+    !(await verifyDomain(
+      proof.issuer,
+      proof.signature,
+      DOMAIN,
+      signedBody(proof),
+    ))
+  )
+    return fail("bad-signature");
   return Object.freeze({
     ok: true,
     id: proof.id,
@@ -211,6 +268,204 @@ export async function verifyMembership(
     role: proof.role,
     scopes: Object.freeze([...proof.scopes]),
     expiresAt: proof.expiresAt,
+    epoch: proof.epoch ?? 0,
+    durationKind: proof.durationKind ?? null,
+  });
+}
+
+const grantBody = (g) =>
+  canonicalize(Object.fromEntries(GRANT_KEYS.map((k) => [k, g[k]])));
+
+/**
+ * Issue a short-lived execution grant. Membership says who may take part; the
+ * grant is what lets a member run protected operations, and it expires fast
+ * (at most 15 minutes) so a missed revocation stays bounded. Renew by issuing
+ * a new grant (see `renewExecutionGrant`).
+ */
+export async function issueExecutionGrant(
+  issuerWallet,
+  {
+    subject,
+    origin,
+    room,
+    membershipId,
+    scopes = [],
+    epoch = 0,
+    ttlMs = DEFAULT_EXECUTION_GRANT_TTL_MS,
+    now = Date.now(),
+  } = {},
+) {
+  if (!issuerWallet?.privateKey || !issuerWallet.publicKey)
+    throw new TypeError("An issuer wallet with a signing key is required");
+  if (typeof subject !== "string" || !WALLET_PATTERN.test(subject))
+    throw new TypeError("subject must be a wallet id");
+  if (typeof origin !== "string" || !origin || origin.length > 200)
+    throw new TypeError("An exact origin is required");
+  if (typeof room !== "string" || !ROOM_PATTERN.test(room))
+    throw new TypeError("A valid room name is required");
+  if (typeof membershipId !== "string" || !ID_PATTERN.test(membershipId))
+    throw new TypeError("membershipId is required");
+  if (!validScopes(scopes, "member")) throw new TypeError("Invalid scopes");
+  if (!validEpoch(epoch)) throw new TypeError("Invalid epoch");
+  if (
+    !Number.isFinite(ttlMs) ||
+    ttlMs <= 0 ||
+    ttlMs > MAX_EXECUTION_GRANT_TTL_MS
+  )
+    throw new TypeError("Execution grant lifetime is out of bounds");
+  const fields = {
+    type: EXECUTION_GRANT_TYPE,
+    v: 1,
+    id: randomId(),
+    issuer: publicJwk(issuerWallet.publicKey),
+    subject,
+    origin,
+    room,
+    membershipId,
+    scopes: [...scopes],
+    epoch,
+    issuedAt: now,
+    expiresAt: now + ttlMs,
+  };
+  const signature = await signDomain(
+    issuerWallet.privateKey,
+    GRANT_DOMAIN,
+    grantBody(fields),
+  );
+  return Object.freeze({ ...fields, signature });
+}
+
+/** Re-issue a grant with the same bindings and a fresh lifetime. */
+export function renewExecutionGrant(issuerWallet, grant, { ttlMs, now } = {}) {
+  if (!isObject(grant) || grant.type !== EXECUTION_GRANT_TYPE)
+    return Promise.reject(new TypeError("Not an execution grant"));
+  const { subject, origin, room, membershipId, scopes, epoch } = grant;
+  return issueExecutionGrant(issuerWallet, {
+    subject,
+    origin,
+    room,
+    membershipId,
+    scopes,
+    epoch,
+    ...(ttlMs === undefined ? {} : { ttlMs }),
+    ...(now === undefined ? {} : { now }),
+  });
+}
+
+function grantShapeError(g, now) {
+  if (!isObject(g) || g.type !== EXECUTION_GRANT_TYPE || g.v !== 1)
+    return "malformed";
+  if (
+    Object.keys(g).length !== GRANT_KEYS.length + 1 ||
+    !GRANT_KEYS.every((k) => k in g) ||
+    typeof g.signature !== "string" ||
+    typeof g.id !== "string" ||
+    !ID_PATTERN.test(g.id) ||
+    typeof g.membershipId !== "string" ||
+    !ID_PATTERN.test(g.membershipId) ||
+    typeof g.subject !== "string" ||
+    typeof g.origin !== "string" ||
+    typeof g.room !== "string" ||
+    !isObject(g.issuer) ||
+    !validEpoch(g.epoch) ||
+    !validScopes(g.scopes, "member") ||
+    !Number.isFinite(g.issuedAt) ||
+    !Number.isFinite(g.expiresAt)
+  )
+    return "malformed";
+  if (
+    g.expiresAt <= g.issuedAt ||
+    g.expiresAt - g.issuedAt > MAX_EXECUTION_GRANT_TTL_MS
+  )
+    return "lifetime-out-of-bounds";
+  if (g.issuedAt > now + CLOCK_SKEW_MS) return "not-yet-valid";
+  if (g.expiresAt <= now) return "expired";
+  return null;
+}
+
+/** Locally verify an execution grant; fails closed like `verifyMembership`. */
+export async function verifyExecutionGrant(
+  grant,
+  { trustPolicy, expectedOrigin, expectedRoom, expectedSubject, now } = {},
+) {
+  const at = typeof now === "function" ? now() : (now ?? Date.now());
+  const fail = (reason) => Object.freeze({ ok: false, reason });
+  const bad = grantShapeError(grant, at);
+  if (bad) return fail(bad);
+  if (!expectedOrigin || !expectedRoom || !expectedSubject)
+    return fail("expectations-required");
+  if (grant.origin !== expectedOrigin) return fail("wrong-origin");
+  if (grant.room !== expectedRoom) return fail("wrong-room");
+  if (grant.subject !== expectedSubject) return fail("wrong-subject");
+  let issuerId;
+  try {
+    issuerId = await identityFor(publicJwk(grant.issuer));
+  } catch {
+    return fail("malformed");
+  }
+  if (!(await trustedIssuerIds(trustPolicy?.issuers)).has(issuerId))
+    return fail("untrusted-issuer");
+  if (
+    !(await verifyDomain(
+      grant.issuer,
+      grant.signature,
+      GRANT_DOMAIN,
+      grantBody(grant),
+    ))
+  )
+    return fail("bad-signature");
+  return Object.freeze({
+    ok: true,
+    id: grant.id,
+    issuerId,
+    subject: grant.subject,
+    membershipId: grant.membershipId,
+    scopes: Object.freeze([...grant.scopes]),
+    epoch: grant.epoch,
+    expiresAt: grant.expiresAt,
+  });
+}
+
+const deny = (reason) => Object.freeze({ allow: false, reason });
+
+/**
+ * Fail-closed gate for protected operations. Allows only when the membership
+ * is valid and unrevoked, its epoch is current, the identity is not revoked,
+ * and a live execution grant of the current epoch covers `scope`. Any missing,
+ * unknown or stale input denies with a reason. Open rooms never allow.
+ */
+export function authorizeProtected({ policy, walletId, scope, now } = {}) {
+  if (typeof policy?.inspect !== "function") return deny("missing-policy");
+  if (typeof walletId !== "string" || !walletId) return deny("missing-wallet");
+  if (typeof scope !== "string" || !SCOPE_PATTERN.test(scope))
+    return deny("missing-scope");
+  const at = typeof now === "function" ? now() : (now ?? Date.now());
+  if (!Number.isFinite(at)) return deny("invalid-time");
+  let s;
+  try {
+    s = policy.inspect(walletId, at);
+  } catch {
+    return deny("policy-error");
+  }
+  if (!s || s.mode !== "restricted") return deny("restricted-room-required");
+  if (s.walletRevoked) return deny("revoked");
+  if (!s.member) return deny("no-membership");
+  if (s.membershipRevoked) return deny("revoked");
+  if (s.member.epoch < s.epoch) return deny("stale-epoch");
+  const owner = s.member.role === "owner" && s.member.scopes.includes("*");
+  if (!owner && !s.member.scopes.includes(scope))
+    return deny("scope-not-granted");
+  if (!s.grant) return deny("no-execution-grant");
+  if (s.grant.expiresAt <= at) return deny("grant-expired");
+  if (s.grant.epoch < s.epoch) return deny("stale-epoch");
+  if (s.grant.membershipId !== s.member.id)
+    return deny("grant-membership-mismatch");
+  if (!s.grant.scopes.includes(scope)) return deny("scope-not-granted");
+  return Object.freeze({
+    allow: true,
+    reason: "ok",
+    role: s.member.role,
+    grantExpiresAt: s.grant.expiresAt,
   });
 }
 
@@ -223,6 +478,7 @@ export function createParticipationPolicy({
   trustPolicy,
   origin,
   room,
+  epoch: initialEpoch = 0,
   now = () => Date.now(),
 } = {}) {
   if (!ROOM_MODES.includes(mode)) throw new TypeError("Unknown room mode");
@@ -230,10 +486,19 @@ export function createParticipationPolicy({
     throw new TypeError("An exact origin is required");
   if (typeof room !== "string" || !ROOM_PATTERN.test(room))
     throw new TypeError("A valid room name is required");
+  if (!validEpoch(initialEpoch)) throw new TypeError("Invalid epoch");
   const issuers = Object.freeze([...(trustPolicy?.issuers ?? [])]);
   const members = new Map();
+  const grants = new Map();
   const blocked = new Set();
   const revoked = new Map();
+  const revocations = {
+    membership: new Set(),
+    link: new Set(),
+    wallet: new Set(),
+  };
+  const appliedIds = new Set();
+  let epoch = initialEpoch;
   const live = (walletId) => {
     const m = members.get(walletId);
     if (!m) return null;
@@ -247,15 +512,45 @@ export function createParticipationPolicy({
     for (const [id, exp] of revoked) if (exp <= now()) revoked.delete(id);
   };
   const open = mode === "open";
+  const denied = (walletId) =>
+    blocked.has(walletId) || revocations.wallet.has(walletId);
+  const raiseEpoch = (next) => {
+    if (next > epoch) {
+      epoch = next;
+      for (const [id, m] of members) if (m.epoch < epoch) members.delete(id);
+      for (const [id, g] of grants) if (g.epoch < epoch) grants.delete(id);
+    }
+    return epoch;
+  };
+  const evict = ({ kind, target }) => {
+    if (kind === "wallet") {
+      members.delete(target);
+      grants.delete(target);
+    } else if (kind === "membership") {
+      for (const [id, m] of members) if (m.id === target) members.delete(id);
+      for (const [id, g] of grants)
+        if (g.membershipId === target) grants.delete(id);
+    }
+  };
+  const refuse = (reason) => Object.freeze({ ok: false, reason });
   return Object.freeze({
     mode,
     origin,
     room,
     disclosure: open ? OPEN_ROOM_DISCLOSURE : null,
+    get epoch() {
+      return epoch;
+    },
+    /** Invalidate every proof and grant issued under an older epoch. */
+    bumpEpoch: () => raiseEpoch(epoch + 1),
+    /** Learn a newer epoch from elsewhere; never lowers the epoch. */
+    observeEpoch: (next) => (validEpoch(next) ? raiseEpoch(next) : epoch),
+    /** Link revocations, shaped for `verifyLink({ revokedLinks })`. */
+    revokedLinks: Object.freeze({ has: (id) => revocations.link.has(id) }),
     async admit(peerWalletId, proof) {
+      if (denied(peerWalletId))
+        return refuse(blocked.has(peerWalletId) ? "blocked" : "revoked");
       if (open) return Object.freeze({ ok: true, role: "member" });
-      if (blocked.has(peerWalletId))
-        return Object.freeze({ ok: false, reason: "blocked" });
       const result = await verifyMembership(proof, {
         trustPolicy: { issuers },
         expectedOrigin: origin,
@@ -265,37 +560,101 @@ export function createParticipationPolicy({
       });
       if (!result.ok) return result;
       pruneRevoked();
-      if (blocked.has(peerWalletId) || revoked.has(result.id))
-        return Object.freeze({ ok: false, reason: "revoked" });
+      if (
+        denied(peerWalletId) ||
+        revoked.has(result.id) ||
+        revocations.membership.has(result.id)
+      )
+        return refuse("revoked");
+      if (result.epoch < epoch) return refuse("stale-epoch");
       if (members.size >= MAX_MEMBERS && !members.has(peerWalletId))
-        return Object.freeze({ ok: false, reason: "roster-full" });
+        return refuse("roster-full");
       members.set(peerWalletId, {
         id: result.id,
         role: result.role,
         scopes: result.scopes,
         expiresAt: result.expiresAt,
+        epoch: result.epoch,
+        durationKind: result.durationKind,
       });
       return result;
+    },
+    /** Store a verified execution grant for a wallet (latest expiry wins). */
+    async admitGrant(walletId, grant) {
+      const result = await verifyExecutionGrant(grant, {
+        trustPolicy: { issuers },
+        expectedOrigin: origin,
+        expectedRoom: room,
+        expectedSubject: walletId,
+        now,
+      });
+      if (!result.ok) return result;
+      if (denied(walletId) || revocations.membership.has(result.membershipId))
+        return refuse("revoked");
+      if (result.epoch < epoch) return refuse("stale-epoch");
+      const current = grants.get(walletId);
+      if (!current || current.expiresAt <= result.expiresAt)
+        grants.set(walletId, result);
+      return result;
+    },
+    /**
+     * Verify and apply a signed revocation record. Idempotent: a record id is
+     * applied once; a replay returns `{ ok: true, applied: false }`.
+     */
+    async applyRevocation(record) {
+      if (appliedIds.has(record?.id))
+        return Object.freeze({ ok: true, applied: false });
+      const result = await verifyRevocation(record, {
+        trustPolicy: { issuers },
+        expectedOrigin: origin,
+        expectedRoom: room,
+        now,
+      });
+      if (!result.ok) return result;
+      if (appliedIds.has(record.id))
+        return Object.freeze({ ok: true, applied: false });
+      if (appliedIds.size >= MAX_REVOCATIONS)
+        return refuse("revocation-store-full");
+      appliedIds.add(record.id);
+      revocations[record.kind].add(record.target);
+      evict(record);
+      return Object.freeze({ ok: true, applied: true, kind: record.kind });
+    },
+    isRevoked: (kind, target) => revocations[kind]?.has(target) ?? false,
+    /** Read-only view used by `authorizeProtected`. */
+    inspect(walletId) {
+      const m = live(walletId);
+      return Object.freeze({
+        mode,
+        epoch,
+        walletRevoked: denied(walletId),
+        member: m && Object.freeze({ ...m }),
+        membershipRevoked:
+          Boolean(m) && (revocations.membership.has(m.id) || revoked.has(m.id)),
+        grant: grants.get(walletId) ?? null,
+      });
     },
     remove(walletId) {
       const m = members.get(walletId);
       if (m && revoked.size < MAX_TRACKED) revoked.set(m.id, m.expiresAt);
+      grants.delete(walletId);
       return members.delete(walletId);
     },
     block(walletId) {
       if (blocked.size >= MAX_TRACKED && !blocked.has(walletId)) return false;
       blocked.add(walletId);
       members.delete(walletId);
+      grants.delete(walletId);
       return true;
     },
     unblock: (walletId) => blocked.delete(walletId),
     isBlocked: (walletId) => blocked.has(walletId),
     isMember: (walletId) =>
-      !blocked.has(walletId) && (open || live(walletId) !== null),
+      !denied(walletId) && (open || live(walletId) !== null),
     roleOf: (walletId) =>
-      blocked.has(walletId) ? null : (live(walletId)?.role ?? null),
+      denied(walletId) ? null : (live(walletId)?.role ?? null),
     can(walletId, scope) {
-      if (blocked.has(walletId)) return false;
+      if (denied(walletId)) return false;
       if (open) return true;
       const m = live(walletId);
       if (!m) return false;
@@ -314,6 +673,8 @@ export function createParticipationPolicy({
               role: members.get(id).role,
               scopes: members.get(id).scopes,
               expiresAt: members.get(id).expiresAt,
+              epoch: members.get(id).epoch,
+              durationKind: members.get(id).durationKind,
             }),
           ),
       ),
