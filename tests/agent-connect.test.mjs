@@ -258,13 +258,64 @@ test("controller ignores an invalid connection object", () => {
   controller.close();
 });
 
-test("closed controller stops reflecting lifecycle changes", async () => {
+test("controller disposal closes its active wallet session", async () => {
   const connection = fakeConnection();
+  const states = [];
   const controller = createAIAuthConnectController({
     connect: async () => connection,
   });
+  controller.subscribe((state) => states.push(state.status));
   await controller.connect();
   controller.close();
-  connection.close();
-  assert.equal(controller.getState().status, "connected");
+  assert.equal(connection.closed, true);
+  assert.equal(controller.getState().status, "disconnected");
+  assert.deepEqual(states, ["idle", "connecting", "connected"]);
+  controller.close(); // Idempotent.
+});
+
+test("disposing during a pending wallet handshake closes the late session", async () => {
+  let completeHandshake;
+  const handshake = new Promise((resolve) => {
+    completeHandshake = resolve;
+  });
+  const connection = fakeConnection();
+  const controller = createAIAuthConnectController({
+    connect: () => handshake,
+  });
+  const pending = controller.connect();
+  assert.equal(controller.getState().status, "connecting");
+  controller.close();
+  completeHandshake(connection);
+  await pending;
+  assert.equal(connection.closed, true);
+  assert.equal(controller.getState().status, "disconnected");
+});
+
+test("replacing an adopted wallet closes the old connection", () => {
+  const first = fakeConnection({ name: "First" });
+  const second = fakeConnection({ name: "Second" });
+  const controller = createAIAuthConnectController({});
+  controller.setConnection(first);
+  controller.setConnection(second);
+  assert.equal(first.closed, true);
+  assert.equal(second.closed, false);
+  assert.equal(controller.getState().label, "Second");
+  controller.close();
+  assert.equal(second.closed, true);
+});
+
+test("calling connect twice while connected does not create an orphan", async () => {
+  const connection = fakeConnection();
+  let calls = 0;
+  const controller = createAIAuthConnectController({
+    connect: async () => {
+      calls++;
+      return connection;
+    },
+  });
+  await controller.connect();
+  await controller.connect();
+  assert.equal(calls, 1);
+  controller.close();
+  assert.equal(connection.closed, true);
 });
