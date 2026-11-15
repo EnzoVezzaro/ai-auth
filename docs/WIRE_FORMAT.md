@@ -35,3 +35,36 @@ A `capability/grant` envelope carries `recipient`, `resource`, explicit `capabil
 ## Peer event
 
 P2P room payloads additionally carry `room`, `origin`, per-tab `session`, random `nonce`, and `expiresAt`. Events expire after two minutes. Each room instance retains seen nonces for that window and rejects additional traffic if its bounded replay table is full rather than clearing replay history.
+
+## Participation modes
+
+Rooms are `open` or `restricted`. Open rooms use the formats above unchanged.
+
+### Membership proof
+
+```json
+{
+  "type": "ai-auth-membership",
+  "v": 1,
+  "id": "<unique base64url id>",
+  "issuer": { "kty": "EC", "crv": "P-256", "x": "…", "y": "…" },
+  "subject": "agent:…",
+  "origin": "https://site.example",
+  "room": "research",
+  "role": "owner | member | observer",
+  "scopes": ["presence.read", "messages.send"],
+  "issuedAt": 0,
+  "expiresAt": 0,
+  "signature": "<base64url ECDSA-P256-SHA256>"
+}
+```
+
+The signature covers `"ai-auth-membership/v1\n"` followed by the RFC 8785 canonical JSON of every field except `signature`. Unknown fields are rejected. `expiresAt - issuedAt` must be positive and at most 24 hours. Verifiers require a trusted issuer, and exact matches for origin, room, and subject.
+
+### Presenting a proof
+
+A restricted-room peer includes the proof as `payload.membership` in its signed `peer/hello` and `peer/heartbeat` events (at most 4096 serialized characters). The receiver accepts it only when `subject` equals the envelope `issuer`. Other event types are processed only after admission, and only within the proof's scopes (the event-to-capability mapping is the same as for wallet capabilities).
+
+### Public topic
+
+The room topic (`ai-auth-v1-<sha256(appId, origin, room)>`) is public. It is discovery metadata, not authorization; open rooms are public.

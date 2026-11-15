@@ -1,3 +1,9 @@
+import type {
+  MembershipProof,
+  ParticipationPolicy,
+  RoomMode,
+} from "./membership.js";
+
 export interface SignedEnvelope<T = unknown> {
   body: {
     protocol: "ai-auth-wallet";
@@ -150,8 +156,14 @@ export class P2PRoom {
       privateMode?: boolean;
       origin?: string;
       capabilities?: string[] | null;
+      participation?: {
+        policy: ParticipationPolicy;
+        membership?: MembershipProof | null;
+      };
     },
   );
+  readonly participationMode: RoomMode;
+  readonly disclosure: string | null;
   readonly wallet: WalletIdentity;
   readonly session: string;
   readonly peers: Map<
@@ -173,7 +185,11 @@ export class P2PRoom {
     }) => void,
   ): () => void;
   start(): Promise<this>;
-  send<T>(type: string, payload?: T): Promise<SignedEnvelope>;
+  send<T>(
+    type: string,
+    payload?: T,
+    options?: { to?: string | null },
+  ): Promise<SignedEnvelope>;
   receive(envelope: SignedEnvelope, source?: object): Promise<boolean>;
   attach(channel: RTCDataChannel, peer?: object): RTCDataChannel;
   close(): Promise<void>;
@@ -537,3 +553,5 @@ export function mountAIAuthConnectPanel(options: {
   label?: string;
   onStateChange?: (state: AIAuthConnectPanelState) => void;
 }): () => void;
+
+export * from "./membership.js";

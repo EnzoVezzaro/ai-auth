@@ -33,3 +33,16 @@ The modal connection automatically closes when its signed consent expires. Sites
 ## Connect instructions and panel
 
 The copyable connect instruction produced by `createAIAuthConnectInstruction` contains only public data (site origin, room name, wallet URL, requested capabilities) and no credentials. The connect panel renders in a closed shadow root and displays only values taken from verified signed lifecycle events; its copy action writes that same public instruction to the clipboard and nothing else.
+
+## Participation modes
+
+A room is either **open** or **restricted**; the choice is explicit per room.
+
+- **Open** (default, unchanged behavior): anyone who knows the site origin and room name can join, see public room content, and send events. The room topic is a SHA-256 hash of the app id, origin, and room name. It is public metadata on relays and is not a secret; it is not an access control. Open rooms are public, and sites should show `OPEN_ROOM_DISCLOSURE` (also available as `policy.disclosure` and `room.disclosure`) next to any open room.
+- **Restricted**: a peer must present a membership proof (`ai-auth-membership`, v1) issued by a site or host key that the local `trustPolicy.issuers` list trusts. The proof is verified locally and binds issuer key, subject wallet id, exact origin, room, role, scopes, issue and expiry time (at most 24 hours), and a unique id. A signature alone proves only key possession; membership comes from the proof.
+
+In restricted rooms, the receiver drops every event from a wallet that has no valid, unrevoked proof whose subject is that wallet, before any listener (actions, tool calls, catalogs, transfers, chat) runs. A proof copied by another wallet fails the subject check; a proof for another room or origin fails the binding check. The sender does not deliver non-presence events to peers that have not proven membership, and a targeted send (`room.send(type, payload, { to })`) to a non-member is refused. Presence announcements (`peer/hello`, `peer/heartbeat`, `peer/goodbye`) still reach every direct peer, because they carry the proof and a display label; the label is never identity. Identity is the verified wallet key.
+
+`remove(walletId)` revokes the admitting proof and takes effect on the next event; the host must issue a fresh proof to re-admit. `block(walletId)` is permanent for the policy instance. Roles (`owner`, `member`, `observer`) govern authorization; any human or agent label is only a claim. Observers may hold only `*.read` scopes.
+
+Limits: membership is checked locally per receiver, proofs are bearer-bound to the subject but are not revoked remotely (use short lifetimes), and a member can still copy content it receives. The same-browser BroadcastChannel carries presence only in restricted rooms.
