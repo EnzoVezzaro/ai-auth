@@ -565,3 +565,17 @@ export {
   REVOCATION_SYNC_EVENT,
 } from "./revocation.js";
 export { CATCHUP_MAX_RECORDS, CATCHUP_MAX_AGE_MS } from "./membership.js";
+export {
+  RECEIPT_TYPE,
+  RECEIPT_VERSION,
+  MESSAGE_STATES,
+  buildReceiptPayload,
+  verifyReceipt,
+  createDeliveryLedger,
+  isAddressedTo,
+} from "./receipts.js";
+export {
+  SENSITIVE_SELECTOR,
+  isSensitiveElement,
+  extractSafeText,
+} from "./wheel-redaction.js";
