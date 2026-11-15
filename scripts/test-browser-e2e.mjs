@@ -503,16 +503,47 @@ try {
       timeout: 30_000,
     },
   );
-  await agentPage.waitForFunction(
-    () => window.__agentCatalogs?.length > 0,
-    undefined,
-    {
-      timeout: 60_000,
-    },
-  );
   const targetSiteWallet = await siteA.evaluate(
     () => window.__connection.identity.id,
   );
+  try {
+    await agentPage.waitForFunction(
+      (walletId) =>
+        window.__agentCatalogs?.some((catalog) => catalog.wallet === walletId),
+      targetSiteWallet,
+      {
+        timeout: 60_000,
+      },
+    );
+  } catch (error) {
+    const diagnostics = {
+      targetSiteWallet,
+      catalogWallets: await agentPage.evaluate(() =>
+        (window.__agentCatalogs ?? []).map((catalog) => catalog.wallet),
+      ),
+      agentPeers: await agentPage.evaluate(() =>
+        Object.keys(window.__agent?.transport?.transport?.getPeers?.() ?? {}),
+      ),
+      siteAStatus: await siteA.locator("#status").innerText(),
+      siteBStatus: await siteB.locator("#status").innerText(),
+      walletAStatus: await popupA.locator("#topbar-status").innerText(),
+      walletBStatus: await popupB.locator("#topbar-status").innerText(),
+      walletAIce: await popupA.evaluate(
+        () => window.__aiAuthIceDiagnostics ?? [],
+      ),
+      walletBIce: await popupB.evaluate(
+        () => window.__aiAuthIceDiagnostics ?? [],
+      ),
+      siteADiagnostics: siteDiagnosticsA,
+      siteBDiagnostics: siteDiagnosticsB,
+      walletAErrors: popupErrorsA,
+      walletBErrors: popupErrorsB,
+    };
+    throw new Error(
+      `The agent did not discover site A's wallet catalog: ${JSON.stringify(diagnostics)}`,
+      { cause: error },
+    );
+  }
   const agentCatalog = await agentPage.evaluate(
     (walletId) =>
       window.__agentCatalogs.find((catalog) => catalog.wallet === walletId),
