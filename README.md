@@ -81,7 +81,7 @@ npm pack --dry-run
 
 The browser E2E uses an isolated Playwright Chromium context. In CI, install only the headless shell with `npx playwright install --with-deps --only-shell chromium`.
 
-To verify all source packages and the wallet-to-MCP-to-Worker service path, install each isolated package with the default npm workflow first:
+To verify all source packages and the wallet-to-MCP-to-Worker service path and the browser-to-local-Worker HTTP/WebSocket flow, install each isolated package with the default npm workflow first:
 
 ```sh
 npm ci
@@ -89,6 +89,7 @@ npm ci --prefix packages/mcp
 npm ci --prefix apps/worker
 npm run test:all
 npm run test:service:e2e
+npm run test:service:browser:e2e
 ```
 
 CI performs these installs and runs the same checks. Root `npm test` and `npm publish` intentionally verify only the wallet package; runtime, MCP and Worker have separate manifests, while CI verifies local package tarballs and published registry installs.

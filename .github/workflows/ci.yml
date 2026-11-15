@@ -35,6 +35,8 @@ jobs:
         run: npm run test:e2e
       - name: Run wallet to MCP to Worker service E2E
         run: npm run test:service:e2e
+      - name: Run browser to Worker service E2E
+        run: npm run test:service:browser:e2e
       - name: Build static wallet
         run: npm run build
       - name: Check formatting

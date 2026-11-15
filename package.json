@@ -58,6 +58,7 @@
     "test:e2e": "node --test tests/e2e.test.mjs && node scripts/test-browser-e2e.mjs",
     "test:browser:e2e": "node scripts/test-browser-e2e.mjs",
     "test:service:e2e": "npm test --prefix apps/worker",
+    "test:service:browser:e2e": "node scripts/test-service-browser-e2e.mjs",
     "verify:packages": "node scripts/verify-npm-package.mjs . @enzovezzaro/ai-auth-wallet @enzovezzaro/ai-auth-wallet/service && node scripts/verify-npm-package.mjs packages/mcp @enzovezzaro/ai-auth-mcp && node scripts/verify-npm-package.mjs packages/runtime @enzovezzaro/ai-auth-runtime",
     "format": "prettier --write \"packages/p2p/*.{js,d.ts}\" \"packages/runtime/**/*.{js,d.ts,mjs}\" packages/runtime/README.md packages/runtime/CHANGELOG.md \"packages/mcp/**/*.{js,d.ts,mjs}\" \"apps/worker/src/*.js\" \"apps/worker/test/*.js\" \"scripts/*.mjs\" \"tests/*.mjs\" \"docs/*.md\" README.md CHANGELOG.md index.html styles.css apps/p2p/app.js package.json vercel.json",
     "format:check": "prettier --check \"packages/p2p/*.{js,d.ts}\" \"packages/runtime/**/*.{js,d.ts,mjs}\" packages/runtime/README.md packages/runtime/CHANGELOG.md \"packages/mcp/**/*.{js,d.ts,mjs}\" \"apps/worker/src/*.js\" \"apps/worker/test/*.js\" \"scripts/*.mjs\" \"tests/*.mjs\" \"docs/*.md\" README.md CHANGELOG.md index.html styles.css apps/p2p/app.js package.json vercel.json",
