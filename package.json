@@ -1,6 +1,6 @@
 {
   "name": "@enzovezzaro/ai-auth-wallet",
-  "version": "0.1.1",
+  "version": "0.2.0-beta.4",
   "description": "Browser wallet identity, signed capabilities, and peer connections for AI agents",
   "type": "module",
   "main": "./packages/p2p/index.js",
@@ -25,12 +25,17 @@
     "./p2p": {
       "types": "./packages/p2p/p2p.d.ts",
       "import": "./packages/p2p/p2p.js"
+    },
+    "./service": {
+      "types": "./packages/p2p/service.d.ts",
+      "import": "./packages/p2p/service.js"
     }
   },
   "files": [
     "packages/p2p/*.js",
     "packages/p2p/*.d.ts",
     "README.md",
+    "CHANGELOG.md",
     "docs/WIRE_FORMAT.md",
     "docs/SECURITY.md",
     "docs/ARCHITECTURE.md",
@@ -38,7 +43,8 @@
     "LICENSE"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "tag": "next"
   },
   "sideEffects": false,
   "engines": {
@@ -48,12 +54,18 @@
     "dev": "node scripts/serve.mjs",
     "build": "node scripts/build-p2p-static.mjs",
     "test": "node --test tests/*.test.mjs",
-    "test:e2e": "node --test tests/e2e.test.mjs",
-    "format": "prettier --write \"packages/p2p/*.{js,d.ts}\" \"tests/*.mjs\" \"docs/*.md\" README.md index.html styles.css apps/p2p/app.js package.json vercel.json",
-    "format:check": "prettier --check \"packages/p2p/*.{js,d.ts}\" \"tests/*.mjs\" \"docs/*.md\" README.md index.html styles.css apps/p2p/app.js package.json vercel.json",
+    "test:all": "npm test && npm test --prefix packages/runtime && npm test --prefix packages/mcp",
+    "test:e2e": "node --test tests/e2e.test.mjs && node scripts/test-browser-e2e.mjs",
+    "test:browser:e2e": "node scripts/test-browser-e2e.mjs",
+    "test:service:e2e": "npm test --prefix apps/worker",
+    "verify:packages": "node scripts/verify-npm-package.mjs . @enzovezzaro/ai-auth-wallet @enzovezzaro/ai-auth-wallet/service && node scripts/verify-npm-package.mjs packages/mcp @enzovezzaro/ai-auth-mcp && node scripts/verify-npm-package.mjs packages/runtime @enzovezzaro/ai-auth-runtime",
+    "format": "prettier --write \"packages/p2p/*.{js,d.ts}\" \"packages/runtime/**/*.{js,d.ts,mjs}\" packages/runtime/README.md packages/runtime/CHANGELOG.md \"packages/mcp/**/*.{js,d.ts,mjs}\" \"apps/worker/src/*.js\" \"apps/worker/test/*.js\" \"scripts/*.mjs\" \"tests/*.mjs\" \"docs/*.md\" README.md CHANGELOG.md index.html styles.css apps/p2p/app.js package.json vercel.json",
+    "format:check": "prettier --check \"packages/p2p/*.{js,d.ts}\" \"packages/runtime/**/*.{js,d.ts,mjs}\" packages/runtime/README.md packages/runtime/CHANGELOG.md \"packages/mcp/**/*.{js,d.ts,mjs}\" \"apps/worker/src/*.js\" \"apps/worker/test/*.js\" \"scripts/*.mjs\" \"tests/*.mjs\" \"docs/*.md\" README.md CHANGELOG.md index.html styles.css apps/p2p/app.js package.json vercel.json",
     "prepublishOnly": "npm test && npm run build"
   },
   "devDependencies": {
+    "fake-indexeddb": "^6.2.8",
+    "playwright": "^1.64.1",
     "prettier": "^3.10.1"
   },
   "license": "MIT"

@@ -3,6 +3,7 @@ const STORAGE_NAME = "ai-auth-wallet-v2";
 const STORAGE_VERSION = 1;
 const MAX_EVENT_AGE_MS = 120_000;
 const MAX_SEEN_EVENTS = 4096;
+const MAX_ACTIVITY_ITEMS = 100;
 
 function cryptoApi() {
   if (!globalThis.crypto?.subtle) throw new Error("Web Crypto is unavailable");
@@ -398,7 +399,23 @@ export async function appendActivity(wallet, type, payload) {
   const db = await openDatabase();
   try {
     const transaction = db.transaction("activity", "readwrite");
-    transaction.objectStore("activity").add(envelope);
+    const activity = transaction.objectStore("activity");
+    const added = activity.add(envelope);
+    added.onsuccess = () => {
+      const count = activity.count();
+      count.onsuccess = () => {
+        let excess = count.result - MAX_ACTIVITY_ITEMS;
+        if (excess <= 0) return;
+        const cursorRequest = activity.openCursor();
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor || excess <= 0) return;
+          cursor.delete();
+          excess -= 1;
+          cursor.continue();
+        };
+      };
+    };
     await new Promise((resolve, reject) => {
       transaction.oncomplete = resolve;
       transaction.onerror = () => reject(transaction.error);

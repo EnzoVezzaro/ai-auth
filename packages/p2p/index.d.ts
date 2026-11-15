@@ -167,7 +167,7 @@ export class P2PRoom {
   start(): Promise<this>;
   send<T>(type: string, payload?: T): Promise<SignedEnvelope>;
   receive(envelope: SignedEnvelope): Promise<boolean>;
-  attach(channel: RTCDataChannel): RTCDataChannel;
+  attach(channel: RTCDataChannel, peer?: object): RTCDataChannel;
   close(): Promise<void>;
 }
 

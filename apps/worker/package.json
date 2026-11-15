@@ -1,0 +1,16 @@
+{
+  "name": "@enzovezzaro/ai-auth-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.8.2",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "vitest": "^4.1.12",
+    "wrangler": "^4.162.0"
+  }
+}

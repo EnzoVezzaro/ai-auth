@@ -604,6 +604,15 @@ textarea.control {
   text-align: right;
   font-weight: 700;
 }
+.overview-actions {
+  display: grid;
+  gap: 9px;
+  margin-top: 18px;
+}
+.overview-actions .button {
+  justify-content: flex-start;
+  width: 100%;
+}
 .empty-state {
   padding: 34px 20px;
   border: 1px dashed #aebbb2;
@@ -861,7 +870,7 @@ textarea.control {
     display: none;
   }
   .primary-nav {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 3px;
     overflow-x: auto;
   }

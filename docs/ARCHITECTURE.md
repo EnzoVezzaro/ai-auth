@@ -1,6 +1,6 @@
 # AI Auth wallet architecture
 
-AI Auth is a static browser wallet and protocol library. It has no AI Auth HTTP API, database service, WebSocket server, Docker image, Fly Machine, blockchain, cryptocurrency or gas mechanism.
+AI Auth has a static self-custodied browser wallet and an optional shared-state service prototype. The wallet and peer flows run without an AI Auth backend; the Worker service adds origin-bound sessions, tenant storage, and authenticated collaboration. The service is not deployed. AI Auth uses no blockchain, cryptocurrency, or gas.
 
 ```mermaid
 flowchart LR
@@ -14,6 +14,15 @@ flowchart LR
   RTC --> P[Verified peer wallet]
   S --> RP[Website relying party]
   RP --> AUTH[Website enforces its own resource policy]
+  W --> SDK[Service SDK: wallet-signed challenge]
+  SDK --> WORKER[Optional Cloudflare Worker prototype]
+  WORKER --> DIR[AuthDirectory Durable Object]
+  WORKER --> TENANT[Workspace Durable Objects]
+  TENANT --> SQL[(Tenant-scoped SQLite)]
+  TENANT --> WS[Authenticated WebSockets]
+  MCP[Local stdio MCP adapter] --> SDK
+  MCP --> APPROVAL[Host wallet approval callback]
+  APPROVAL --> W
 ```
 
 ## Browser wallet
@@ -38,6 +47,16 @@ Same-origin tabs discover each other with BroadcastChannel. That is local presen
 
 Data channel messages carry signed envelopes. WebRTC provides transport encryption; AI Auth signatures let the receiving wallet verify the sender. Manual SDP can expose network candidates and must be shared privately.
 
-## Future modules
+## Optional shared-state service
 
-The published package exposes wallet, connect, capability and P2P subpaths from one release. They are kept in one package until their contracts and independent compatibility needs are stable. Clerk may later link a human account to a public wallet identity; Clerk will not hold or replace the agent's private key.
+`apps/worker` uses a global `AuthDirectory` Durable Object for challenges, replay-safe sessions, challenge quotas, and tenant registration. Each tenant maps to a `Workspace` Durable Object with its own SQLite tables for members, invitations, messages, and audit events. Workspace operations check both the session capabilities and tenant membership. WebSocket credentials are sent in the first frame; the server verifies session and membership before presence or message operations. The SDK's additive `connectPresenceResilient` controller reconnects after transient closes, reauthenticates, and forwards the fresh `presence.snapshot`; terminal session or scope revocation closes the controller instead of retrying.
+
+The local prototype bounds challenge rates, pending challenges, active sessions, active and lifetime tenant creation (10,000 globally and 100 per wallet identity), invitations, message/audit retention, and socket counts. Deleting a workspace does not reset lifetime creation quotas. Local restart tests do not prove Cloudflare managed durability, backups, quota behavior, or production readiness. Cloudflare is not authenticated in the current deployment environment.
+
+The `packages/runtime` host defines typed identity, authorization, storage, presence, transport and observability contracts. API v2 validates each implementation before plugin startup and preserves dependency-aware cleanup. The Worker uses those contracts for wallet identity, exact-scope authorization, tenant storage and presence handles, WebSocket forwarding and sanitized request logging. Two synchronous authorization providers are included: exact session-scope membership and an application callback that denies unless it returns literal `true`. The runtime preview is published as `@enzovezzaro/ai-auth-runtime@0.1.0-beta.0`; its `next` tag resolves and passes an isolated install. Plugin code is trusted and is not sandboxed. See [runtime contracts](../packages/runtime/README.md).
+
+The `packages/mcp` stdio adapter requires a locally managed wallet and an explicit capability approval callback. It authenticates at process startup, keeps the short-lived service session in memory, and registers only tools allowed by that session. Wallet loading and user approval stay the responsibility of the host application.
+
+## Package boundaries
+
+The stable wallet package exposes wallet, connect, capability, and P2P subpaths. The service SDK is included in `@enzovezzaro/ai-auth-wallet@0.2.0-beta.4` on npm's `next` tag. The MCP adapter is published as `@enzovezzaro/ai-auth-mcp@0.1.0-beta.0`, and the runtime is published as `@enzovezzaro/ai-auth-runtime@0.1.0-beta.0`; isolated installs of these `next` tags resolve their exports. Clerk may later link a human account to a public wallet identity; Clerk will not hold or replace the agent's private key.

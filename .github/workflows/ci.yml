@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main, feat/serverless-p2p-wallet]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install root dependencies
+        run: npm ci
+      - name: Install Worker dependencies
+        run: npm ci
+        working-directory: apps/worker
+      - name: Install MCP package dependencies
+        run: npm ci
+        working-directory: packages/mcp
+      - name: Run all unit and integration tests
+        run: npm run test:all
+      - name: Install Chromium for browser E2E
+        run: npx playwright install --with-deps --only-shell chromium
+      - name: Run end-to-end suites
+        run: npm run test:e2e
+      - name: Run wallet to MCP to Worker service E2E
+        run: npm run test:service:e2e
+      - name: Build static wallet
+        run: npm run build
+      - name: Check formatting
+        run: npm run format:check
+      - name: Check whitespace errors
+        run: git diff --check
+      - name: Audit root package dependencies
+        run: npm audit --omit=dev
+      - name: Audit MCP package dependencies
+        run: npm audit --omit=dev
+        working-directory: packages/mcp
+      - name: Audit Worker package dependencies
+        run: npm audit
+        working-directory: apps/worker
+      - name: Verify Worker deploy bundle
+        run: npx wrangler deploy --dry-run
+        working-directory: apps/worker
+      - name: Verify npm package contents
+        run: npm pack --dry-run
+      - name: Install packed packages in isolated consumers
+        run: npm run verify:packages
+      - name: Verify MCP npm package contents
+        run: |
+          npm pack --dry-run
+        working-directory: packages/mcp

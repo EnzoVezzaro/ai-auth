@@ -1,6 +1,9 @@
 import { randomNonce, signEnvelope, verifyEnvelope } from "./index.js";
 
 const CAPABILITY_PATTERN = /^[a-z][a-z0-9]*(?:[.:/_-][a-z0-9]+)*$/u;
+const MAX_NONCE_LENGTH = 512;
+const MAX_NONCE_ENTRIES = 10_000;
+const NONCE_CLEANUP_INTERVAL_MS = 1_000;
 
 function normalizeCapabilities(capabilities) {
   if (!Array.isArray(capabilities) || capabilities.length === 0) {
@@ -35,14 +38,24 @@ function validOrigin(value) {
 
 export class NonceGuard {
   #nonces = new Map();
+  #nextCleanupAt = 0;
 
   consume(nonce, expiresAt, now = Date.now()) {
-    for (const [value, expiry] of this.#nonces)
-      if (expiry <= now) this.#nonces.delete(value);
+    if (now >= this.#nextCleanupAt) {
+      for (const [value, expiry] of this.#nonces)
+        if (expiry <= now) this.#nonces.delete(value);
+      this.#nextCleanupAt = now + NONCE_CLEANUP_INTERVAL_MS;
+    }
     if (
       typeof nonce !== "string" ||
+      nonce.length < 20 ||
+      nonce.length > MAX_NONCE_LENGTH ||
+      !Number.isFinite(expiresAt) ||
+      !Number.isFinite(now) ||
       this.#nonces.has(nonce) ||
-      expiresAt <= now
+      expiresAt <= now ||
+      expiresAt > now + 120_000 ||
+      this.#nonces.size >= MAX_NONCE_ENTRIES
     )
       return false;
     this.#nonces.set(nonce, expiresAt);
@@ -117,16 +130,17 @@ export async function verifyPermissionRequest(
       return false;
     normalizeCapabilities(request.capabilities);
     if (
-      nonceGuard &&
-      !nonceGuard.consume(request.nonce, request.expiresAt, now)
+      typeof request.nonce !== "string" ||
+      request.nonce.length < 20 ||
+      request.nonce.length > MAX_NONCE_LENGTH
     )
       return false;
+    const createdAt = Date.parse(
+      request.issuerCreatedAt ?? new Date(request.createdAt).toISOString(),
+    );
+    if (!Number.isFinite(createdAt) || createdAt > now + 30_000) return false;
     return (
-      request.nonce.length >= 20 &&
-      Date.parse(
-        request.issuerCreatedAt ?? new Date(request.createdAt).toISOString(),
-      ) <=
-        now + 30_000
+      !nonceGuard || nonceGuard.consume(request.nonce, request.expiresAt, now)
     );
   } catch {
     return false;

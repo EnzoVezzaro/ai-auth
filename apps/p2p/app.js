@@ -24,7 +24,7 @@ const externalConnectMode =
   new URLSearchParams(location.search).get("connect") === "1";
 const state = {
   wallet: null,
-  view: externalConnectMode ? "connect" : "wallet",
+  view: externalConnectMode ? "connect" : "overview",
   room: null,
   rtc: null,
   request: null,
@@ -36,6 +36,8 @@ const state = {
   externalRequestReceived: false,
   externalExpiryTimer: null,
   messages: [],
+  sdpIn: "",
+  sdpOut: "",
   privateMode: false,
   error: "",
 };
@@ -140,6 +142,20 @@ function walletView() {
     </div>`;
 }
 
+function overviewView() {
+  const peers = state.room?.peers.size ?? 0;
+  const activityCount = state.activity?.length ?? 0;
+  const identity = state.wallet
+    ? `<section class="panel"><div class="panel-head"><div><p class="mini-label">AGENT IDENTITY</p><h2>${esc(state.wallet.name)}</h2><p class="panel-copy">This key lives in this browser and signs your agent's proofs.</p></div><span class="status-tag"><span class="state-dot"></span> READY</span></div><code class="key-id">${esc(shortId(state.wallet.id))}</code></section>`
+    : `<section class="panel"><div class="panel-head"><div><p class="mini-label">AGENT IDENTITY</p><h2>Create your wallet</h2><p class="panel-copy">Generate a local signing identity and save an encrypted recovery file.</p></div><span class="status-tag pending">NOT CREATED</span></div><button class="button" data-go-wallet>Set up wallet</button></section>`;
+  return `${pageHead("WALLET OVERVIEW", "Your agent, at a glance.", "Manage a local cryptographic identity, approve scoped requests, and connect directly with other wallets.")}
+    ${identity}
+    <div class="grid-main top-gap">
+      <section class="panel"><p class="mini-label">CURRENT SESSION</p><h2>${state.privateMode ? "Private" : "Local workspace"}</h2><p class="panel-copy">${state.privateMode ? "Presence sharing is off for this wallet." : "Presence is shared only with this origin's open wallet tabs and directly paired peers."}</p><div class="metric-line"><span>Connected peers</span><strong id="overview-peer-count">${peers}</strong></div><div class="metric-line"><span>Stored activity</span><strong>${activityCount}</strong></div><div class="callout top-gap">No hosted coordination service is connected. Direct cross-device pairing requires exchanging WebRTC setup text.</div></section>
+      <section class="panel"><p class="mini-label">QUICK ACTIONS</p><h2>What would you like to do?</h2><div class="overview-actions"><button class="button secondary" data-go-view="connect">Review a site request</button><button class="button secondary" data-go-view="permissions">Grant a capability</button><button class="button secondary" data-go-view="peer">Connect to an agent</button><button class="button quiet" data-go-view="activity">View signed activity</button></div></section>
+    </div>`;
+}
+
 function connectView() {
   if (state.externalRequest) return externalPermissionView();
   if (!state.wallet)
@@ -227,7 +243,7 @@ function connectPeerView() {
     <div class="stack"><section class="panel"><div class="panel-head"><div><h2>Agent presence</h2><p class="panel-copy">The public workspace is visible to tabs on this origin. Private mode stops presence and message sharing.</p></div><button class="button ${state.privateMode ? "" : "secondary"} small" id="toggle-private" aria-pressed="${state.privateMode}">${state.privateMode ? "Go public" : "Go private"}</button></div><div class="metric-line"><span>Local wallet</span><strong>${esc(state.wallet.name)}</strong></div><div class="metric-line"><span>Visibility</span><strong>${state.privateMode ? "Private" : "Public workspace"}</strong></div><div class="metric-line"><span>Peer sessions</span><strong>${state.room?.peers.size ?? 0}</strong></div>${peerRows()}</section>
     <div class="grid-main"><section class="panel"><div class="panel-head"><div><h2>Signed messages</h2><p class="panel-copy">Received messages are accepted only after their signature, expiry, origin and replay nonce pass verification.</p></div></div><div class="message-list" id="message-list" aria-live="polite">${msgs}</div><form id="message-form" class="split-form"><div class="field"><label for="peer-message">Message to connected peers</label><input class="control" id="peer-message" maxlength="3000" required placeholder="Write a short message" ${state.privateMode ? "disabled" : ""}/></div><button class="button" type="submit" ${state.privateMode ? "disabled" : ""}>Send signed</button></form></section>
       <section class="panel"><div class="panel-head"><div><h2>Manual WebRTC pairing</h2><p class="panel-copy">Create an offer on one wallet, answer it on another, then apply the answer. Copy the SDP directly between devices.</p></div></div><div class="callout">SDP can contain local network candidates. Share it privately. This prototype configures no TURN relay; restrictive networks may not connect.</div>
-        <div class="button-row"><button class="button small" id="create-offer" ${state.privateMode ? "disabled" : ""}>Create offer</button><button class="button secondary small" id="answer-offer" ${state.privateMode ? "disabled" : ""}>Answer pasted offer</button><button class="button quiet small" id="apply-answer" ${state.privateMode ? "disabled" : ""}>Apply pasted answer</button></div><div class="field"><label for="sdp-in">Remote offer or answer</label><textarea class="control" id="sdp-in" spellcheck="false" autocomplete="off" placeholder="Paste a peer's SDP here" ${state.privateMode ? "disabled" : ""}></textarea></div><div class="field"><label for="sdp-out">Your offer or answer</label><textarea class="control" id="sdp-out" readonly spellcheck="false" placeholder="Generated setup text appears here"></textarea><div class="button-row"><button class="button quiet small" id="copy-sdp" type="button">Copy setup text</button></div></div><p class="help" id="rtc-state" aria-live="polite">${esc(state.rtc?.peer.connectionState ?? "Not connected")}</p>
+        <div class="button-row"><button class="button small" id="create-offer" ${state.privateMode ? "disabled" : ""}>Create offer</button><button class="button secondary small" id="answer-offer" ${state.privateMode ? "disabled" : ""}>Answer pasted offer</button><button class="button quiet small" id="apply-answer" ${state.privateMode ? "disabled" : ""}>Apply pasted answer</button></div><div class="field"><label for="sdp-in">Remote offer or answer</label><textarea class="control" id="sdp-in" spellcheck="false" autocomplete="off" placeholder="Paste a peer's SDP here" ${state.privateMode ? "disabled" : ""}>${esc(state.sdpIn)}</textarea></div><div class="field"><label for="sdp-out">Your offer or answer</label><textarea class="control" id="sdp-out" readonly spellcheck="false" placeholder="Generated setup text appears here">${esc(state.sdpOut)}</textarea><div class="button-row"><button class="button quiet small" id="copy-sdp" type="button">Copy setup text</button></div></div><p class="help" id="rtc-state" aria-live="polite">${esc(state.rtc?.peer.connectionState ?? "Not connected")}</p>
       </section></div></div>`;
 }
 
@@ -252,6 +268,8 @@ function activityView() {
 
 async function render() {
   const root = $("#view");
+  if (state.view === "overview" && state.wallet)
+    state.activity = await readActivity();
   if (state.view === "activity" && state.wallet) {
     const stored = await readActivity();
     state.activity = await Promise.all(
@@ -275,15 +293,17 @@ async function render() {
     `<span class="state-dot" aria-hidden="true"></span><span>${state.wallet ? esc(shortId(state.wallet.id)) : "Wallet not created"}</span>`;
   root.setAttribute("aria-busy", "true");
   root.innerHTML =
-    state.view === "wallet"
-      ? walletView()
-      : state.view === "connect"
-        ? connectView()
-        : state.view === "permissions"
-          ? permissionsView()
-          : state.view === "activity"
-            ? activityView()
-            : connectPeerView();
+    state.view === "overview"
+      ? overviewView()
+      : state.view === "wallet"
+        ? walletView()
+        : state.view === "connect"
+          ? connectView()
+          : state.view === "permissions"
+            ? permissionsView()
+            : state.view === "activity"
+              ? activityView()
+              : connectPeerView();
   root.setAttribute("aria-busy", "false");
   bindView();
 }
@@ -310,6 +330,18 @@ async function startRoom() {
       return;
     }
     const type = envelope?.body?.type;
+    if (type === "peer/heartbeat") {
+      if (state.view === "overview") {
+        const peerCount = $("#overview-peer-count");
+        if (peerCount)
+          peerCount.textContent = String(state.room?.peers.size ?? 0);
+      }
+      return;
+    }
+    const refreshPeerView =
+      type === "peer/hello" ||
+      type === "peer/goodbye" ||
+      type === "message/text";
     if (type === "message/text") {
       state.messages.push({
         direction,
@@ -319,18 +351,33 @@ async function startRoom() {
       });
       if (state.messages.length > 100) state.messages.shift();
     }
-    if (direction === "in" && type)
+    if (direction === "in" && type) {
       void appendActivity(
         state.wallet,
         `peer/received-${type.split("/").at(-1)}`,
         { issuer: envelope.body.issuer, payload: envelope.body.payload },
-      ).catch(() => {});
-    if (state.view === "peer") void render();
+      )
+        .then(async () => {
+          if (state.view === "overview") state.activity = await readActivity();
+          if (state.view === "overview") await render();
+          else if (state.view === "peer" && refreshPeerView) await render();
+        })
+        .catch(() => {});
+    } else if (
+      state.view === "overview" ||
+      (state.view === "peer" && (refreshPeerView || direction === "state"))
+    ) {
+      void render();
+    }
   });
   await state.room.start();
 }
 
 function bindView() {
+  rootViewButtons();
+  $("#sdp-in")?.addEventListener("input", (event) => {
+    state.sdpIn = event.currentTarget.value;
+  });
   $("#create-wallet-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     state.error = "";
@@ -581,13 +628,7 @@ function bindView() {
     const text = $("#peer-message").value.trim();
     if (!text) return;
     try {
-      const envelope = await state.room.send("message/text", { text });
-      state.messages.push({
-        direction: "out",
-        text,
-        issuer: state.wallet.id,
-        at: envelope.body.createdAt,
-      });
+      await state.room.send("message/text", { text });
       await appendActivity(state.wallet, "peer/message-sent", {
         text,
         room: "workspace",
@@ -601,7 +642,10 @@ function bindView() {
     try {
       state.rtc?.close();
       state.rtc = new ManualWebRTC(state.room, { iceServers: [] });
-      $("#sdp-out").value = await state.rtc.offer();
+      state.sdpIn = "";
+      state.sdpOut = await state.rtc.offer();
+      $("#sdp-in").value = state.sdpIn;
+      $("#sdp-out").value = state.sdpOut;
       $("#rtc-state").textContent =
         `Offer ready · ${state.rtc.peer.connectionState}`;
     } catch (error) {
@@ -612,7 +656,8 @@ function bindView() {
     try {
       state.rtc?.close();
       state.rtc = new ManualWebRTC(state.room, { iceServers: [] });
-      $("#sdp-out").value = await state.rtc.answer($("#sdp-in").value);
+      state.sdpOut = await state.rtc.answer($("#sdp-in").value);
+      $("#sdp-out").value = state.sdpOut;
       $("#rtc-state").textContent =
         `Answer ready · ${state.rtc.peer.connectionState}`;
     } catch (error) {
@@ -642,6 +687,16 @@ function bindView() {
     state.view = "wallet";
     render();
   });
+}
+
+function rootViewButtons() {
+  document.querySelectorAll("#view [data-go-view]").forEach((button) =>
+    button.addEventListener("click", () => {
+      state.view = button.dataset.goView;
+      state.error = "";
+      render();
+    }),
+  );
 }
 
 if (externalConnectMode) {

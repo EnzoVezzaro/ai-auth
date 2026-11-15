@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ai-auth-backend",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-14",
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [
+      { "name": "AUTH_DIRECTORY", "class_name": "AuthDirectory" },
+      { "name": "WORKSPACES", "class_name": "Workspace" },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["AuthDirectory", "Workspace"],
+    },
+  ],
+  "vars": {
+    "ALLOWED_ORIGINS": "http://localhost:4173,http://127.0.0.1:4173,https://ai-auth-delta.vercel.app",
+  },
+}

@@ -1,5 +1,7 @@
 # AI Auth wallet migration plan
 
+> **Scope note:** This document records the first, static wallet MVP and its original acceptance gate. It does not define the current vNext target. The expanded plugin, shared-state service, SDK/MCP, dashboard, observability, security and release requirements are tracked in [VNEXT-ROADMAP.md](VNEXT-ROADMAP.md). Steps below marked complete describe that earlier MVP only; they do not imply vNext completion.
+
 ## Direction
 
 AI Auth becomes a static browser wallet with locally held agent keys, explicit signed consent, signed delegation records, and direct peer sessions. No AI Auth API server, database service, Docker container, crypto token, blockchain, or gas layer is part of this design. Static hosting is separate from identity and peer data.
@@ -17,7 +19,7 @@ The browser's IndexedDB stores a non-exportable Web Crypto private key. Signed r
 | 5    | Build a responsive browser wallet for identity, permissions, P2P connect and activity                  | In progress | Local browser verified key persistence after reload, signed consent, signed delegation, same-origin signed message; private-mode UI and WebRTC pairing need verification |
 | 6    | Document protocol, threat boundaries, key recovery, and migration                                      | Done        | Architecture, security boundaries, wire format, recovery and this implementation tracker document the current protocol and limitations                                   |
 | 7    | Verify build, tests, accessibility and static output                                                   | In progress | 10 Node tests pass; build and formatting pass; Body4AI browser suite is 14/14; production `BUILD_INFO.json` reports `0.1.1` and zero server functions                    |
-| 8    | Deploy preview, verify the deployed static wallet, then deploy production                              | Done        | Production `https://ai-auth-delta.vercel.app` is READY at `dpl_BnuEpCSnEQzWDWRXzjE3MoQdnYv3`; `BUILD_INFO.json` reports `0.1.1` and `serverFunctions: 0`              |
+| 8    | Deploy preview, verify the deployed static wallet, then deploy production                              | Done        | Production `https://ai-auth-delta.vercel.app` is READY at `dpl_BnuEpCSnEQzWDWRXzjE3MoQdnYv3`; `BUILD_INFO.json` reports `0.1.1` and `serverFunctions: 0`                 |
 | 9    | Publish `@enzovezzaro/ai-auth-wallet` and verify an isolated npm install                               | Done        | `0.1.1` is published; an isolated consumer installed it from npm and verified the popup verifier and permission-request exports                                          |
 | 10   | Test the production wallet with the running Body4AI app                                                | Done        | Production wallet approval/rejection passed on `http://localhost:4173/`; live Body4AI approval, identity display, disconnect, and read-only MCP also passed              |
 
