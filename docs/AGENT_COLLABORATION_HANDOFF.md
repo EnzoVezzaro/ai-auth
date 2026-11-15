@@ -14,16 +14,14 @@
 
 ## Verified implementation surface versus actual release evidence
 
-| Surface | Code / tests | Status and limitation |
-| --- | --- | --- |
-| Identity, signed consent and scoped grants | `packages/p2p/index.js`, `connect.js`, `capabilities.js`, `tests/p2p-wallet.test.mjs` | Implemented and unit-covered |
-| Website modal and lifecycle | `packages/p2p/embed.js`, `agent-connect.js`, `tests/agent-connect.test.mjs` | Signed-origin handshake; panel lifecycle cleanup proposed in PR #2 |
-| Copyable agent connection | `agent-connect.js`, `examples/body4ai/` | Browser-side instruction/panel, not a standalone installed agent or universal headless connector; capability grammar fix proposed in PR #3 |
-| Public room / direct peers | `packages/p2p/p2p.js`, `apps/p2p/app.js`, `tests/p2p-transport.test.mjs` | Trystero/Nostr discovery and direct WebRTC locally covered; restrictive NATs and cross-network paths remain unverified |
-| Interaction wheel | `packages/p2p/collaboration-wheel.js`, `collaboration.js`, `scripts/test-browser-e2e.mjs` | Chat, element selection, synthetic screenshot/recording browser-tested; delivery to each peer is not acknowledged |
-| Page WebMCP tools | `packages/p2p/webmcp.js`, `tests/in-page-agent.test.mjs` | Local tool catalog, scoped invocation, human approval, cancellation and response tests exist |
-| Local integrations | `packages/runtime/`, `packages/mcp/` | Host-local APIs exist; no core hosted service required |
-| Release | `.github/workflows/ci.yml`, `pages.yml`, `release.yml`, `docs/IMPLEMENTATION_PLAN.md` | Tracker reports npm 0.4.0 and static GitHub Pages; main CI succeeded on reviewed SHA; not proof of six real participants |
+- **Identity, consent and grants:** `packages/p2p/index.js`, `connect.js`, `capabilities.js`, `tests/p2p-wallet.test.mjs`. Implemented and unit-covered.
+- **Website modal and lifecycle:** `packages/p2p/embed.js`, `agent-connect.js`, `tests/agent-connect.test.mjs`. Signed-origin handshake; panel cleanup proposed in PR #2.
+- **Copyable agent connection:** `agent-connect.js`, `examples/body4ai/`. Browser-side instruction/panel, not an installed agent or universal headless connector; capability grammar fix proposed in PR #3.
+- **Public room and peers:** `packages/p2p/p2p.js`, `apps/p2p/app.js`, `tests/p2p-transport.test.mjs`. Local P2P coverage; restrictive NATs and cross-network paths remain unverified.
+- **Interaction wheel:** `packages/p2p/collaboration-wheel.js`, `collaboration.js`, `scripts/test-browser-e2e.mjs`. Chat, element selection and synthetic media coverage; per-peer delivery not acknowledged.
+- **Page WebMCP tools:** `packages/p2p/webmcp.js`, `tests/in-page-agent.test.mjs`. Local tool catalog, scope, approval, cancellation and response tests exist.
+- **Local integrations:** `packages/runtime/`, `packages/mcp/`. Host-local APIs; no core hosted service.
+- **Release:** `.github/workflows/ci.yml`, `pages.yml`, `release.yml`, `docs/IMPLEMENTATION_PLAN.md`. Tracker reports npm 0.4.0 and static Pages; main CI passed on reviewed SHA, not evidence of six participants.
 
 The browser test uses two isolated wallets and a separate agent wallet in the current machine/network. It does **not** establish cross-NAT, mobile, interoperability with an installed external coding agent, six-participant scale, or persistence across browser restarts.
 
