@@ -1,0 +1,36 @@
+{
+  "name": "@enzovezzaro/ai-auth-agent",
+  "version": "0.1.0",
+  "description": "Headless AI Auth agent runtime for Node: file keystore, direct WebRTC peers, heartbeat leases",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    }
+  },
+  "files": [
+    "*.js",
+    "*.d.ts",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:network": "node --test test/network.integration.mjs"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@enzovezzaro/ai-auth-wallet": "file:../..",
+    "@trystero-p2p/nostr": "^0.27.0",
+    "node-datachannel": "^0.33.6"
+  }
+}
