@@ -1,0 +1,1 @@
+{"version":2,"buildCommand":"node scripts/build-p2p-static.mjs","outputDirectory":"dist-p2p","framework":null}

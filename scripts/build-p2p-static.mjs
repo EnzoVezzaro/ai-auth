@@ -1,0 +1,11 @@
+import { mkdir, readFile, writeFile, copyFile } from "node:fs/promises";
+import { resolve } from "node:path";
+const root=resolve(import.meta.dirname,"..");
+const out=resolve(root,"dist-p2p");
+await mkdir(out,{recursive:true});
+const src=await readFile(resolve(root,"apps/p2p/index.html"),"utf8");
+const updated=src.replace("../../packages/p2p/index.js","./p2p.js");
+if(updated===src)throw Error("Could not rewrite P2P module import");
+await writeFile(resolve(out,"index.html"),updated);
+await copyFile(resolve(root,"packages/p2p/index.js"),resolve(out,"p2p.js"));
+console.log("Static AI Auth P2P build:",out);
