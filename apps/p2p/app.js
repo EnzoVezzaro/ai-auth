@@ -1119,6 +1119,14 @@ function rootViewButtons() {
 
 if (externalConnectMode) {
   window.addEventListener("message", async (event) => {
+    // A session that lapsed while no timer could fire (for example a sleeping
+    // tab) is ended before any further message is honored.
+    if (
+      state.externalStatus === "sent" &&
+      state.lease &&
+      !state.lease.isActive()
+    )
+      expireExternalSession(state.lease.status());
     if (
       event.data?.type === "ai-auth/transfer-request" &&
       event.source === state.externalSource &&

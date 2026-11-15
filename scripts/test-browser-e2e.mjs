@@ -803,19 +803,124 @@ try {
     /c2Vuc2l0aXZlLWltYWdlLXBheWxvYWQ=/u,
     "attachment bytes never enter activity history",
   );
+  // Session lifetime: the handshake challenge is short, the signed session is
+  // not. Both pages share one controllable clock so the test can cross the old
+  // two-minute limit, renew explicitly, and then run past the session expiry
+  // without waiting in real time.
+  const setClockOffset = (offsetMs) =>
+    Promise.all(
+      [popupA, siteA].map((page) =>
+        page.evaluate((offset) => {
+          // Both Date.now() and new Date() follow the controllable clock, so
+          // signed timestamps and verifier clocks stay consistent.
+          window.__RealDate ??= Date;
+          const RealDate = window.__RealDate;
+          window.__realNow ??= RealDate.now.bind(RealDate);
+          window.__clockOffset = offset;
+          window.Date = class extends RealDate {
+            constructor(...args) {
+              if (args.length) super(...args);
+              else super(window.__realNow() + window.__clockOffset);
+            }
+            static now() {
+              return window.__realNow() + window.__clockOffset;
+            }
+          };
+        }, offsetMs),
+      ),
+    );
   await popupA.evaluate(() => {
-    window.__realNow = Date.now;
     window.__realSign = crypto.subtle.sign.bind(crypto.subtle);
     window.__signCount = 0;
     crypto.subtle.sign = (...args) => {
       window.__signCount++;
       return window.__realSign(...args);
     };
-    Date.now = () => window.__realNow() + 180000;
   });
+  const publishFromSite = (summary) =>
+    siteA.evaluate((text) => {
+      try {
+        window.__connection.publishAction({
+          name: "lifetime.check",
+          state: "progress",
+          summary: text,
+        });
+        return "";
+      } catch (error) {
+        return error.message;
+      }
+    }, summary);
+  const signedCount = () => popupA.evaluate(() => window.__signCount);
+  const initialExpiry = await siteA.evaluate(
+    () => window.__connection.expiresAt,
+  );
+  const sessionLengthMs = await siteA.evaluate(
+    () =>
+      window.__connection.expiresAt -
+      window.__connection.consent.body.payload.issuedAt,
+  );
+  assert.ok(
+    sessionLengthMs >= 15 * 60_000,
+    "session grant is longer than the 2 minute handshake",
+  );
+  assert.match(
+    await popupA.locator("#session-expiry").innerText(),
+    /left/u,
+    "wallet UI shows when the session expires",
+  );
+
+  // Three minutes later (past the old 2 minute connection limit) the session
+  // is still authorized end to end.
+  await setClockOffset(180_000);
+  const signedBefore = await signedCount();
+  assert.equal(await publishFromSite("after three minutes"), "");
+  await popupA.waitForFunction(
+    (count) => window.__signCount > count,
+    signedBefore,
+    { timeout: 10_000 },
+  );
+
+  // Renewal needs the wallet owner to approve again and never adds scopes.
+  const renewing = siteA.evaluate(() =>
+    window.__connection
+      .renew()
+      .then(() => "renewed")
+      .catch((error) => error.message),
+  );
+  await popupA.locator("#approve-renewal").click();
+  assert.equal(await renewing, "renewed");
+  const renewedExpiry = await siteA.evaluate(
+    () => window.__connection.expiresAt,
+  );
+  assert.ok(renewedExpiry > initialExpiry, "renewal moved the expiry forward");
+  assert.deepEqual(
+    await siteA.evaluate(() => [...window.__connection.capabilities]),
+    ["content.share", "messages.send", "presence.read", "tools.invoke"],
+    "renewal kept the same capabilities",
+  );
+
+  // Past the original expiry the renewed session is still usable. Activity
+  // keeps the 10 minute idle timeout from firing along the way.
+  for (const minute of [12, 21, 30, 32]) {
+    await setClockOffset(minute * 60_000);
+    assert.equal(await publishFromSite(`minute ${minute}`), "");
+    await delay(150);
+  }
+  assert.ok(
+    renewedExpiry >
+      (await siteA.evaluate(() => window.__realNow())) + 32 * 60_000,
+    "clock is past the original expiry but inside the renewed session",
+  );
+
+  // Past the renewed expiry nothing is signed, published or delivered.
   const before = await siteB
     .locator('#events li[data-type="agent/action"]')
     .count();
+  await setClockOffset(70 * 60_000);
+  await siteA.evaluate(() => {
+    window.__lifecycle = [];
+    window.__connection.onLifecycle((event) => window.__lifecycle.push(event));
+  });
   await siteA.evaluate(
     (targetOrigin) =>
       document.querySelector("dialog iframe").contentWindow.postMessage(
@@ -837,14 +942,19 @@ try {
     before,
     "expired wallet did not sign direct host messages",
   );
-  assert.equal(
-    await popupA.evaluate(() => window.__signCount),
-    0,
-    "expired direct message did not trigger a signature",
+  assert.deepEqual(
+    (await siteA.evaluate(() => window.__lifecycle)).at(-1),
+    { type: "disconnected", reason: "expired" },
+    "expired session disconnected and removed the wallet modal",
   );
-  await popupA.evaluate(() => {
-    Date.now = window.__realNow;
-    crypto.subtle.sign = window.__realSign;
+  assert.match(
+    await publishFromSite("after expiry"),
+    /connection is closed/u,
+    "expired session cannot publish",
+  );
+  assert.equal(await siteA.evaluate(() => window.__connected), false);
+  await siteA.evaluate(() => {
+    window.Date = window.__RealDate;
   });
   await siteA.evaluate(() => window.__connection.close());
   assert.equal(await siteA.evaluate(() => window.__disconnected), true);
