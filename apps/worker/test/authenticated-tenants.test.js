@@ -370,6 +370,12 @@ test("request telemetry records bounded outcome data without request identifiers
     expect(serializedEvents).not.toContain("room-secret");
     expect(serializedEvents).not.toContain("query-secret");
     expect(serializedEvents).not.toContain("192.0.2.200");
+
+    logger.mockImplementation(() => {
+      throw new Error("logger unavailable");
+    });
+    const healthy = await call("/v1/health");
+    expect(healthy.status).toBe(200);
   } finally {
     logger.mockRestore();
   }

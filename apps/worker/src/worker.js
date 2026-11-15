@@ -144,11 +144,9 @@ function requestDimensions(request) {
   };
 }
 
-function recordRequest(host, fields) {
+function recordRequest(host, event, fields) {
   try {
-    host
-      ?.get("observability")
-      ?.implementation.record("http.request.completed", fields);
+    host?.get("observability")?.implementation.record(event, fields);
   } catch {
     // Telemetry must not change the result of an authorized API operation.
   }
@@ -169,12 +167,7 @@ async function handleFetch(request, env) {
     const host = await getPluginHost(env);
     const url = new URL(request.url);
     const path = url.pathname.split("/").filter(Boolean);
-    host
-      .get("observability")
-      .implementation.record(
-        "http.request.started",
-        requestDimensions(request),
-      );
+    recordRequest(host, "http.request.started", requestDimensions(request));
     if (path[0] !== "v1")
       return cors(json({ error: "Not found" }, 404), origin);
 
@@ -468,7 +461,7 @@ export default {
     } catch {
       // The request already has a response; unavailable telemetry stays best effort.
     }
-    recordRequest(host, {
+    recordRequest(host, "http.request.completed", {
       ...dimensions,
       statusCode: response.status,
       durationMs: Math.max(0, Date.now() - startedAt),
