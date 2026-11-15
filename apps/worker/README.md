@@ -40,6 +40,7 @@ For WebSockets, browser clients cannot set an Authorization header. The first cl
 
 ## Current limits
 
+- The Worker emits structured request-start and completion logs with an allowlisted method and route group, response status, and duration. It omits raw paths, tenant/room identifiers, query strings, origins, client IPs, and credentials. Logging is best-effort; durable metric aggregation, export, dashboards and alert delivery are not configured.
 - SQLite state is partitioned by tenant Durable Object. The local integration suite aborts all Durable Objects and confirms that tenant membership, messages, and sessions survive instance reinitialization. Behavior on Cloudflare's managed runtime still needs a deployed smoke test.
 - Challenge issuance is limited to 60 requests per client IP and audience per minute, with bounded rate-limit keys and pending challenges. The authorization directory caps active sessions and tenant registrations, plus lifetime tenant creations at 10,000 globally and 100 per wallet identity. Deleting a workspace does not reset those lifetime quotas; they bound storage churn on free service tiers.
 - WebSocket upgrades are limited to 4 per client IP in each 10-second window. Within a tenant, each agent may publish 30 presence updates and write 60 messages per minute; the tenant-wide ceilings are 300 presence updates and 600 message writes per minute. Limits use fixed windows and are enforced in the durable authorization/workspace objects.

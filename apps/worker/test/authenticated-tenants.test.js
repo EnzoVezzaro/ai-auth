@@ -1,6 +1,6 @@
 import { env, exports } from "cloudflare:workers";
 import { abortAllDurableObjects, runInDurableObject } from "cloudflare:test";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
@@ -336,6 +336,43 @@ test("health route checks durable authorization storage", async () => {
     ready: true,
     version: "0.1.0",
   });
+});
+
+test("request telemetry records bounded outcome data without request identifiers", async () => {
+  const logger = vi.spyOn(console, "info").mockImplementation(() => {});
+  try {
+    const response = await call(
+      "/v1/private-tenant-123/room-secret?token=query-secret",
+      { clientIp: "192.0.2.200" },
+    );
+    expect(response.status).toBe(401);
+
+    const started = logger.mock.calls.find(
+      ([event]) => event === "http.request.started",
+    );
+    expect(started).toEqual([
+      "http.request.started",
+      { method: "GET", routeGroup: "other" },
+    ]);
+
+    const completed = logger.mock.calls.find(
+      ([event]) => event === "http.request.completed",
+    );
+    expect(completed?.[1]).toMatchObject({
+      method: "GET",
+      routeGroup: "other",
+      statusCode: 401,
+    });
+    expect(completed?.[1].durationMs).toEqual(expect.any(Number));
+    expect(completed?.[1].durationMs).toBeGreaterThanOrEqual(0);
+    const serializedEvents = JSON.stringify(logger.mock.calls);
+    expect(serializedEvents).not.toContain("private-tenant-123");
+    expect(serializedEvents).not.toContain("room-secret");
+    expect(serializedEvents).not.toContain("query-secret");
+    expect(serializedEvents).not.toContain("192.0.2.200");
+  } finally {
+    logger.mockRestore();
+  }
 });
 
 test("challenge issuance is bounded per client and audience", async () => {
