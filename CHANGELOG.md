@@ -59,3 +59,11 @@ Versions below record the previous preview line. The server client and Worker we
 - Document the optional Worker/MCP architecture and the current limits of the local shared-state service.
 
 This release adds a source client for the local Worker prototype. It does not imply that the shared-state service is deployed or production-ready.
+
+## Unreleased
+
+- Interaction wheel: choose "everyone in public room" or one verified recipient (short fingerprint derived from the wallet public key, online/offline from connection state). Targeted messages carry a signed `target`; receivers drop messages addressed to another wallet.
+- Add signed `ai-auth-receipt` v1 delivery receipts and message states `composing`, `queued`, `sent-to-transport`, `received-by-peer` (only after a valid signed receipt), `failed`, and `expired`, with bounded history. A receipt does not prove a human read the message.
+- Wheel privacy: preview before sending, public-room warning, and default blocking of password, credential-autocomplete, `contenteditable`, `[data-private]`, and `[data-ai-auth-private]` regions.
+- Wheel accessibility: dialog role and labels, focus trap and restore, Escape to close, disabled controls with explanations, cancel-recording control, all capture tracks stopped on close, and safe-area aware positioning.
+- New additive exports: `verifyReceipt`, `createDeliveryLedger`, `buildReceiptPayload`, `isAddressedTo`, `isSensitiveElement`, `extractSafeText`, and related constants and types.

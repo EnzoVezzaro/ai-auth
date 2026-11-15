@@ -33,3 +33,14 @@ The modal connection automatically closes when its signed consent expires. Sites
 ## Connect instructions and panel
 
 The copyable connect instruction produced by `createAIAuthConnectInstruction` contains only public data (site origin, room name, wallet URL, requested capabilities) and no credentials. The connect panel renders in a closed shadow root and displays only values taken from verified signed lifecycle events; its copy action writes that same public instruction to the clipboard and nothing else.
+
+## Interaction wheel privacy and delivery
+
+- **Public room by default.** Everything sent from the wheel goes to peers in a public room, and recipients can save it. The wheel says so before each send.
+- **Targets are addressing, not encryption.** A targeted message carries a signed `target`; honoring receivers drop it if it is not for them. Every directly connected peer still receives the packet, so a modified client can read it. Do not treat a target as confidentiality. The wheel offers a target only when the transfer layer enforces it (`supportsTargets`) and refuses to widen a targeted selection to everyone if the recipient goes offline.
+- **Identity shown is a key fingerprint.** Recipients are listed by a short fingerprint derived from the verified wallet public key, never by a nickname. A fingerprint and a signature prove key possession only, not human identity or site membership.
+- **Receipts prove a key signed an acknowledgement.** They do not prove a human read the content. See `WIRE_FORMAT.md`. Delivery status is never inferred from a successful transport call.
+- **Sensitive page regions are blocked by default.** Elements that are password inputs, carry credential `autocomplete` tokens, are `contenteditable`, or sit inside `[data-private]` or `[data-ai-auth-private]` cannot be shared, and form control values are never included. Private descendants of a shared element are omitted from its text. Sites can mark regions with the two attributes.
+- **Screen capture cannot be redacted.** Screenshots and recordings contain whatever is visible in the surface the user picks in the browser's `getDisplayMedia` picker. The wheel shows a preview and warns when the page has private regions, but it cannot mask them. Capture is only ever started by a click, is limited to 512 KiB (screenshots) and 1 MiB (recordings), and every track is stopped on completion, cancellation, close, expiry, and unmount.
+- **The wheel is not an authorization path.** It only sends collaboration messages. It does not invoke WebMCP tools or site actions.
+- **Embedded connections.** The site embed currently relays transfers through a postMessage proxy that does not carry targets or message ids. Through that path the wheel cannot target a recipient or confirm receipts, so it disables targeting and states that delivery cannot be confirmed.
