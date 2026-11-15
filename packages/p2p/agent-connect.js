@@ -1,6 +1,6 @@
 const DEFAULT_SDK_SOURCE = "https://esm.sh/@enzovezzaro/ai-auth-wallet";
 const ROOM_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,99}$/u;
-const CAPABILITY_PATTERN = /^[a-z][a-z0-9._-]{0,63}$/u;
+const CAPABILITY_PATTERN = /^[a-z][a-z0-9]*(?:[.:/_-][a-z0-9]+)*$/u;
 
 function exactHttpOrigin(value, message) {
   if (typeof value !== "string") throw new TypeError(message);
@@ -92,7 +92,9 @@ export function createAIAuthConnectInstruction({
   }
   if (sdkSource !== DEFAULT_SDK_SOURCE)
     httpUrl(sdkSource, "The SDK source must be a valid HTTP(S) URL");
-  const uniqueCapabilities = Object.freeze([...new Set(capabilities)]);
+  // Match createPermissionRequest's canonical capability normalization so
+  // copyable instructions cannot advertise scopes the wallet will reject.
+  const uniqueCapabilities = Object.freeze([...new Set(capabilities)].sort());
   const meta = {
     protocol: "ai-auth-wallet",
     version: 1,
