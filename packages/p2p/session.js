@@ -15,6 +15,20 @@ export function markVerifiedPageConnection(connection, consent) {
   });
 }
 
+export function renewVerifiedPageConnection(connection, consent) {
+  const record = verifiedPageConnections.get(connection);
+  const capabilities = consent?.body?.payload?.capabilities;
+  if (
+    !record ||
+    !Array.isArray(capabilities) ||
+    !Number.isFinite(consent.body.payload.expiresAt) ||
+    capabilities.some((capability) => !record.capabilities.includes(capability))
+  )
+    throw new TypeError("A verified renewal of this connection is required");
+  record.capabilities = Object.freeze([...capabilities]);
+  record.expiresAt = consent.body.payload.expiresAt;
+}
+
 export function readVerifiedPageConnection(connection, now = Date.now()) {
   const record = verifiedPageConnections.get(connection);
   if (!record) return null;

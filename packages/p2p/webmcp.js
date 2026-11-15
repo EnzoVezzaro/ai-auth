@@ -174,8 +174,21 @@ export async function registerAIAuthPageActions({
   if (signal?.aborted) abortFromCaller();
   else signal?.addEventListener("abort", abortFromCaller, { once: true });
   const registrationSignal = controller.signal;
-  const expiresInMs = Math.max(0, verifiedConnection.expiresAt - Date.now());
-  const expiryTimer = setTimeout(() => controller.abort(), expiresInMs);
+  let expiryTimer;
+  // Re-read the connection record when the timer fires so a renewed session
+  // keeps its tools and an expired or revoked one loses them.
+  const armExpiry = () => {
+    const record = readVerifiedPageConnection(connection);
+    if (!record) {
+      controller.abort();
+      return;
+    }
+    expiryTimer = setTimeout(
+      armExpiry,
+      Math.max(1, record.expiresAt - Date.now()),
+    );
+  };
+  armExpiry();
   const removeConnectionCloseListener = onVerifiedPageConnectionClose(
     connection,
     () => controller.abort(),

@@ -38,7 +38,7 @@ async function makeWallet(name) {
 async function makeVerifiedConnection(
   capabilities = ["presence.read", "tools.invoke"],
   walletClaim = true,
-  { beforeConsent, roomSession } = {},
+  { beforeConsent, roomSession, approveOptions } = {},
 ) {
   const realNow = Date.now;
   try {
@@ -103,6 +103,7 @@ async function makeVerifiedConnection(
       wallet,
       request,
       capabilities,
+      approveOptions,
     );
     await dispatch({
       type: "ai-auth/connect-consent",
@@ -181,11 +182,7 @@ test("lifecycle rejects a wallet claim whose identity is not the consent issuer"
 
 test("lifecycle fires an expired disconnect when the signed consent expires", async () => {
   const { connection } = await makeVerifiedConnection(["presence.read"], true, {
-    beforeConsent: (request) => {
-      // Shrink the remaining consent lifetime so the connection expiry timer
-      // fires in milliseconds instead of minutes.
-      Date.now = () => request.expiresAt - 1;
-    },
+    approveOptions: { sessionTtlMs: 1_000 },
   });
   const events = [];
   connection.onLifecycle((event) => events.push(event));
@@ -193,7 +190,7 @@ test("lifecycle fires an expired disconnect when the signed consent expires", as
   const realNow = Date.now;
   try {
     Date.now = () => expiresAt + 1;
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
     assert.equal(events.at(-1)?.type, "disconnected");
     assert.equal(events.at(-1)?.reason, "expired");
   } finally {
@@ -384,7 +381,9 @@ test("in-page agent stops an in-flight execution when the connection closes", as
 });
 
 test("in-page agent registrations expire with the verified connection", async () => {
-  const { connection } = await makeVerifiedConnection(["tools.invoke"]);
+  const { connection } = await makeVerifiedConnection(["tools.invoke"], true, {
+    approveOptions: { sessionTtlMs: 60_000, idleTimeoutMs: 60_000 },
+  });
   const registrations = [];
   let executions = 0;
   const expiresAt = connection.consent.body.payload.expiresAt;
