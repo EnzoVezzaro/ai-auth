@@ -472,3 +472,8 @@ export {
   CollaborationTransfers,
   COLLABORATION_LIMITS,
 } from "./collaboration.js";
+export {
+  createAIAuthConnectInstruction,
+  createAIAuthConnectController,
+  mountAIAuthConnectPanel,
+} from "./agent-connect.js";

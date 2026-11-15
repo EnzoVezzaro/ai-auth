@@ -28,6 +28,8 @@ The modal binds the request to the requesting origin and source iframe. The wall
 - **Discovery:** Trystero's Nostr strategy exchanges signaling metadata through public relays. Room topics are hashes of the exact site origin and room name, so default-space wallets on one site discover each other while other sites and explicit spaces stay separate.
 - **Collaboration:** WebRTC data channels carry signed presence, cursor, message, and action events directly between peers.
 - **Permissions:** The wallet signs only the requested subset approved by the user. The site must independently verify the proof and enforce access to its own resources.
+
+- **Connect surface:** Sites publish a copyable connect instruction (public data only) and an optional self-contained connect panel that runs the wallet handshake and reflects the signed connection lifecycle in the page UI.
 - **Page actions:** WebMCP is the primary in-page tool surface. The site exposes explicit-schema actions; wallet-approved scopes filter which actions are advertised; each remote request requires the site's human approval callback. Catalogs, requests, bounded results, and lifecycle events are public to connected peers in that site's shared space. A JavaScript API fallback covers browsers without WebMCP.
 - **Local agent tools:** The optional MCP stdio and runtime adapters are host-local integrations. Websites do not need them and neither requires an AI Auth service.
 - **Website hub:** A site connects the wallets it wants to admit and receives verified events from its public space. It still decides whether each requested operation may touch site-owned resources.

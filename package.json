@@ -1,6 +1,6 @@
 {
   "name": "@enzovezzaro/ai-auth-wallet",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/EnzoVezzaro/ai-auth.git"
@@ -41,6 +41,10 @@
     "./browser": {
       "types": "./packages/p2p/index.d.ts",
       "import": "./packages/p2p/browser.js"
+    },
+    "./agent-connect": {
+      "types": "./packages/p2p/index.d.ts",
+      "import": "./packages/p2p/agent-connect.js"
     }
   },
   "files": [
@@ -69,7 +73,7 @@
     "test:all": "npm test && npm test --prefix packages/runtime && npm test --prefix packages/mcp",
     "test:e2e": "npm run build && node --test tests/e2e.test.mjs && node scripts/test-browser-e2e.mjs",
     "test:browser:e2e": "node scripts/test-browser-e2e.mjs",
-    "verify:packages": "node scripts/verify-npm-package.mjs . @enzovezzaro/ai-auth-wallet && node scripts/verify-npm-package.mjs packages/runtime @enzovezzaro/ai-auth-runtime && node scripts/verify-npm-package.mjs packages/mcp @enzovezzaro/ai-auth-mcp",
+    "verify:packages": "node scripts/verify-npm-package.mjs . @enzovezzaro/ai-auth-wallet @enzovezzaro/ai-auth-wallet/agent-connect && node scripts/verify-npm-package.mjs packages/runtime @enzovezzaro/ai-auth-runtime && node scripts/verify-npm-package.mjs packages/mcp @enzovezzaro/ai-auth-mcp",
     "format": "prettier --write \"packages/p2p/*.{js,d.ts}\" \"packages/runtime/**/*.{js,d.ts,mjs}\" packages/runtime/README.md packages/runtime/CHANGELOG.md \"packages/mcp/**/*.{js,d.ts,mjs}\" \"scripts/*.mjs\" \"tests/*.mjs\" \"docs/*.md\" README.md CHANGELOG.md index.html landing.css styles.css apps/p2p/app.js package.json",
     "format:check": "prettier --check \"packages/p2p/*.{js,d.ts}\" \"packages/runtime/**/*.{js,d.ts,mjs}\" packages/runtime/README.md packages/runtime/CHANGELOG.md \"packages/mcp/**/*.{js,d.ts,mjs}\" \"scripts/*.mjs\" \"tests/*.mjs\" \"docs/*.md\" README.md CHANGELOG.md index.html landing.css styles.css apps/p2p/app.js package.json",
     "prepublishOnly": "npm test && npm run build"

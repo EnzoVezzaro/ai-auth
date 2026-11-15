@@ -77,6 +77,45 @@ The wallet modal opens from a user gesture, presents the site's requested capabi
 
 The default public space is keyed by the exact website origin and the `default` room name, so wallets connecting to the same site discover one another. A site can pass the same explicit `room` key to group agents into another space. This public space is a client-side coordination boundary, not an AI Auth-hosted hub or an authorization boundary; each site must enforce access to its own resources.
 
+## Publish a connect instruction
+
+Sites can publish a copyable connect instruction so any agent can join their shared space, plus a self-contained connect panel that runs the wallet handshake and reflects the connection state in the UI:
+
+```js
+import {
+  createAIAuthConnectInstruction,
+  mountAIAuthConnectPanel,
+} from "@enzovezzaro/ai-auth-wallet";
+
+const instruction = createAIAuthConnectInstruction({
+  siteName: "BODY4AI",
+  siteOrigin: "https://www.body4ai.com",
+  walletUrl: "https://wallet.body4ai.com/wallet/",
+  capabilities: ["presence.read", "messages.send", "tools.invoke"],
+});
+
+mountAIAuthConnectPanel({
+  target: document.getElementById("agent-connect"),
+  instruction,
+  connect: () =>
+    connectAIAuthModal({
+      origin: instruction.origin,
+      walletUrl: instruction.walletUrl,
+      capabilities: [...instruction.capabilities],
+      room: instruction.room,
+    }),
+  // Reflect the state anywhere in the site UI (e.g. a header badge).
+  onStateChange: (state) => {
+    document.body.toggleAttribute(
+      "data-agent-connected",
+      state.status === "connected",
+    );
+  },
+});
+```
+
+The panel renders the instruction with a copy button, the handshake status (`idle` → `connecting` → `connected` → `disconnected`), the verified agent identity with approved capability chips, and a live expiry countdown. The host element mirrors that state as `data-status`, so page CSS and header badges can reflect the connection without reading the panel's closed shadow root. The instruction contains only public data: site origin, room name, wallet URL, and requested capabilities. See [the security boundaries](docs/SECURITY.md) and the complete BODY4AI integration under `examples/body4ai/`.
+
 ## Optional local integrations
 
 WebMCP is the primary in-page agent tool surface: the SDK discovers tools exposed by the connected page, advertises a bounded catalog to the shared public room, and accepts a call only after wallet scope checks and the page's explicit human approval. Signed requests, results, cursor, and action status are visible to connected peers; never send secrets or private page data through the shared room. The SDK feature-detects WebMCP and retains a JavaScript API fallback. WebMCP handles tool invocation; direct WebRTC carries peer collaboration. `@enzovezzaro/ai-auth-mcp` and `@enzovezzaro/ai-auth-runtime` are optional local integrations and are not required for a website or hosted service.

@@ -474,3 +474,66 @@ export function createAIAuthAgentClient(
   ): Promise<unknown>;
   close(): void;
 };
+
+export interface AIAuthConnectInstruction {
+  readonly protocol: "ai-auth-wallet";
+  readonly version: 1;
+  readonly siteName: string | null;
+  readonly origin: string;
+  readonly room: string;
+  readonly walletUrl: string;
+  readonly capabilities: readonly string[];
+  /** Copyable connect text for any agent's browser page. */
+  readonly instruction: string;
+  /** Machine-readable descriptor of the same public connection details. */
+  readonly json: string;
+}
+
+export function createAIAuthConnectInstruction(options: {
+  siteOrigin: string;
+  walletUrl: string;
+  capabilities: readonly string[];
+  room?: string;
+  siteName?: string;
+  sdkSource?: string;
+}): AIAuthConnectInstruction;
+
+export type AIAuthConnectPanelState =
+  | { status: "idle"; error: string | null }
+  | { status: "connecting" }
+  | {
+      status: "connected";
+      connection: AIAuthPageConnection;
+      label: string;
+      identity: AIAuthWalletIdentity;
+      capabilities: readonly string[];
+      expiresAt: number;
+    }
+  | { status: "disconnected"; reason: "closed" | "expired" };
+
+export interface AIAuthConnectController {
+  getState(): AIAuthConnectPanelState;
+  subscribe(listener: (state: AIAuthConnectPanelState) => void): () => void;
+  connect(): Promise<void>;
+  disconnect(): void;
+  setConnection(connection: AIAuthPageConnection): void;
+  close(): void;
+}
+
+export function createAIAuthConnectController(options?: {
+  connect?: () => Promise<AIAuthPageConnection>;
+  instruction?: AIAuthConnectInstruction | string;
+}): AIAuthConnectController;
+
+/**
+ * Renders the copyable connect instruction and a live status area for the
+ * wallet handshake. The host element mirrors the state as `data-status`:
+ * `idle`, `connecting`, `connected`, or `disconnected`.
+ */
+export function mountAIAuthConnectPanel(options: {
+  instruction: AIAuthConnectInstruction | string;
+  connect?: () => Promise<AIAuthPageConnection>;
+  target?: HTMLElement;
+  label?: string;
+  onStateChange?: (state: AIAuthConnectPanelState) => void;
+}): () => void;

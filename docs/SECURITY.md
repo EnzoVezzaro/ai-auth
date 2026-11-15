@@ -29,3 +29,7 @@ Store the encrypted recovery file separately from the browser profile and use a 
 WebMCP is the primary in-page tool surface and is feature-detected. Page tools require the active connection object returned by `connectAIAuthModal`; a plain consent-shaped object is not accepted. The connection enters a private in-memory trust map only after its wallet signature, origin, nonce, and expiry have been verified. Tool registration requires `tools.invoke`; other scopes do not authorize page-tool invocation. Closing or expiring the connection aborts registered tools, and execution rechecks the active wallet approval. Every remote tool call also requires an explicit human approval callback supplied by the site. Keep the JavaScript API available for browsers without WebMCP. Tool catalogs, requests, results, and activity events are visible to connected peers in the public room; never include credentials, private page data, or secrets.
 
 The modal connection automatically closes when its signed consent expires. Sites must start a new request and obtain a new wallet approval to continue collaboration.
+
+## Connect instructions and panel
+
+The copyable connect instruction produced by `createAIAuthConnectInstruction` contains only public data (site origin, room name, wallet URL, requested capabilities) and no credentials. The connect panel renders in a closed shadow root and displays only values taken from verified signed lifecycle events; its copy action writes that same public instruction to the clipboard and nothing else.
