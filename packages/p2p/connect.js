@@ -133,6 +133,27 @@ export async function verifyPermissionRequest(
   }
 }
 
+export async function verifyPopupPermissionRequest(
+  event,
+  expectedSource,
+  { now = Date.now() } = {},
+) {
+  try {
+    if (
+      !expectedSource ||
+      event?.source !== expectedSource ||
+      event.data?.type !== "ai-auth/connect-request"
+    )
+      return false;
+    return await verifyPermissionRequest(event.data.request, {
+      expectedOrigin: event.origin,
+      now,
+    });
+  } catch {
+    return false;
+  }
+}
+
 export async function verifyPermissionConsent(
   consent,
   request,

@@ -22,6 +22,8 @@ Same-origin BroadcastChannel events are visible to other tabs on the same origin
 
 Private mode stops this app's public presence and shared messages. It does not hide activity from browser extensions, operating-system software, the hosting provider, or another site, and it does not erase already received data on another peer.
 
-## Not production authorization
+## Popup consent and site enforcement
 
-The permission demonstration uses one origin for the wallet UI and sample verifier. It is not an isolated browser extension, native wallet boundary, or independent website integration. Do not use it to protect real accounts or tools. A production relying party needs its own challenge endpoint or message protocol, a trusted origin-binding mechanism, server-side policy enforcement, replay storage, revocation, audit retention, and security review.
+The external popup flow accepts a request only from `window.opener`, binds its audience to the sender origin, and returns only a wallet-signed consent envelope to that exact origin. The relying page must still verify the signature, request nonce, audience, expiry, and approved scope. The wallet page uses `Cross-Origin-Opener-Policy: unsafe-none` so cross-origin sites can retain the popup relationship; this does not grant same-origin DOM access, and the receiver checks both the popup's origin and window source before accepting a response. Public SDK module files alone allow cross-origin GET/OPTIONS requests.
+
+A verified browser proof is not server-side authorization. Body4AI's current integration uses it only to show public agent presence in the page. Do not use this client-only flow to protect real accounts, private data, or tools. A production resource owner must verify the proof and enforce its own policy server-side, with replay storage, revocation, audit retention, and a security review.

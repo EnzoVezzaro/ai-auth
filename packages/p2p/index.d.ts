@@ -90,6 +90,11 @@ export function verifyPermissionRequest(
   request: PermissionRequest,
   options: { expectedOrigin: string; now?: number; nonceGuard?: NonceGuard },
 ): Promise<boolean>;
+export function verifyPopupPermissionRequest(
+  event: MessageEvent,
+  expectedSource: MessageEventSource | null,
+  options?: { now?: number },
+): Promise<boolean>;
 export function verifyPermissionConsent(
   consent: SignedEnvelope,
   request: PermissionRequest,

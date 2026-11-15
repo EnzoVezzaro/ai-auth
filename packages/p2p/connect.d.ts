@@ -3,6 +3,7 @@ export {
   createPermissionRequest,
   approvePermissionRequest,
   verifyPermissionRequest,
+  verifyPopupPermissionRequest,
   verifyPermissionConsent,
 } from "./index.js";
 export type {

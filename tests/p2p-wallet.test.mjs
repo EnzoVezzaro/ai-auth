@@ -11,6 +11,7 @@ import {
   P2PRoom,
   randomNonce,
   signEnvelope,
+  verifyPopupPermissionRequest,
   verifyCapabilityGrant,
   verifyEnvelope,
   verifyPermissionConsent,
@@ -115,6 +116,41 @@ test("permission requests bind exact origin, explicit scopes, and expiry", async
   await assert.rejects(
     createPermissionRequest("https://example.test", ["*"]),
     /wildcards/,
+  );
+});
+
+test("popup permission requests bind the browser origin and opener source", async () => {
+  const request = await createPermissionRequest("http://localhost:4173", [
+    "presence.read",
+  ]);
+  const opener = {};
+  const message = {
+    origin: "http://localhost:4173",
+    source: opener,
+    data: { type: "ai-auth/connect-request", request },
+  };
+
+  assert.equal(await verifyPopupPermissionRequest(message, opener), true);
+  assert.equal(await verifyPopupPermissionRequest(message, {}), false);
+  assert.equal(
+    await verifyPopupPermissionRequest(
+      { ...message, origin: "https://attacker.example" },
+      opener,
+    ),
+    false,
+  );
+  assert.equal(
+    await verifyPopupPermissionRequest(
+      {
+        ...message,
+        data: {
+          type: "ai-auth/connect-request",
+          request: { ...request, expiresAt: Date.now() - 1 },
+        },
+      },
+      opener,
+    ),
+    false,
   );
 });
 

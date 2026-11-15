@@ -425,6 +425,7 @@ export {
   createPermissionRequest,
   approvePermissionRequest,
   verifyPermissionRequest,
+  verifyPopupPermissionRequest,
   verifyPermissionConsent,
   NonceGuard,
 } from "./connect.js";

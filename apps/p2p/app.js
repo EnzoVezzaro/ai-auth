@@ -15,17 +15,26 @@ import {
   verifyEnvelope,
   verifyPermissionConsent,
   verifyPermissionRequest,
+  verifyPopupPermissionRequest,
   ManualWebRTC,
 } from "/packages/p2p/index.js";
 
 const $ = (selector) => document.querySelector(selector);
+const externalConnectMode =
+  new URLSearchParams(location.search).get("connect") === "1";
 const state = {
   wallet: null,
-  view: "wallet",
+  view: externalConnectMode ? "connect" : "wallet",
   room: null,
   rtc: null,
   request: null,
   consent: null,
+  externalRequest: null,
+  externalSource: null,
+  externalOrigin: "",
+  externalStatus: "",
+  externalRequestReceived: false,
+  externalExpiryTimer: null,
   messages: [],
   privateMode: false,
   error: "",
@@ -132,6 +141,7 @@ function walletView() {
 }
 
 function connectView() {
+  if (state.externalRequest) return externalPermissionView();
   if (!state.wallet)
     return `${pageHead("CONNECT", "Review a site request.", "Create a short-lived challenge for a site, choose the capabilities, and sign your approval.")}${walletRequired()}`;
   const scopes = capabilityOptions
@@ -147,6 +157,39 @@ function connectView() {
     <div class="grid-main"><div class="stack"><section class="panel"><div class="panel-head"><div><h2>Permission request</h2><p class="panel-copy">Only the exact origin receives this consent proof.</p></div><span class="status-tag pending">REVIEW REQUIRED</span></div>
       <form id="permission-form"><div class="field"><label for="request-origin">Website origin</label><input class="control" id="request-origin" type="url" required value="${esc(location.origin)}"/><small>Use an origin only: scheme, host and optional port. No paths or wildcard hosts.</small></div><p class="scope-label">REQUESTED CAPABILITIES</p><div class="scope-list">${scopes}</div>${setupFormError()}<button class="button" type="submit">Review and sign selection</button></form>
       </section>${result}</div><aside class="stack"><section class="panel"><div class="panel-head"><div><p class="mini-label">WHAT GETS SIGNED</p><h3>One site. A few actions. A short expiry.</h3></div></div><div class="metric-line"><span>Origin</span><strong>Exact match</strong></div><div class="metric-line"><span>Challenge</span><strong>One use</strong></div><div class="metric-line"><span>Lifetime</span><strong>60 seconds</strong></div><div class="metric-line"><span>Capabilities</span><strong>Only selected</strong></div></section><section class="panel"><p class="panel-copy">The signature proves this wallet approved a request. It does not prove a human reviewed it unless a human actually confirms the selection.</p></section></aside></div>`;
+}
+
+function externalPermissionView() {
+  const request = state.externalRequest;
+  const displayOrigin = request.audience;
+  if (!state.wallet) {
+    return `${pageHead("BODY4AI WALLET REQUEST", "Create or restore your wallet.", "Body4AI is requesting a signed agent identity. The wallet key stays in this browser.")}
+      <section class="panel"><p class="mini-label">REQUESTING SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">Requested capabilities: ${request.capabilities.map(esc).join(", ")}</p>${setupFormError()}<button class="button" data-go-wallet>Continue to wallet setup</button></section>`;
+  }
+  if (state.externalStatus === "sent") {
+    return `${pageHead("CONSENT SENT", "Return to Body4AI.", "The signed proof was sent to the site that opened this wallet. You can close this tab.")}
+      <section class="panel"><p class="mini-label">APPROVED SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">Approved capabilities: ${esc(state.consent?.body?.payload?.capabilities?.join(", ") ?? "")}</p></section>`;
+  }
+  if (state.externalStatus === "rejected") {
+    return `${pageHead("REQUEST DECLINED", "Body4AI stays disconnected.", "No identity or permission proof was shared.")}
+      <section class="panel"><p class="mini-label">REQUESTING SITE</p><h2>${esc(displayOrigin)}</h2></section>`;
+  }
+  if (state.externalStatus === "expired") {
+    return `${pageHead("REQUEST EXPIRED", "Return to Body4AI.", "This one-use request has expired. Start a new connection from the site.")}
+      <section class="panel"><p class="mini-label">EXPIRED REQUEST</p><h2>${esc(displayOrigin)}</h2></section>`;
+  }
+  const scopes = request.capabilities
+    .map((capability) => {
+      const [, title, detail] = capabilityOptions.find(
+        ([id]) => id === capability,
+      ) ?? [capability, capability, "This site will enforce this operation."];
+      return `<label class="checkbox-row"><input type="checkbox" name="external-capability" value="${esc(capability)}"/><span><strong>${esc(title)}</strong><small><code>${esc(capability)}</code> · ${esc(detail)}</small></span></label>`;
+    })
+    .join("");
+  return `${pageHead("EXTERNAL SITE REQUEST", "Review before you sign.", "The wallet will send a public identity and only the capabilities you select. Your private key never leaves this browser.")}
+    <div class="grid-main"><section class="panel"><div class="panel-head"><div><p class="mini-label">REQUESTING SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">This request expires at ${esc(dateText(request.expiresAt))}. It is valid only for this exact origin and this one connection attempt.</p></div><span class="status-tag pending">REVIEW REQUIRED</span></div>
+      <form id="external-permission-form"><p class="scope-label">REQUESTED CAPABILITIES</p><div class="scope-list">${scopes}</div>${setupFormError()}<div class="button-row"><button class="button" type="submit">Sign selected capabilities</button><button class="button quiet" type="button" id="reject-external-request">Decline</button></div></form>
+    </section><aside class="stack"><section class="panel"><div class="panel-head"><div><p class="mini-label">YOUR KEY STAYS HERE</p><h3>Only a signed proof leaves this tab</h3></div></div><p class="panel-copy">Body4AI receives your public key and the approved scopes. A signature proves control of this wallet; Body4AI still enforces its own permissions.</p></section></aside></div>`;
 }
 
 function walletRequired() {
@@ -308,7 +351,7 @@ function bindView() {
         publicIdentity: state.wallet.id,
       });
       await startRoom();
-      state.view = "wallet";
+      state.view = state.externalRequest ? "connect" : "wallet";
       render();
       toast("Wallet created. Save the encrypted recovery file.");
     } catch (error) {
@@ -326,7 +369,7 @@ function bindView() {
         $("#restore-passphrase").value,
       );
       await startRoom();
-      state.view = "wallet";
+      state.view = state.externalRequest ? "connect" : "wallet";
       render();
       toast("Wallet restored in this browser.");
     } catch (error) {
@@ -406,6 +449,62 @@ function bindView() {
     } catch (error) {
       fail(error);
     }
+  });
+  $("#external-permission-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    state.error = "";
+    try {
+      if (state.externalStatus || !state.externalRequest)
+        throw new Error("This wallet request is no longer active");
+      if (!window.opener || state.externalSource !== window.opener)
+        throw new Error("The requesting Body4AI tab is no longer available");
+      const approved = [
+        ...event.currentTarget.querySelectorAll(
+          "input[name=external-capability]:checked",
+        ),
+      ].map((input) => input.value);
+      if (!approved.length)
+        throw new Error(
+          "Select at least one capability or decline the request",
+        );
+      const consent = await approvePermissionRequest(
+        state.wallet,
+        state.externalRequest,
+        approved,
+      );
+      window.opener.postMessage(
+        {
+          type: "ai-auth/connect-consent",
+          requestNonce: state.externalRequest.nonce,
+          consent,
+        },
+        state.externalOrigin,
+      );
+      state.consent = consent;
+      state.externalStatus = "sent";
+      clearTimeout(state.externalExpiryTimer);
+      await appendActivity(state.wallet, "connect/external-consent", {
+        origin: state.externalOrigin,
+        capabilities: approved,
+        expiresAt: consent.body.payload.expiresAt,
+      });
+      render();
+    } catch (error) {
+      fail(error);
+    }
+  });
+  $("#reject-external-request")?.addEventListener("click", () => {
+    if (window.opener && state.externalSource === window.opener)
+      window.opener.postMessage(
+        {
+          type: "ai-auth/connect-rejected",
+          requestNonce: state.externalRequest?.nonce,
+        },
+        state.externalOrigin,
+      );
+    state.externalStatus = "rejected";
+    clearTimeout(state.externalExpiryTimer);
+    render();
   });
   $("#copy-consent")?.addEventListener("click", async () => {
     await navigator.clipboard.writeText(JSON.stringify(state.consent));
@@ -545,6 +644,43 @@ function bindView() {
   });
 }
 
+if (externalConnectMode) {
+  window.addEventListener("message", async (event) => {
+    if (
+      event.data?.type !== "ai-auth/connect-request" ||
+      event.source !== window.opener ||
+      state.externalRequestReceived
+    )
+      return;
+    if (!(await verifyPopupPermissionRequest(event, window.opener))) {
+      state.error =
+        "The requesting site or its permission request could not be verified";
+      render();
+      return;
+    }
+    state.externalRequestReceived = true;
+    clearTimeout(state.externalExpiryTimer);
+    state.request = event.data.request;
+    state.externalRequest = event.data.request;
+    state.externalOrigin = event.origin;
+    state.externalSource = event.source;
+    state.externalStatus = "";
+    state.error = "";
+    state.view = "connect";
+    state.externalExpiryTimer = setTimeout(
+      () => {
+        if (state.externalStatus) return;
+        state.externalStatus = "expired";
+        state.error =
+          "This request has expired. Start a new connection from Body4AI.";
+        render();
+      },
+      Math.max(0, event.data.request.expiresAt - Date.now()),
+    );
+    render();
+  });
+}
+
 document.querySelectorAll("[data-view]").forEach((button) =>
   button.addEventListener("click", async () => {
     state.view = button.dataset.view;
@@ -559,6 +695,8 @@ try {
     await startRoom();
   }
   render();
+  if (externalConnectMode && window.opener)
+    window.opener.postMessage({ type: "ai-auth/connect-ready" }, "*");
 } catch (error) {
   state.error = error.message;
   render();

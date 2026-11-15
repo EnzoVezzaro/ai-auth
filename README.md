@@ -31,7 +31,7 @@ The consent flow is a same-app protocol demonstration, not an independent wallet
 ## Install the wallet SDK
 
 ```sh
-npm install @enzovezzaro/ai-auth-wallet
+npm install @enzovezzaro/ai-auth-wallet@0.1.1
 ```
 
 ```js
@@ -59,7 +59,7 @@ The package also exposes `@enzovezzaro/ai-auth-wallet/wallet`, `/connect`, `/cap
 
 See [architecture](docs/ARCHITECTURE.md), [security boundaries](docs/SECURITY.md), [wire format](docs/WIRE_FORMAT.md), [recovery](docs/RECOVERY.md), and the [migration plan](docs/IMPLEMENTATION_PLAN.md).
 
-The historical `@enzovezzaro/ai-auth-server` npm package remains published, but its source, Docker configuration, and Fly app have been removed from this repository. Old published server releases are not part of the wallet architecture.
+The historical `@enzovezzaro/ai-auth-server` npm package is deprecated; its source, Docker configuration, and Fly app have been removed from this repository. Existing old releases do not receive updates and are not part of the wallet architecture.
 
 ## Checks
 

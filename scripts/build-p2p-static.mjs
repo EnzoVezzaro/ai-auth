@@ -3,6 +3,9 @@ import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const output = resolve(root, "dist-p2p");
+const { version } = JSON.parse(
+  await readFile(resolve(root, "package.json"), "utf8"),
+);
 
 await rm(output, { recursive: true, force: true });
 await mkdir(resolve(output, "packages/p2p"), { recursive: true });
@@ -30,7 +33,7 @@ if (!html.includes('src="/app.js"') || !html.includes('href="/styles.css"')) {
 await writeFile(
   resolve(output, "BUILD_INFO.json"),
   JSON.stringify(
-    { app: "AI Auth Wallet", version: "0.1.0", serverFunctions: 0 },
+    { app: "AI Auth Wallet", version, serverFunctions: 0 },
     null,
     2,
   ),
