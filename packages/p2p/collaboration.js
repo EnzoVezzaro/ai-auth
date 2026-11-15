@@ -1,4 +1,13 @@
 // Application-level messages carried inside independently signed room envelopes.
+import {
+  RECEIPT_TYPE,
+  buildReceiptPayload,
+  isAddressedTo,
+  isMessageId,
+  isWalletId,
+  verifyReceipt,
+} from "./receipts.js";
+
 export const COLLABORATION_LIMITS = Object.freeze({
   textCharacters: 4000,
   elementBytes: 4096,
@@ -71,8 +80,12 @@ function decodeBytes(value) {
 }
 
 export class CollaborationTransfers {
-  constructor(room, { authorize = () => true } = {}) {
+  constructor(room, { authorize = () => true, receipts = true } = {}) {
     this.room = room;
+    // Capability flags the wheel reads before it offers targeting or receipts.
+    this.supportsTargets = true;
+    this.supportsReceipts = receipts !== false;
+    this.sendReceipts = receipts !== false;
     this.authorize = authorize;
     this.listeners = new Set();
     this.transfers = new Map();
@@ -95,21 +108,39 @@ export class CollaborationTransfers {
       }
     }
   }
-  async sendText(text) {
+  // `messageId` and `target` live in the signed payload. A target addresses
+  // one wallet; it is not encryption (see docs/SECURITY.md).
+  addressing({ messageId, target } = {}) {
+    if (messageId !== undefined && !isMessageId(messageId))
+      throw new TypeError("Invalid message id");
+    if (target !== undefined && !isWalletId(target))
+      throw new TypeError("Invalid target wallet id");
+    return {
+      messageId: messageId ?? crypto.randomUUID(),
+      ...(target === undefined ? {} : { target }),
+    };
+  }
+  async sendText(text, options) {
     this.checkAuthorization();
     if (!validText(text))
       throw new TypeError("Messages must contain 1–4000 characters");
-    return this.room.send("collab/text", { text });
+    return this.room.send("collab/text", {
+      text,
+      ...this.addressing(options),
+    });
   }
-  async sendElement(metadata) {
+  async sendElement(metadata, options) {
     this.checkAuthorization();
     if (!validElement(metadata))
       throw new TypeError(
         "Element metadata must be an object no larger than 4 KiB",
       );
-    return this.room.send("collab/element", { metadata });
+    return this.room.send("collab/element", {
+      metadata,
+      ...this.addressing(options),
+    });
   }
-  async sendAttachment(blob, { kind, name } = {}) {
+  async sendAttachment(blob, { kind, name, messageId, target } = {}) {
     this.checkAuthorization();
     if (this.closed || this.sending)
       throw new Error(
@@ -126,10 +157,11 @@ export class CollaborationTransfers {
       blob.size > limit
     )
       throw new TypeError("Unsupported attachment type, name, or size");
+    const addressing = this.addressing({ messageId, target });
     this.sending = true;
     try {
       const bytes = new Uint8Array(await blob.arrayBuffer());
-      const id = crypto.randomUUID();
+      const id = addressing.messageId;
       const total = Math.ceil(bytes.length / CHUNK_BYTES);
       for (let index = 0; index < total; index++) {
         if (this.closed)
@@ -143,6 +175,7 @@ export class CollaborationTransfers {
             "A direct peer connection is required for attachments",
           );
         await this.room.send("collab/attachment", {
+          ...addressing,
           id,
           kind,
           name,
@@ -155,7 +188,7 @@ export class CollaborationTransfers {
           ),
         });
       }
-      return { id, kind, name, mime, size: bytes.length };
+      return { id, messageId: id, kind, name, mime, size: bytes.length };
     } finally {
       this.sending = false;
     }
@@ -167,12 +200,43 @@ export class CollaborationTransfers {
   receive(envelope) {
     if (this.closed || !this.authorize() || !envelope?.body) return;
     const { type, payload, issuer } = envelope.body;
-    if (type === "collab/text" && validText(payload.text))
+    if (type === RECEIPT_TYPE) return void this.receiveReceipt(envelope);
+    // A message signed for another wallet is dropped, never displayed.
+    if (
+      type?.startsWith("collab/") &&
+      !isAddressedTo(payload, this.room.wallet?.id)
+    )
+      return;
+    if (type === "collab/text" && validText(payload.text)) {
       this.notify({ type: "text", text: payload.text, envelope });
-    else if (type === "collab/element" && validElement(payload.metadata))
+      this.acknowledge(envelope);
+    } else if (type === "collab/element" && validElement(payload.metadata)) {
       this.notify({ type: "element", metadata: payload.metadata, envelope });
-    else if (type === "collab/attachment")
+      this.acknowledge(envelope);
+    } else if (type === "collab/attachment")
       this.receiveChunk(envelope, issuer, payload);
+  }
+  // Sign a receipt for a message that was addressed to this wallet and shown.
+  acknowledge(envelope, messageId = envelope.body.payload?.messageId) {
+    if (!this.sendReceipts || !isMessageId(messageId)) return;
+    const receiver = this.room.wallet?.id;
+    const sender = envelope.body.issuer;
+    if (!isWalletId(receiver) || !isWalletId(sender) || sender === receiver)
+      return;
+    // Best effort: a lost receipt only leaves the sender at "sent-to-transport".
+    this.room
+      .send(RECEIPT_TYPE, buildReceiptPayload({ messageId, sender, receiver }))
+      .catch(() => {});
+  }
+  async receiveReceipt(envelope) {
+    const { room, wallet, origin } = this.room;
+    const result = await verifyReceipt(envelope, {
+      sender: wallet?.id,
+      room,
+      origin,
+    });
+    if (!result.ok || this.closed || !this.authorize()) return;
+    this.notify({ type: "receipt", receipt: result.receipt, envelope });
   }
   receiveChunk(envelope, issuer, payload) {
     const now = Date.now();
@@ -236,6 +300,7 @@ export class CollaborationTransfers {
     transfer.count++;
     if (transfer.count === total) {
       this.transfers.delete(key);
+      this.acknowledge(envelope, id);
       this.notify({
         type: "attachment",
         kind,
