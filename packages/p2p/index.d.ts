@@ -601,3 +601,104 @@ export {
   isSensitiveElement,
   extractSafeText,
 } from "./wheel-redaction.js";
+
+export { mountCollaborationWheel } from "./collaboration-wheel.js";
+export type {
+  CollaborationWheelOptions,
+  CollaborationWheelTransfers,
+  WheelSendOptions,
+} from "./collaboration-wheel.js";
+
+export const CHALLENGE_MAX_MS: number;
+export const CONSENT_VERSION: number;
+export const DEFAULT_SESSION_TTL_MS: number;
+export const MAX_SESSION_TTL_MS: number;
+export const MIN_SESSION_TTL_MS: number;
+export const DEFAULT_IDLE_TIMEOUT_MS: number;
+export function sessionLimits(
+  request?: {
+    sessionTtlMs?: number;
+    idleTimeoutMs?: number;
+  } | null,
+): { maxSessionTtlMs: number; maxIdleTimeoutMs: number };
+
+export interface SessionGrant {
+  expiresAt: number;
+  idleTimeoutMs?: number | null;
+  capabilities?: readonly string[];
+}
+export type SessionStatus = "active" | "expired" | "idle" | "revoked";
+
+/** Tracks one verified session grant. Expiry is the signed grant expiry; idle timeout counts only authorized activity. */
+export class SessionLease {
+  constructor(payload: SessionGrant, options?: { now?: () => number });
+  readonly expiresAt: number;
+  readonly idleTimeoutMs: number | null;
+  readonly lastActivityAt: number;
+  /** Earliest time the lease can stop being usable without further activity. */
+  readonly deadline: number;
+  status(): SessionStatus;
+  isActive(): boolean;
+  /** Records authorized activity. Returns false when the lease is unusable. */
+  touch(): boolean;
+  /** Replaces the grant after a verified renewal. Never revives a dead lease. */
+  renew(payload: SessionGrant): boolean;
+  revoke(): void;
+}
+
+export const COLLABORATION_LIMITS: Readonly<{
+  textCharacters: number;
+  elementBytes: number;
+  screenshotBytes: number;
+  recordingBytes: number;
+}>;
+
+/** The transport side of CollaborationTransfers. `hasDirectPeer` is required for attachments at runtime. */
+export interface CollaborationRoomLike {
+  send(type: string, payload: unknown): Promise<unknown>;
+  subscribe(
+    listener: (event: { direction: string; envelope?: unknown }) => void,
+  ): () => void;
+  hasDirectPeer?(): boolean;
+}
+
+export class CollaborationTransfers {
+  constructor(
+    room: CollaborationRoomLike,
+    options?: { authorize?: () => boolean; receipts?: boolean },
+  );
+  readonly room: CollaborationRoomLike;
+  readonly supportsTargets: boolean;
+  readonly supportsReceipts: boolean;
+  readonly sendReceipts: boolean;
+  /** Returns an unsubscribe function. */
+  subscribe(listener: (event: unknown) => void): () => boolean;
+  addressing(options?: { messageId?: string; target?: string }): {
+    messageId: string;
+    target?: string;
+  };
+  sendText(
+    text: string,
+    options?: { messageId?: string; target?: string },
+  ): Promise<unknown>;
+  sendElement(
+    metadata: Record<string, unknown>,
+    options?: { messageId?: string; target?: string },
+  ): Promise<unknown>;
+  sendAttachment(
+    blob: Blob,
+    options: {
+      kind: "screenshot" | "recording";
+      name: string;
+      messageId?: string;
+      target?: string;
+    },
+  ): Promise<{
+    id: string;
+    messageId: string;
+    kind: "screenshot" | "recording";
+    name: string;
+    mime: string;
+    size: number;
+  }>;
+}
