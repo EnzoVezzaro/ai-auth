@@ -179,19 +179,19 @@ function externalPermissionView() {
   const request = state.externalRequest;
   const displayOrigin = request.audience;
   if (!state.wallet) {
-    return `${pageHead("BODY4AI WALLET REQUEST", "Create or restore your wallet.", "Body4AI is requesting a signed agent identity. The wallet key stays in this browser.")}
+    return `${pageHead("SITE WALLET REQUEST", "Create or restore your wallet.", `${displayOrigin} is requesting a signed agent identity. The wallet key stays in this browser.`)}
       <section class="panel"><p class="mini-label">REQUESTING SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">Requested capabilities: ${request.capabilities.map(esc).join(", ")}</p>${setupFormError()}<button class="button" data-go-wallet>Continue to wallet setup</button></section>`;
   }
   if (state.externalStatus === "sent") {
-    return `${pageHead("CONSENT SENT", "Return to Body4AI.", "The signed proof was sent to the site that opened this wallet. You can close this tab.")}
+    return `${pageHead("CONSENT SENT", "Return to the requesting site.", "The signed proof was sent to the site that opened this wallet. You can close this tab.")}
       <section class="panel"><p class="mini-label">APPROVED SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">Approved capabilities: ${esc(state.consent?.body?.payload?.capabilities?.join(", ") ?? "")}</p></section>`;
   }
   if (state.externalStatus === "rejected") {
-    return `${pageHead("REQUEST DECLINED", "Body4AI stays disconnected.", "No identity or permission proof was shared.")}
+    return `${pageHead("REQUEST DECLINED", "The site stays disconnected.", "No identity or permission proof was shared.")}
       <section class="panel"><p class="mini-label">REQUESTING SITE</p><h2>${esc(displayOrigin)}</h2></section>`;
   }
   if (state.externalStatus === "expired") {
-    return `${pageHead("REQUEST EXPIRED", "Return to Body4AI.", "This one-use request has expired. Start a new connection from the site.")}
+    return `${pageHead("REQUEST EXPIRED", "Return to the requesting site.", "This one-use request has expired. Start a new connection from the site.")}
       <section class="panel"><p class="mini-label">EXPIRED REQUEST</p><h2>${esc(displayOrigin)}</h2></section>`;
   }
   const scopes = request.capabilities
@@ -205,7 +205,7 @@ function externalPermissionView() {
   return `${pageHead("EXTERNAL SITE REQUEST", "Review before you sign.", "The wallet will send a public identity and only the capabilities you select. Your private key never leaves this browser.")}
     <div class="grid-main"><section class="panel"><div class="panel-head"><div><p class="mini-label">REQUESTING SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">This request expires at ${esc(dateText(request.expiresAt))}. It is valid only for this exact origin and this one connection attempt.</p></div><span class="status-tag pending">REVIEW REQUIRED</span></div>
       <form id="external-permission-form"><p class="scope-label">REQUESTED CAPABILITIES</p><div class="scope-list">${scopes}</div>${setupFormError()}<div class="button-row"><button class="button" type="submit">Sign selected capabilities</button><button class="button quiet" type="button" id="reject-external-request">Decline</button></div></form>
-    </section><aside class="stack"><section class="panel"><div class="panel-head"><div><p class="mini-label">YOUR KEY STAYS HERE</p><h3>Only a signed proof leaves this tab</h3></div></div><p class="panel-copy">Body4AI receives your public key and the approved scopes. A signature proves control of this wallet; Body4AI still enforces its own permissions.</p></section></aside></div>`;
+    </section><aside class="stack"><section class="panel"><div class="panel-head"><div><p class="mini-label">YOUR KEY STAYS HERE</p><h3>Only a signed proof leaves this tab</h3></div></div><p class="panel-copy">The requesting site receives your public key and approved scopes. A signature proves control of this wallet; the site still enforces its own permissions.</p></section></aside></div>`;
 }
 
 function walletRequired() {
@@ -504,7 +504,7 @@ function bindView() {
       if (state.externalStatus || !state.externalRequest)
         throw new Error("This wallet request is no longer active");
       if (!window.opener || state.externalSource !== window.opener)
-        throw new Error("The requesting Body4AI tab is no longer available");
+        throw new Error("The requesting site tab is no longer available");
       const approved = [
         ...event.currentTarget.querySelectorAll(
           "input[name=external-capability]:checked",
@@ -727,7 +727,7 @@ if (externalConnectMode) {
         if (state.externalStatus) return;
         state.externalStatus = "expired";
         state.error =
-          "This request has expired. Start a new connection from Body4AI.";
+          "This request has expired. Start a new connection from the site.";
         render();
       },
       Math.max(0, event.data.request.expiresAt - Date.now()),

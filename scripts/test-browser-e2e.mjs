@@ -201,6 +201,9 @@ async function main() {
 
   const consentForm = popupPage.locator("#external-permission-form");
   await consentForm.waitFor();
+  const popupRequestText = await popupPage.locator("#view").innerText();
+  assert.ok(popupRequestText.includes(relyingPartyOrigin));
+  assert.doesNotMatch(popupRequestText, /Body4AI/iu);
   const presenceCapability = popupPage.locator(
     'input[name="external-capability"][value="presence.read"]',
   );
@@ -281,6 +284,11 @@ async function main() {
     { waitForBackupButton: false },
   );
   await onboardingPopupPage.locator("#external-permission-form").waitFor();
+  const onboardingRequestText = await onboardingPopupPage
+    .locator("#view")
+    .innerText();
+  assert.ok(onboardingRequestText.includes(relyingPartyOrigin));
+  assert.doesNotMatch(onboardingRequestText, /Body4AI/iu);
   await onboardingPopupPage.locator('button[data-view="peer"]').click();
   await onboardingPopupPage.locator("#toggle-private").waitFor();
   await onboardingPopupPage.locator("#toggle-private").click();
