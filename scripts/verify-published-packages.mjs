@@ -197,6 +197,107 @@ try {
       stdio: ["ignore", "inherit", "inherit"],
     });
   }
+
+  if (
+    checks.some(
+      (check) => check.name === "@enzovezzaro/ai-auth-wallet@stable",
+    ) &&
+    checks.some((check) => check.name === "@enzovezzaro/ai-auth-wallet")
+  ) {
+    const compatibilityDirectory = path.join(
+      temporaryDirectory,
+      "cross-version-consumer",
+    );
+    await mkdir(compatibilityDirectory, { recursive: true });
+    execFileSync(
+      "npm",
+      [
+        "install",
+        "--prefix",
+        compatibilityDirectory,
+        "--no-save",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund",
+        "stable-wallet@npm:@enzovezzaro/ai-auth-wallet@0.1.1",
+        "next-wallet@npm:@enzovezzaro/ai-auth-wallet@next",
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
+    );
+    const verifyInterop = `
+      import { strict as assert } from "node:assert";
+      import { webcrypto } from "node:crypto";
+      import * as stable from "stable-wallet";
+      import * as preview from "next-wallet";
+      import * as stableConnect from "stable-wallet/connect";
+      import * as previewConnect from "next-wallet/connect";
+      import * as stableCapabilities from "stable-wallet/capabilities";
+      import * as previewCapabilities from "next-wallet/capabilities";
+      globalThis.crypto ??= webcrypto;
+
+      const keys = await crypto.subtle.generateKey(
+        { name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]
+      );
+      const publicKey = await crypto.subtle.exportKey("jwk", keys.publicKey);
+      const issuer = await stable.identityFor(publicKey);
+      assert.equal(await preview.identityFor(publicKey), issuer);
+      const identity = { id: issuer, publicKey, privateKey: keys.privateKey };
+
+      const stableEnvelope = await stable.signEnvelope(identity, "compatibility/cross-version", { value: "stable" });
+      const previewEnvelope = await preview.signEnvelope(identity, "compatibility/cross-version", { value: "preview" });
+      assert.equal(await preview.verifyEnvelope(stableEnvelope, { expectedIssuer: issuer }), true);
+      assert.equal(await stable.verifyEnvelope(previewEnvelope, { expectedIssuer: issuer }), true);
+
+      const stableRequest = await stableConnect.createPermissionRequest(
+        "https://compatibility.example", ["messages.send", "presence.read"]
+      );
+      assert.equal(await previewConnect.verifyPermissionRequest(stableRequest, { expectedOrigin: stableRequest.audience }), true);
+      const previewConsent = await previewConnect.approvePermissionRequest(identity, stableRequest, ["messages.send"]);
+      const stableConsentGuard = new stableConnect.NonceGuard();
+      const stableConsentOptions = {
+        expectedOrigin: stableRequest.audience,
+        expectedWallet: issuer,
+        nonceGuard: stableConsentGuard,
+      };
+      assert.equal(await stableConnect.verifyPermissionConsent(previewConsent, stableRequest, stableConsentOptions), true);
+      assert.equal(await stableConnect.verifyPermissionConsent(previewConsent, stableRequest, stableConsentOptions), false);
+
+      const previewRequest = await previewConnect.createPermissionRequest(
+        "https://compatibility.example", ["messages.send"]
+      );
+      const stableConsent = await stableConnect.approvePermissionRequest(identity, previewRequest, ["messages.send"]);
+      assert.equal(await previewConnect.verifyPermissionConsent(stableConsent, previewRequest, {
+        expectedOrigin: previewRequest.audience,
+        expectedWallet: issuer,
+        nonceGuard: new previewConnect.NonceGuard(),
+      }), true);
+      await assert.rejects(() => previewConnect.approvePermissionRequest(identity, previewRequest, ["presence.read"]));
+
+      const grantInput = {
+        recipient: "agent:recipient",
+        resource: "room:compatibility",
+        capabilities: ["messages.send"],
+        expiresAt: Date.now() + 60_000,
+      };
+      const stableGrant = await stableCapabilities.createCapabilityGrant(identity, grantInput);
+      const previewGrant = await previewCapabilities.createCapabilityGrant(identity, grantInput);
+      const grantOptions = {
+        expectedIssuer: issuer,
+        expectedRecipient: "agent:recipient",
+        resource: "room:compatibility",
+        requiredCapability: "messages.send",
+      };
+      assert.equal(await previewCapabilities.verifyCapabilityGrant(stableGrant, grantOptions), true);
+      assert.equal(await stableCapabilities.verifyCapabilityGrant(previewGrant, grantOptions), true);
+      assert.equal(await previewCapabilities.verifyCapabilityGrant(stableGrant, { ...grantOptions, expectedRecipient: "agent:other" }), false);
+      console.log("Stable 0.1.1 and beta wallet interoperate across signatures, scoped consent, replay protection, and delegated grants");
+    `;
+    execFileSync("node", ["--input-type=module", "--eval", verifyInterop], {
+      cwd: compatibilityDirectory,
+      encoding: "utf8",
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+  }
 } finally {
   await rm(temporaryDirectory, { recursive: true, force: true });
 }
