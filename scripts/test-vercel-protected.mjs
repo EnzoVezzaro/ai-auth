@@ -12,7 +12,10 @@ const request = async (path, options = {}) => {
     headers: { ...trustedHeaders, ...options.headers },
     signal: AbortSignal.timeout(15_000),
   });
-  if (!response.ok) throw new Error(`${path} returned HTTP ${response.status}`);
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`${path} returned HTTP ${response.status}: ${detail}`);
+  }
   return response;
 };
 
