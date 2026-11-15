@@ -103,6 +103,36 @@ test("connect instruction accepts an explicit room and SDK source", () => {
   );
 });
 
+test("connect instruction uses the wallet's canonical capability names", () => {
+  const instruction = createAIAuthConnectInstruction({
+    ...baseOptions,
+    capabilities: [
+      "tools.invoke",
+      "presence.read",
+      "tools.invoke",
+      "resource:read",
+      "api/read",
+    ],
+  });
+  assert.deepEqual(instruction.capabilities, [
+    "api/read",
+    "presence.read",
+    "resource:read",
+    "tools.invoke",
+  ]);
+  for (const malformed of ["presence.", "presence..read", ".presence", "tools/", "tools__invoke"]) {
+    assert.throws(
+      () =>
+        createAIAuthConnectInstruction({
+          ...baseOptions,
+          capabilities: ["presence.read", malformed],
+        }),
+      /capability names/u,
+      `Invalid capability must be rejected: ${malformed}`,
+    );
+  }
+});
+
 test("connect instruction rejects unsafe origins, wallets, and rooms", () => {
   assert.throws(
     () =>
