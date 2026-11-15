@@ -120,7 +120,13 @@ test("connect instruction uses the wallet's canonical capability names", () => {
     "resource:read",
     "tools.invoke",
   ]);
-  for (const malformed of ["presence.", "presence..read", ".presence", "tools/", "tools__invoke"]) {
+  for (const malformed of [
+    "presence.",
+    "presence..read",
+    ".presence",
+    "tools/",
+    "tools__invoke",
+  ]) {
     assert.throws(
       () =>
         createAIAuthConnectInstruction({
