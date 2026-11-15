@@ -87,3 +87,9 @@ This release adds a source client for the local Worker prototype. It does not im
 - Add `createAgentDescriptor`, `verifyAgentDescriptor`, `createInstanceId`, `bindInstance`, `verifyInstanceBinding` and `createCloneDetector` (`clone-suspected` diagnostics).
 - Add membership `duration` kinds (`short`, `configured`, `long`, `until-revoked`), the authorization epoch (`bumpEpoch`, `observeEpoch`), short-lived execution grants and the fail-closed `authorizeProtected`.
 - Add signed `ai-auth-revocation` records and `createRevocationGossip(room)` for peer-to-peer propagation. Document the offline consistency limits in `docs/SECURITY.md`.
+
+- Interaction wheel: choose "everyone in public room" or one verified recipient (short fingerprint derived from the wallet public key, online/offline from connection state). Targeted messages carry a signed `target`; receivers drop messages addressed to another wallet.
+- Add signed `ai-auth-receipt` v1 delivery receipts and message states `composing`, `queued`, `sent-to-transport`, `received-by-peer` (only after a valid signed receipt), `failed`, and `expired`, with bounded history. A receipt does not prove a human read the message.
+- Wheel privacy: preview before sending, public-room warning, and default blocking of password, credential-autocomplete, `contenteditable`, `[data-private]`, and `[data-ai-auth-private]` regions.
+- Wheel accessibility: dialog role and labels, focus trap and restore, Escape to close, disabled controls with explanations, cancel-recording control, all capture tracks stopped on close, and safe-area aware positioning.
+- New additive exports: `verifyReceipt`, `createDeliveryLedger`, `buildReceiptPayload`, `isAddressedTo`, `isSensitiveElement`, `extractSafeText`, and related constants and types.

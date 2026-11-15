@@ -693,6 +693,9 @@ try {
   );
   await siteA.getByRole("button", { name: "Share element" }).click();
   await siteA.locator("#share-target").click();
+  // The wheel previews every share before it is sent.
+  await siteA.locator('[data-action="confirm"]').waitFor({ timeout: 10_000 });
+  await siteA.locator('[data-action="confirm"]').click();
   await siteB.waitForFunction(
     () =>
       window.__transfers.some(
@@ -704,6 +707,8 @@ try {
     { timeout: 30_000 },
   );
   await siteA.getByRole("button", { name: "Screenshot" }).click();
+  await siteA.locator('[data-action="confirm"]').waitFor({ timeout: 10_000 });
+  await siteA.locator('[data-action="confirm"]').click();
   try {
     await siteB.waitForFunction(
       () =>
@@ -722,9 +727,10 @@ try {
       .evaluate((host) => ({
         status: host.shadowRoot.querySelector(".status").textContent,
         captureCalls: host.ownerDocument.defaultView.__fakeScreenCaptureCalls,
-        screenshotDisabled: host.shadowRoot.querySelector(
-          '[data-action="screenshot"]',
-        ).disabled,
+        screenshotDisabled:
+          host.shadowRoot
+            .querySelector('[data-action="screenshot"]')
+            .getAttribute("aria-disabled") === "true",
       }));
     throw new Error(
       `Screenshot was not shared. Wheel diagnostics: ${JSON.stringify(status)}`,
@@ -739,6 +745,8 @@ try {
   });
   await delay(1_000);
   await siteA.getByRole("button", { name: "Stop recording" }).click();
+  await siteA.locator('[data-action="confirm"]').waitFor({ timeout: 10_000 });
+  await siteA.locator('[data-action="confirm"]').click();
   try {
     await siteB.waitForFunction(
       () =>

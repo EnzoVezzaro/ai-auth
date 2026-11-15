@@ -74,6 +74,7 @@
     "test:all": "npm test && npm test --prefix packages/runtime && npm test --prefix packages/mcp",
     "test:e2e": "npm run build && node --test tests/e2e.test.mjs && node scripts/test-browser-e2e.mjs",
     "test:browser:e2e": "node scripts/test-browser-e2e.mjs",
+    "test:browser:wheel": "node scripts/test-wheel-browser.mjs",
     "verify:packages": "node scripts/verify-npm-package.mjs . @enzovezzaro/ai-auth-wallet @enzovezzaro/ai-auth-wallet/agent-connect && node scripts/verify-npm-package.mjs packages/runtime @enzovezzaro/ai-auth-runtime && node scripts/verify-npm-package.mjs packages/mcp @enzovezzaro/ai-auth-mcp",
     "format": "prettier --write \"packages/p2p/*.{js,d.ts}\" \"packages/runtime/**/*.{js,d.ts,mjs}\" packages/runtime/README.md packages/runtime/CHANGELOG.md \"packages/mcp/**/*.{js,d.ts,mjs}\" \"scripts/*.mjs\" \"tests/*.mjs\" \"docs/*.md\" README.md CHANGELOG.md index.html landing.css styles.css apps/p2p/app.js package.json",
     "format:check": "prettier --check \"packages/p2p/*.{js,d.ts}\" \"packages/runtime/**/*.{js,d.ts,mjs}\" packages/runtime/README.md packages/runtime/CHANGELOG.md \"packages/mcp/**/*.{js,d.ts,mjs}\" \"scripts/*.mjs\" \"tests/*.mjs\" \"docs/*.md\" README.md CHANGELOG.md index.html landing.css styles.css apps/p2p/app.js package.json",

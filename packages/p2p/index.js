@@ -554,3 +554,18 @@ export {
   MAX_DESCRIPTOR_TTL_MS,
   DEFAULT_DESCRIPTOR_TTL_MS,
 } from "./agent-identity.js";
+
+export {
+  RECEIPT_TYPE,
+  RECEIPT_VERSION,
+  MESSAGE_STATES,
+  buildReceiptPayload,
+  verifyReceipt,
+  createDeliveryLedger,
+  isAddressedTo,
+} from "./receipts.js";
+export {
+  SENSITIVE_SELECTOR,
+  isSensitiveElement,
+  extractSafeText,
+} from "./wheel-redaction.js";

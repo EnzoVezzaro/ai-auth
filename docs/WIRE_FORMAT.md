@@ -100,3 +100,17 @@ The room topic (`ai-auth-v1-<sha256(appId, origin, room)>`) is public. It is dis
 ## Protocol 1 objects (0.5.0)
 
 Membership, execution-grant, revocation, agent-descriptor and instance-binding objects are standalone signed objects, not wallet envelopes. Each has `type` and `v`, a per-type signature domain string, and the same canonicalization and ECDSA P-256/SHA-256 signature as above. Their fields, validation rules and security boundaries are in `docs/PROTOCOL.md`. Revocations travel as the room event `revocation/gossip` with payload `{ "revocation": <ai-auth-revocation> }`.
+
+## Delivery receipt (`ai-auth-receipt`, v1)
+
+A receipt is an ordinary signed room envelope. It is issued by the **receiver** and acknowledges one collaboration message.
+
+- `body.type`: `"ai-auth-receipt"`.
+- `body.issuer`: the receiver wallet id.
+- `body.payload`: `v: 1`, `messageId` (UUID of the acknowledged message), `sender` (wallet id that sent the message), `receiver` (must equal `body.issuer`), `receivedAt` (milliseconds), plus the standard peer-event fields `room`, `origin`, `session`, `nonce`, and `expiresAt`.
+
+Message ids and optional targets travel inside the signed payload of `collab/text`, `collab/element`, and every `collab/attachment` chunk: `messageId` (for attachments, equal to the transfer `id`) and optional `target` (a wallet id). A receiver whose wallet id differs from a present `target` drops the message and sends no receipt; a malformed `target` is also dropped.
+
+A sender accepts a receipt only if all of these hold: valid signature by the receiver key, issuer derived from that key, `receiver` equals the issuer and differs from the sender, `sender` is the local wallet, `room` and `origin` match exactly, the nonce is unused, the `messageId` is a message this sender sent, the receiver is the target (when the message was targeted), the receipt arrives within the three-minute receipt window, and that receiver has not already acknowledged the message. Receivers acknowledge only messages addressed to them, after accepting them.
+
+A receipt proves that the receiver's wallet key signed an acknowledgement of that message id in that room and origin. It does **not** prove that a human saw, read, or understood the content, and a receiver can sign without displaying it. Senders show "received-by-peer" only after a valid receipt and never otherwise; a lost receipt leaves the message at "sent-to-transport" and later "expired".

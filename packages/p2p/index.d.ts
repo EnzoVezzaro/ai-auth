@@ -580,3 +580,24 @@ export * from "./links.js";
 export * from "./membership.js";
 export * from "./revocation.js";
 export * from "./agent-identity.js";
+export {
+  RECEIPT_TYPE,
+  RECEIPT_VERSION,
+  MESSAGE_STATES,
+  buildReceiptPayload,
+  verifyReceipt,
+  createDeliveryLedger,
+  isAddressedTo,
+} from "./receipts.js";
+export type {
+  MessageState,
+  DeliveryEntry,
+  DeliveryLedger,
+  ReceiptPayload,
+  VerifiedReceipt,
+} from "./receipts.js";
+export {
+  SENSITIVE_SELECTOR,
+  isSensitiveElement,
+  extractSafeText,
+} from "./wheel-redaction.js";
