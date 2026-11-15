@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1 - 2026-11-15
+
+- Dispose wallet sessions when a connection ends and prevent orphaned handshakes from leaving pending wallet state behind.
+- Normalize capabilities consistently with signed requests.
+
 ## 0.4.0 - 2026-11-15
 
 - Add the site connect surface: `createAIAuthConnectInstruction` builds the canonical copyable connect instruction for any agent, and `mountAIAuthConnectPanel` renders a self-contained panel that copies the instruction, runs the wallet handshake, and reflects idle, connecting, connected, and disconnected states with the verified identity, approved capability chips, and an expiry countdown.
