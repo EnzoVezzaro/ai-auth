@@ -154,6 +154,7 @@ export function createAIAuthConnectController({ connect, instruction } = {}) {
   const listeners = new Set();
   let state = { status: "idle", error: null };
   let lifecycleUnsubscribe = null;
+  let activeConnection = null;
   let connectingToken = 0;
   let closed = false;
 
@@ -178,7 +179,6 @@ export function createAIAuthConnectController({ connect, instruction } = {}) {
   }
 
   function attachConnection(connection) {
-    if (closed) return;
     if (
       !connection ||
       typeof connection.onLifecycle !== "function" ||
@@ -186,9 +186,24 @@ export function createAIAuthConnectController({ connect, instruction } = {}) {
     ) {
       throw new TypeError("A connected AI Auth page connection is required");
     }
+    if (closed) {
+      try {
+        connection.close();
+      } catch {}
+      return;
+    }
+    if (activeConnection && activeConnection !== connection) {
+      const previous = activeConnection;
+      detachConnection();
+      activeConnection = null;
+      try {
+        previous.close();
+      } catch {}
+    }
     detachConnection();
+    activeConnection = connection;
     lifecycleUnsubscribe = connection.onLifecycle((event) => {
-      if (closed) return;
+      if (closed || activeConnection !== connection) return;
       if (event?.type === "connected") {
         setState({
           status: "connected",
@@ -202,6 +217,7 @@ export function createAIAuthConnectController({ connect, instruction } = {}) {
       }
       if (event?.type === "disconnected") {
         detachConnection();
+        activeConnection = null;
         setState({
           status: "disconnected",
           reason: event.reason === "expired" ? "expired" : "closed",
@@ -214,13 +230,13 @@ export function createAIAuthConnectController({ connect, instruction } = {}) {
     if (closed) throw new Error("The connect panel controller is closed");
     if (typeof connect !== "function")
       throw new TypeError("A connect function is required to connect");
-    if (state.status === "connecting") return;
+    if (state.status === "connecting" || state.status === "connected") return;
     const token = ++connectingToken;
     detachConnection();
     setState({ status: "connecting" });
     try {
       const connection = await connect();
-      if (token !== connectingToken) {
+      if (closed || token !== connectingToken) {
         try {
           connection?.close?.();
         } catch {}
@@ -241,8 +257,12 @@ export function createAIAuthConnectController({ connect, instruction } = {}) {
     if (state.status !== "connected") return;
     try {
       state.connection.close();
-    } catch {
+    } catch {}
+    // A compliant connection emits "disconnected" on close, but fail closed
+    // even if an external adapter does not emit the lifecycle event.
+    if (state.status === "connected") {
       detachConnection();
+      activeConnection = null;
       setState({ status: "disconnected", reason: "closed" });
     }
   }
@@ -260,9 +280,19 @@ export function createAIAuthConnectController({ connect, instruction } = {}) {
     disconnect,
     setConnection: attachConnection,
     close() {
+      if (closed) return;
       closed = true;
+      ++connectingToken;
+      const connection = activeConnection;
+      activeConnection = null;
       detachConnection();
       listeners.clear();
+      state = { status: "disconnected", reason: "closed" };
+      // Unmounting the panel must not leave an invisible wallet iframe,
+      // signed session, or direct peer transport running.
+      try {
+        connection?.close();
+      } catch {}
     },
   };
 }
