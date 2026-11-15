@@ -274,6 +274,11 @@ async function withLinks(mode, action) {
   }
 }
 
+/** Removes every local link record; used when the wallet identity is forgotten. */
+export async function clearLinkRecords() {
+  await withLinks("readwrite", (store) => store.clear());
+}
+
 export async function approveLink(
   wallet,
   challenge,

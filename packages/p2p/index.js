@@ -1,3 +1,5 @@
+import { clearLinkRecords } from "./links.js";
+
 const encoder = new TextEncoder();
 const STORAGE_NAME = "ai-auth-wallet-v2";
 const STORAGE_VERSION = 1;
@@ -323,6 +325,7 @@ export async function forgetWallet() {
   } finally {
     db.close();
   }
+  await clearLinkRecords();
 }
 
 export function downloadBackup(wallet) {

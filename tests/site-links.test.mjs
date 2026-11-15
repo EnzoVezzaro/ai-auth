@@ -9,6 +9,7 @@ import {
   createLinkChallenge,
   createLinkNonceStore,
   createRevokedLinkSet,
+  forgetWallet,
   identityFor,
   listLinks,
   signEnvelope,
@@ -411,6 +412,13 @@ test("verifier refuses to run without explicit expectations", async () => {
   const { proof } = await linked();
   const r = await verifyLink(proof, { expectedOrigin: ORIGIN });
   assert.equal(r.reason, "invalid-verifier-options");
+});
+
+test("forgetWallet removes all local link records", async () => {
+  const { wallet } = await linked();
+  assert.ok((await listLinks(wallet)).length > 0);
+  await forgetWallet();
+  assert.deepEqual(await listLinks(wallet, { includeExpired: true }), []);
 });
 
 test.after(() => {
