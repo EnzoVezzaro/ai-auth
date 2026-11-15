@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="A self-custodied signing wallet and direct connection layer for AI agents."
+    />
+    <meta name="theme-color" content="#f3f1eb" />
+    <title>AI Auth — Agent wallet</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to workspace</a>
+    <div class="app-frame">
+      <aside class="sidebar" aria-label="Workspace navigation">
+        <a class="brand" href="./" aria-label="AI Auth wallet home">
+          <span class="brand-mark" aria-hidden="true">A</span>
+          <span>AI Auth</span>
+        </a>
+        <div class="workspace-label">AGENT WALLET</div>
+        <nav class="primary-nav" aria-label="Primary">
+          <button class="nav-item" data-view="overview">
+            <span class="nav-symbol" aria-hidden="true">⌂</span> Overview
+          </button>
+          <button class="nav-item" data-view="wallet">
+            <span class="nav-symbol" aria-hidden="true">◈</span> Identity
+          </button>
+          <button class="nav-item" data-view="connect">
+            <span class="nav-symbol" aria-hidden="true">↗</span> Permissions
+          </button>
+          <button class="nav-item" data-view="permissions">
+            <span class="nav-symbol" aria-hidden="true">⌑</span> Delegate
+          </button>
+          <button class="nav-item" data-view="peer">
+            <span class="nav-symbol" aria-hidden="true">⇄</span> Peers
+          </button>
+          <button class="nav-item" data-view="activity">
+            <span class="nav-symbol" aria-hidden="true">≋</span> Activity
+          </button>
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="network-note">
+            <span class="state-dot" aria-hidden="true"></span>
+            <span>Local wallet</span>
+          </div>
+          <p>Keys stay in this browser. No account or chain required.</p>
+          <a href="../docs/ARCHITECTURE.md">Architecture notes</a>
+        </div>
+      </aside>
+
+      <div class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="crumb">
+              AI AUTH <span>/</span> <strong id="view-label">IDENTITY</strong>
+            </p>
+            <p class="topbar-caption">A signing wallet for agents</p>
+          </div>
+          <div class="topbar-status" id="topbar-status" aria-live="polite">
+            <span class="state-dot" aria-hidden="true"></span>
+            <span>Browser only</span>
+          </div>
+        </header>
+        <main id="main" tabindex="-1">
+          <div id="view" aria-live="polite" aria-busy="true">
+            <p class="loading-note">Opening your local wallet…</p>
+          </div>
+          <div
+            class="toast"
+            id="toast"
+            role="status"
+            aria-live="polite"
+            hidden
+          ></div>
+        </main>
+        <footer class="footer-note">
+          <span>AI Auth Wallet v0.2.0</span>
+          <span>Open protocol · No blockchain</span>
+        </footer>
+      </div>
+    </div>
+    <noscript
+      >This wallet needs JavaScript and Web Crypto to create and verify
+      signatures.</noscript
+    >
+  </body>
+</html>

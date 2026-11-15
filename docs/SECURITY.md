@@ -1,19 +1,31 @@
-# Security notes and threat model
+# Security boundaries
 
-## Current local controls
+## Identity and consent
 
-- Local credentials are generated from 256 random bits, expire after 12 hours, and only SHA-256 hashes are stored. Registration returns the plaintext once. Revocation invalidates HTTP use and closes active sockets. An optional generic OIDC JWT verifier validates issuer, audience, signature, expiry, and required claims before mapping an identity.
-- Request bodies are limited to 16 KiB. Zod validates route inputs; SQLite queries are parameterized. CORS defaults to disabled. WebSockets validate a supplied origin against `CORS_ORIGIN` when an Origin header is present.
-- Private sessions are filtered from public presence/broadcasts/counters and cannot publish into shared rooms. Shared collaboration data is not tenant-isolated in this version.
-- The SDK authenticates WebSockets with a one-use, room-bound ticket expiring in 30 seconds. A legacy query-token path remains for local opaque credentials and should not be used outside localhost.
-- No bearer token is included in audit payloads.
+An ECDSA signature proves that the corresponding private key signed a specific canonical record. It does not establish a human identity, prove a person read the request, make an agent trustworthy, or grant access to a site's resources.
 
-## Material limitations
+The wallet stores a non-extractable Web Crypto key in origin-scoped IndexedDB. First-time creation briefly generates exportable key material so it can create an AES-GCM encrypted recovery file before storing the non-extractable key. Same-origin JavaScript can still ask the wallet to sign. Protect the wallet origin from XSS, compromised dependencies, and malicious extensions.
 
-This is a localhost development service, not a secure multi-tenant deployment. Registration is unauthenticated. The optional OIDC adapter verifies JWT access tokens only; interactive OIDC, PKCE, per-action scopes, provider-side revocation, external provider integration tests, and tenant isolation are absent. There is no admin/user organization model, CSRF-protected cookie flow, distributed rate limit, signed/tamper-evident audit chain, encryption-at-rest key management, retention policy, OpenTelemetry, or production secret management. CORS origin checking does not replace authentication and a missing Origin header is allowed for non-browser clients. Private mode is claim/self-declared and not an organization policy. AAPP connections and presence are process-local.
+The site must verify the consent signature, expected wallet, exact audience, one-use nonce, expiry, and requested capability subset. It must enforce authorization for its own resources. Do not treat client-side consent as server-side authorization.
 
-Do not bind to a public interface, use real credentials, expose privileged agent tokens in browser code, or treat a lock as enforcement of a protected resource. Before deployment, replace open registration with an administrator-controlled provisioning/OIDC flow, use short-lived audience/scope-restricted credentials, add tenant and room authorization on every query, secure WebSocket ticket exchange, rate limits, CSP guidance, audit integrity/retention, and external security review.
+## Signed collaboration events
 
-## Threat coverage status
+Signed events include protocol version, type, issuer, creation time, origin, room, wallet session, nonce, and expiry. Receivers verify the public-key identity, signature, expiry, room, origin, and replay state. Room limits cap active peers, channels, and accepted inbound event rates. Events with a known capability are rejected unless that capability was approved for the session.
 
-Input validation, credential hashing, direct agent identity assignment, revocation, basic private event filtering, parameterized SQL, and lock conflict transactions have code paths. Automated coverage currently checks missing credentials, messaging identity, private visibility/counters, lock conflicts, and revocation. Token replay, origin bypass, cross-tenant access, rate limiting, malicious MCP descriptions, XSS at integration sites, and distributed races are not comprehensively tested or solved.
+WebRTC encrypts the data channel in transit. Signatures authenticate event authorship; they do not make message contents safe. Validate each action payload before using it. Never execute received content as code or interpret an action event as an authorization grant.
+
+## Discovery and privacy
+
+Public Nostr relays carry discovery and signaling metadata, not the signed collaboration event stream. Relay operators can observe participation, timing, and room-topic hashes. The hash is not a secret, and knowing a room name does not grant permission. Do not put private information in room names or labels.
+
+Direct WebRTC uses public STUN servers to discover possible network paths. No TURN service or third-party data relay is configured. Some NATs and firewalls will prevent a direct connection; this MVP reports the failure and does not route application data through a relay.
+
+Private mode stops this wallet session from joining the public room. It cannot erase events already received by another peer or hide activity from the browser, extensions, operating system, or hosting provider.
+
+## Recovery and WebMCP
+
+Store the encrypted recovery file separately from the browser profile and use a strong unique passphrase. AI Auth has no password reset service. Clearing browser data without the recovery file permanently loses the wallet.
+
+WebMCP is the primary in-page tool surface and is feature-detected. Page tools require the active connection object returned by `connectAIAuthPopup`; a plain consent-shaped object is not accepted. The connection enters a private in-memory trust map only after its wallet signature, origin, nonce, and expiry have been verified. Tool registration requires `tools.invoke`; other scopes do not authorize page-tool invocation. Closing or expiring the connection aborts registered tools, and execution rechecks the active wallet approval. Keep the JavaScript API available for browsers without WebMCP. Tool results and human intervention must be handled by the site.
+
+The popup connection automatically closes when its signed consent expires. Sites must start a new request and obtain a new wallet approval to continue collaboration.

@@ -1,5 +1,0 @@
-# MCP integration status
-
-The repository includes a stdio MCP server using the official TypeScript SDK v2 (`@modelcontextprotocol/server`) and a real client integration test. Set `AI_AUTH_TOKEN` to a dedicated local agent token and optionally `AI_AUTH_URL` to the API origin, then run `npm run dev:mcp`. It exposes `ai_auth.whoami`, `ai_auth.list_agents`, `ai_auth.set_status`, `ai_auth.set_activity`, `ai_auth.send_message`, `ai_auth.request_handoff`, `ai_auth.acquire_lock`, `ai_auth.release_lock`, and the `ai-auth://presence` resource. Each operation uses the bearer credential and existing API authorization. The test client discovers and invokes tools against the running test service. This is a local stdio adapter, not an OAuth-protected remote MCP endpoint.
-
-The MCP server requires a local agent token in its environment; it never accepts a token as a tool argument or returns it. It does not expose website-specific actions or cookies/secrets. MCP is separate from AAPP WebSocket presence and does not itself authorize protected website actions.

@@ -1,0 +1,67 @@
+name: Release AI Auth
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - name: Require a main-branch commit
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - run: npm ci
+      - name: Install local MCP dependencies
+        run: npm ci
+        working-directory: packages/mcp
+      - name: Run wallet, runtime, and MCP suites
+        run: npm run test:all
+      - name: Install Chromium for browser collaboration E2E
+        run: npx playwright install --with-deps --only-shell chromium
+      - name: Run browser collaboration E2E
+        run: npm run test:e2e
+      - name: Build landing page, wallet, SDK, and docs
+        run: npm run build
+      - name: Verify npm package contents and imports
+        run: npm run verify:packages
+      - name: Check formatting and whitespace
+        run: |
+          npm run format:check
+          git diff --check
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
+      - name: Audit MCP production dependencies
+        run: npm audit --omit=dev
+        working-directory: packages/mcp
+      - name: Package the static site for the GitHub release
+        run: tar -czf "ai-auth-static-site-${GITHUB_REF_NAME}.tar.gz" -C dist-p2p .
+      - name: Verify npm packages were published
+        run: |
+          npm view "@enzovezzaro/ai-auth-wallet@$(node -p 'require("./package.json").version')" version
+          npm view "@enzovezzaro/ai-auth-runtime@$(node -p 'require("./packages/runtime/package.json").version')" version
+          npm view "@enzovezzaro/ai-auth-mcp@$(node -p 'require("./packages/mcp/package.json").version')" version
+      - name: Create the GitHub release with the static site archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes "ai-auth-static-site-${GITHUB_REF_NAME}.tar.gz"

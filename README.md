@@ -1,87 +1,88 @@
 # AI Auth
 
-AI Auth is a local-first service for agent identity, live presence, room messaging, task handoff, advisory resource locks, and persistent audit history. This repository contains an early, working local MVP. External identity providers and the full product vision are not implemented.
+AI Auth is a self-custodied identity wallet and collaboration SDK for AI agents. Agents keep signing keys in their own browser storage. A site requests specific capabilities, the wallet owner approves a subset, and the site remains responsible for enforcing access to its own resources.
 
-## Start locally
+AI Auth operates no authentication server, database, or collaboration backend. The website is the logical collaboration hub: wallet-approved agents on the same site join its shared public space. Public Nostr relays coordinate discovery and WebRTC signaling; signed collaboration events travel over direct WebRTC data channels. No blockchain or cryptocurrency is involved.
 
-Requires Node.js 22+ and npm. No paid credentials or external database are required.
+## Run the wallet
+
+Requirements: Node.js 22 or newer and npm.
 
 ```sh
 npm ci
 npm run dev
 ```
 
-The API listens at `http://127.0.0.1:3333`, persists to `./data/ai-auth.sqlite`, and serves the dashboard at `/dashboard`. `AI_AUTH_DB` changes the database file. Browser origins are blocked by default; set `CORS_ORIGIN` to an explicit comma-separated allowlist. Set `HOST=0.0.0.0` only for local network access.
+Open the site root for the product landing page, `/wallet/` for the local wallet, and `/docs/ARCHITECTURE.md` for architecture. The command builds and serves static files only. The wallet starts in private mode; enable public collaboration when you want to join the current page's shared space.
 
-Open `/demo` for the local website with the explicit WebMCP test tool, `/docs` for the short guide, and `/dashboard` for authenticated activity.
+## Connect a site
 
-## Register and connect an agent
+The browser bundle is generated at `dist-p2p/ai-auth.js`. In a site build, bundle the SDK as an ES module or load that browser bundle from your static AI Auth wallet host:
 
-```sh
-curl -s http://127.0.0.1:3333/v1/agents/register \
-  -H 'content-type: application/json' \
-  -d '{"name":"Writer","runtime":"example-runtime","category":"autonomous_agent"}'
-```
+```js
+import {
+  connectAIAuthPopup,
+  mountAIAuthCollaboration,
+  registerAIAuthPageActions,
+} from "@enzovezzaro/ai-auth-wallet";
 
-The bearer token is shown only once; only its SHA-256 hash is stored. Categories distinguish autonomous agents, browser automation, simulated test clients, and human users. These local credentials are not OIDC identities. Registration is intentionally open for a single-user development service and must not be exposed publicly.
+const connection = await connectAIAuthPopup({
+  walletUrl: "https://wallet.example/wallet/",
+  capabilities: ["presence.read", "tools.invoke"],
+  room: "project-room",
+});
 
-Authenticated endpoints use `Authorization: Bearer <token>`. The SDK obtains a one-use, room-bound WebSocket ticket that expires after 30 seconds. The legacy token-in-URL path remains for local-only compatibility. Public sessions can exchange messages/tasks/locks in shared rooms. A private session is omitted from public presence, connection events, and counters, and is blocked from shared room writes. Private state still creates restricted per-agent security audit records.
+const removeCursorOverlay = mountAIAuthCollaboration(connection);
 
-## Website snippet
-
-Serve the SDK from the local service:
-
-```html
-<script
-  src="http://localhost:3333/sdk/ai-auth.js"
-  data-site="my-website"
-  defer
-></script>
-<script>
-  document.addEventListener(
-    "DOMContentLoaded",
-    () => {
-      AIAuth.init({
-        baseUrl: "http://localhost:3333",
-        token: agentToken,
-        room: "workspace",
-      });
-      AIAuth.presence.subscribe((event) => console.log(event));
+const pageActions = await registerAIAuthPageActions({
+  connection,
+  actions: [
+    {
+      name: "workspace.summary",
+      description: "Summarize the current workspace.",
+      inputSchema: { type: "object", properties: {} },
+      requiredCapability: "tools.invoke",
+      readOnly: true,
+      execute: async () => ({ summary: "Site-specific result" }),
     },
-    { once: true },
-  );
-</script>
+  ],
+  publishAction: (event) =>
+    connection.publishAction({
+      name: event.name,
+      state: event.state,
+      summary: event.summary,
+    }),
+});
+
+connection.onEvent((event) => {
+  // Verify the event's site-specific effects before acting on them.
+  console.log(event.body.type, event.body.payload);
+});
+
+// When the page is done:
+pageActions.close();
+removeCursorOverlay();
+connection.close();
 ```
 
-The script alone does not authenticate a website visitor or create files/routes on the website's origin. The token must come from a trusted agent runtime. Do not embed a privileged long-lived credential in public HTML.
+The wallet opens from a user gesture, presents the site's requested capabilities, and signs only the selected subset. Use HTTPS outside local development. The popup and relying page must share a live `window.opener` relationship. See [the architecture](docs/ARCHITECTURE.md), [security boundaries](docs/SECURITY.md), [wire format](docs/WIRE_FORMAT.md), and [wallet recovery](docs/RECOVERY.md).
 
-## Local functionality
+The default public space is keyed by the exact website origin and the `default` room name, so wallets connecting to the same site discover one another. A site can pass the same explicit `room` key to group agents into another space. This public space is a client-side coordination boundary, not an AI Auth-hosted hub or an authorization boundary; each site must enforce access to its own resources.
 
-- `POST /v1/agents/register`, `GET /v1/me`, `POST /v1/revoke`, `POST /v1/status`
-- `GET /v1/presence?room=workspace`, `GET /v1/events?token=…&room=…`
-- Room messages, task creation and updates, advisory locks with 5–300 second leases
-- Per-agent `GET /v1/audit`; authenticated summary at `GET /v1/analytics`
-- `/.well-known/ai-auth`, `/agents.txt`, `/dashboard`, `/sdk/ai-auth.js`
-- `GET /demo` serves the explicitly authored demo site; `AIAuth.webmcp` uses native WebMCP when present and an in-page compatibility adapter otherwise
-- `npm run dev:mcp` starts an official-SDK MCP stdio server when `AI_AUTH_TOKEN` is set; it uses the same authenticated API
+## Optional local integrations
 
-For MCP, first start the API and register an agent, then configure your MCP client to launch `npm run dev:mcp` with `AI_AUTH_TOKEN` set to that agent's token. `AI_AUTH_URL` defaults to `http://127.0.0.1:3333`. The token is process configuration and is not accepted as a tool parameter.
+WebMCP is the primary in-page agent tool surface: the site registers its own actions, wallet-approved scopes limit which actions appear, and signed action lifecycle events enter the site's shared space. The SDK feature-detects WebMCP and retains a JavaScript API fallback. WebMCP handles tool invocation; direct WebRTC carries peer collaboration. `@enzovezzaro/ai-auth-mcp` and `@enzovezzaro/ai-auth-runtime` are optional local integrations and are not required for a website or hosted service.
 
-## Install from npm
+## Network limits
 
-The server package is `@enzovezzaro/ai-auth-server`; the browser SDK package is `@enzovezzaro/ai-auth`. Install the server package and run `npx ai-auth-server`. For a script tag, serve `/sdk/ai-auth.js` from the server or use the SDK package's `./script` export. The SDK module entry is browser-only and expects `window` and `document`.
+Nostr relay operators can observe participation and timing metadata. The hashed room topic is not a secret or an authorization boundary. No TURN server is configured. Collaboration data uses direct WebRTC only, so peers behind restrictive NATs or firewalls may fail to connect.
 
-Locks are coordination hints; the protected website must enforce its own transaction or authorization. Room/site isolation and administrator roles are not yet implemented: this is a single-site local service. Audit rows are durable SQLite records but are not tamper-evident. Cursor sharing, OpenTelemetry, external OIDC, and autonomous LLM browser-agent workflows are not implemented. MCP stdio and the demo's native WebMCP tool have been exercised locally; this does not imply remote MCP authorization or general browser compatibility.
-
-## Checks
+## Development checks
 
 ```sh
 npm test
-npm run test:security
-npm run test:load
-npm run typecheck
 npm run build
-npm run format:check
+npm run test:browser:e2e
 ```
 
-See [the protocol](docs/PROTOCOL.md), [API reference](docs/API.md), [security notes](docs/SECURITY.md), [MCP guide](docs/MCP.md), [WebMCP guide](docs/WEBMCP.md), [research record](docs/RESEARCH.md), and [test record](docs/TESTING.md). The [machine-readable test report](docs/test-report.json) lists passed and unrun work separately.
+The browser E2E uses two isolated wallets and public relay/WebRTC connectivity. It currently requires network paths that allow direct ICE; do not interpret peer discovery alone as a successful collaboration session. Release status and remaining work are tracked in [the implementation plan](docs/IMPLEMENTATION_PLAN.md).
