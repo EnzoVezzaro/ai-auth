@@ -1,5 +1,11 @@
 # AI Auth implementation plan
 
+## Current verified status (2026-11-14)
+
+This is still an early local MVP, not completion of the master-prompt definition of done. Verified: SQLite-backed local credentials (12-hour expiry and revocation), AAPP/1 WebSocket presence and room messaging, public/private filtering, task assignment, advisory locks, one-page developer dashboard, served browser SDK, official-SDK stdio MCP tools, a native WebMCP demo tool in a compatible preview browser context, restart persistence, and 10/50/100 simulated-client measurements. `npm ci`, `npm test`, `npm run typecheck`, `npm run build`, and production dependency audit passed.
+
+Still outstanding: tenant and room authorization, administrator provisioning, OAuth/OIDC and auth.md compatibility, Keycloak/vendor adapter tests, secure WebSocket ticket exchange, activity/analytics expansion beyond local counters, OpenTelemetry, PostgreSQL/Redis, Next.js integration, 50+ agent collaboration UI, cursor sharing, robust MCP remote auth, Playwright/axe, reconnect/heartbeat security coverage, k6/CPU/cluster benchmarks, and the three-autonomous-LLM workflow. The last remains unverified without an LLM runtime and credentials; simulated clients do not count. See [test report](test-report.json), [known limitations](KNOWN_LIMITATIONS.md), and [security notes](SECURITY.md).
+
 ## Product boundary
 
 Build an independently runnable local MVP in vertical slices. The local path must not require paid provider credentials. Provider integrations remain optional adapters and are added only when they enable a validated user flow.
@@ -33,7 +39,3 @@ Start with one TypeScript service and a local SQLite database. This keeps setup 
 ## Acceptance gates
 
 Each slice must have a runnable local workflow and behavioral coverage before expanding. The first end-to-end gate is: two authenticated clients connect; one writes a message; the other receives it; the action appears in persistent audit history and remains after service restart. Mocked adapters do not count as external integration evidence.
-
-## Research notes
-
-Superpowers is a skills-based software development methodology. Its documented workflow uses design approval, an implementation plan, and small test-first tasks. This plan applies the small-slice and evidence gates; the master prompt already supplies the product direction and authorization to start.

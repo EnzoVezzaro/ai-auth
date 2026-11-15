@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>AI Auth demo website</title>
+    <style>
+      body {
+        margin: 0;
+        background: #f5f6f0;
+        color: #182221;
+        font:
+          16px/1.6 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 760px;
+        margin: 48px auto;
+        padding: 0 20px;
+      }
+      article {
+        background: #fff;
+        border: 1px solid #d6ded7;
+        border-radius: 10px;
+        padding: 20px;
+        margin: 16px 0;
+      }
+      label {
+        display: block;
+        margin: 10px 0 4px;
+      }
+      input,
+      button {
+        font: inherit;
+        padding: 9px 11px;
+        border: 1px solid #c6d2c9;
+        border-radius: 6px;
+      }
+      button {
+        background: #176b56;
+        color: #fff;
+        cursor: pointer;
+      }
+      #note {
+        padding: 14px;
+        background: #edf2ed;
+        border-radius: 6px;
+      }
+      a {
+        color: #176b56;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a href="/">AI Auth</a>
+      <h1>Demo website</h1>
+      <p>
+        This page explicitly exposes one harmless page-state action as a WebMCP
+        tool. No page labels are scanned and no other site capabilities are
+        inferred.
+      </p>
+      <article>
+        <h2>Agent connection</h2>
+        <label for="token">Local agent token</label
+        ><input id="token" type="password" autocomplete="off" /><label
+          for="room"
+          >Room</label
+        ><input id="room" value="workspace" /><button id="connect">
+          Connect presence
+        </button>
+        <p id="connection" role="status">Disconnected</p>
+        <p id="presence"></p>
+      </article>
+      <article>
+        <h2>Website tool</h2>
+        <p id="note">Current page note: untouched</p>
+        <p id="native"></p>
+        <button id="invoke">
+          Run declared tool using browser WebMCP if available
+        </button>
+        <p class="muted">
+          The test tool only changes the visible note on this page.
+        </p>
+      </article>
+      <p><a href="/dashboard">Open the developer dashboard</a></p>
+    </main>
+    <script src="/sdk/ai-auth.js"></script>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      let unregister;
+      const tool = {
+        name: "demo.setNote",
+        title: "Set page note",
+        description:
+          "Set the visible demo note to show a completed browser action. This only changes local page text.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            text: {
+              type: "string",
+              description: "Short note to display on the page",
+            },
+          },
+          required: ["text"],
+          additionalProperties: false,
+        },
+        annotations: { consequentialHint: false },
+        execute: async ({ text }) => {
+          if (typeof text !== "string" || text.length > 120)
+            throw Error("text must be at most 120 characters");
+          $("note").textContent = `Current page note: ${text}`;
+          return { updated: true, text };
+        },
+      };
+      AIAuth.webmcp
+        .registerTool(tool)
+        .then((handle) => {
+          unregister = handle.dispose;
+          $("native").textContent = handle.native
+            ? "Native WebMCP available"
+            : "Native WebMCP unavailable; local adapter is ready";
+        })
+        .catch(
+          (error) =>
+            ($("native").textContent =
+              `Tool registration failed: ${error.message}`),
+        );
+      $("connect").onclick = async () => {
+        try {
+          AIAuth.init({
+            baseUrl: location.origin,
+            token: $("token").value,
+            room: $("room").value,
+          });
+          await AIAuth.agent.whoami();
+          $("connection").textContent =
+            "Connected as " + (await AIAuth.agent.whoami()).agent.name;
+          const p = await AIAuth.presence.list();
+          $("presence").textContent = p.agents.length
+            ? `Public peers: ${p.agents.map((x) => x.name).join(", ")}`
+            : "No public peers currently connected";
+        } catch (error) {
+          $("connection").textContent = error.message;
+        }
+      };
+      $("invoke").onclick = async () => {
+        try {
+          await AIAuth.webmcp.executeTool("demo.setNote", {
+            text: "updated by browser tool",
+          });
+        } catch (error) {
+          $("native").textContent = error.message;
+        }
+      };
+      addEventListener("pagehide", () => unregister?.());
+    </script>
+  </body>
+</html>

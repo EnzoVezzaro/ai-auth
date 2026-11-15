@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>AI Auth · Local dashboard</title>
+    <style>
+      :root {
+        font:
+          15px/1.5 system-ui,
+          sans-serif;
+        color: #182221;
+        background: #f4f6f2;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      .shell {
+        max-width: 1080px;
+        margin: auto;
+        padding: 32px 22px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid #d5ded7;
+        padding-bottom: 18px;
+      }
+      .brand {
+        font-size: 20px;
+        font-weight: 750;
+        letter-spacing: -0.04em;
+      }
+      h1 {
+        letter-spacing: -0.04em;
+        font-size: 32px;
+        margin: 28px 0 4px;
+      }
+      .muted {
+        color: #68756e;
+      }
+      form {
+        margin: 24px 0;
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      input,
+      button {
+        font: inherit;
+        padding: 9px 12px;
+        border: 1px solid #c8d2ca;
+        border-radius: 6px;
+        background: white;
+      }
+      button {
+        background: #176b56;
+        color: white;
+        border-color: #176b56;
+        cursor: pointer;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+      }
+      .card {
+        border: 1px solid #d7dfd8;
+        border-radius: 8px;
+        background: white;
+        padding: 16px;
+      }
+      .value {
+        font-size: 26px;
+        font-weight: 700;
+      }
+      .section {
+        margin-top: 24px;
+      }
+      .list {
+        display: grid;
+        gap: 8px;
+      }
+      .row {
+        border-bottom: 1px solid #e7ebe7;
+        padding: 9px 0;
+      }
+      .error {
+        color: #a52b24;
+      }
+      a {
+        color: #176b56;
+      }
+      @media (max-width: 600px) {
+        .grid {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <div class="brand">AI Auth</div>
+        <a href="/">Demo site</a>
+      </header>
+      <h1>Local activity</h1>
+      <p class="muted">
+        Live presence and persisted service records. Enter an agent credential
+        to view its authorized data.
+      </p>
+      <form id="auth">
+        <label for="token">Agent token</label
+        ><input id="token" type="password" autocomplete="off" required /><label
+          for="room"
+          >Room</label
+        ><input id="room" value="workspace" /><button>Connect</button>
+      </form>
+      <p id="message" class="muted" role="status">Not connected.</p>
+      <section class="grid">
+        <article class="card">
+          <div>Connected agents</div>
+          <div class="value" id="connected">—</div>
+        </article>
+        <article class="card">
+          <div>Active sessions</div>
+          <div class="value" id="sessions">—</div>
+        </article>
+        <article class="card">
+          <div>Recorded actions</div>
+          <div class="value" id="actions">—</div>
+        </article>
+      </section>
+      <section class="section card">
+        <h2>Public room presence</h2>
+        <div id="agents" class="list muted">Connect to load presence.</div>
+      </section>
+      <section class="section card">
+        <h2>Recent audit events</h2>
+        <div id="audit" class="list muted">Connect to load events.</div>
+      </section>
+    </main>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      let timer;
+      async function connect(e) {
+        e.preventDefault();
+        clearInterval(timer);
+        const token = $("token").value,
+          room = $("room").value;
+        const headers = { authorization: `Bearer ${token}` };
+        const load = async () => {
+          try {
+            const [a, p, h] = await Promise.all([
+              fetch("/v1/analytics", { headers }),
+              fetch(`/v1/presence?room=${encodeURIComponent(room)}`, {
+                headers,
+              }),
+              fetch("/v1/audit", { headers }),
+            ]);
+            if (!a.ok || !p.ok || !h.ok)
+              throw Error("Credential rejected or request failed");
+            const av = await a.json(),
+              pv = await p.json(),
+              hv = await h.json();
+            $("connected").textContent = pv.agents.length;
+            $("sessions").textContent = av.activeSessions;
+            $("actions").textContent = av.actions;
+            $("agents").innerHTML = pv.agents.length
+              ? pv.agents
+                  .map(
+                    (x) =>
+                      `<div class="row"><strong>${escapeHtml(x.name)}</strong> · ${escapeHtml(x.runtime)} · ${escapeHtml(x.status)}</div>`,
+                  )
+                  .join("")
+              : "No public agents connected";
+            $("audit").innerHTML =
+              hv.events
+                .slice(0, 20)
+                .map((x) => {
+                  const p = JSON.parse(x.payload);
+                  return `<div class="row"><strong>${escapeHtml(x.kind)}</strong> · ${escapeHtml(x.createdAt)} <span class="muted">${escapeHtml(JSON.stringify(p).slice(0, 160))}</span></div>`;
+                })
+                .join("") || "No events";
+            $("message").textContent = "Connected. Refreshing every 3 seconds.";
+          } catch (err) {
+            $("message").innerHTML =
+              `<span class="error">${escapeHtml(err.message)}</span>`;
+          }
+        };
+        await load();
+        timer = setInterval(load, 3000);
+      }
+      function escapeHtml(x) {
+        return String(x).replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
+        );
+      }
+      $("auth").addEventListener("submit", connect);
+    </script>
+  </body>
+</html>

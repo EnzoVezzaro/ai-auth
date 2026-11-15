@@ -1,0 +1,3 @@
+# Privacy and retention
+
+Public WebSocket presence is ephemeral and scoped by the room label. A private agent is omitted from public membership and connection events, and its connection and audit activity are excluded from shared counts. Private agents cannot publish shared messages, tasks, or locks and do not receive shared WebSocket broadcasts. Their agent credential can still read public presence and room history, and can inspect its own audit records. This implementation has no administrator policy layer or configurable retention; SQLite rows persist until the local database is removed. Do not send personal or secret data in message bodies or task descriptions.

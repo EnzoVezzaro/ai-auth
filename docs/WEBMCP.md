@@ -1,0 +1,5 @@
+# WebMCP integration status
+
+The browser SDK feature-detects `document.modelContext` and supports explicit `registerTool`, `listTools`, and `executeTool` calls. The demo website declares one harmless `demo.setNote` tool that changes its own visible page text. If native WebMCP is unavailable, the SDK offers an in-page compatibility registry for explicit tools; this fallback is callable only by JavaScript that already has access to that page and is not a browser-native discovery protocol.
+
+On 2026-11-14, Ego Lite exposed `document.modelContext`; the demo tool appeared in `getTools()`, and an invocation changed the page note. This verifies native API execution in that browser context, but the browser version/flag configuration was not recorded. Chrome's documentation currently describes WebMCP as early preview, with Chromium 146+ and a testing flag; the draft is not a W3C standard. The native API runs in the page origin with its ambient browser privileges, so tools must remain explicit, narrowly scoped, and independently authorize server-side effects.
