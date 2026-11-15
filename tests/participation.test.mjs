@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test, { afterEach } from "node:test";
 import { webcrypto } from "node:crypto";
 import {
+  authorizeProtected,
   createParticipationPolicy,
+  createRevocation,
+  createRevocationGossip,
   identityFor,
   issueMembership,
   NostrWebRTC,
@@ -462,4 +465,123 @@ test("open mode is unaffected and carries a disclosure", async () => {
       }),
     /must match/u,
   );
+});
+
+async function revocationWorld(t) {
+  const hub = createHub();
+  const ctx = await setup();
+  const bob = await makeWallet("Bob");
+  const owner = await ctx.proofFor(ctx.host.id, {
+    role: "owner",
+    scopes: ["*"],
+  });
+  const hostP = await joinRestricted(hub, ctx, ctx.host, owner);
+  const aliceP = await joinRestricted(
+    hub,
+    ctx,
+    ctx.alice,
+    await ctx.proofFor(ctx.alice.id),
+  );
+  const bobP = await joinRestricted(hub, ctx, bob, await ctx.proofFor(bob.id));
+  for (const p of [hostP, aliceP, bobP]) {
+    const gossip = createRevocationGossip(p.room);
+    p.gossip = gossip;
+    t.after(() => gossip.close());
+  }
+  await waitFor(
+    () =>
+      bobP.room.policy.isMember(ctx.alice.id) &&
+      bobP.room.policy.isMember(ctx.host.id) &&
+      hostP.room.policy.isMember(ctx.alice.id),
+    "everyone admitted",
+  );
+  const revoke = (kind, target) =>
+    createRevocation(ctx.host, { kind, target, origin: ORIGIN, room: ROOM });
+  return { ctx, hostP, aliceP, bobP, revoke };
+}
+
+test("a revocation propagates to a second peer and that identity is then rejected", async (t) => {
+  const { ctx, hostP, aliceP, bobP, revoke } = await revocationWorld(t);
+  await aliceP.room.send("collab/text", { text: "before revoke" });
+  await waitFor(
+    () => bobP.types(ctx.alice.id).includes("collab/text"),
+    "alice text at bob",
+  );
+  const record = await revoke("wallet", ctx.alice.id);
+  assert.equal((await hostP.gossip.publish(record)).applied, true);
+  await waitFor(
+    () => bobP.room.policy.isRevoked("wallet", ctx.alice.id),
+    "revocation at bob",
+  );
+  assert.equal(bobP.room.policy.isMember(ctx.alice.id), false);
+  assert.deepEqual(
+    authorizeProtected({
+      policy: bobP.room.policy,
+      walletId: ctx.alice.id,
+      scope: "tools.invoke",
+    }),
+    { allow: false, reason: "revoked" },
+  );
+  const before = bobP.types(ctx.alice.id).length;
+  await aliceP.room.send("collab/text", { text: "after revoke" });
+  await aliceP.room.send("agent/action", { name: "danger", state: "started" });
+  await tick(20);
+  assert.equal(
+    bobP.types(ctx.alice.id).length,
+    before,
+    "no further events from the revoked wallet",
+  );
+  assert.equal(JSON.stringify(bobP.seen).includes("after revoke"), false);
+  // The revoked wallet cannot rejoin with a fresh, validly signed proof.
+  const fresh = await ctx.proofFor(ctx.alice.id);
+  assert.equal(
+    (await bobP.room.policy.admit(ctx.alice.id, fresh)).reason,
+    "revoked",
+  );
+});
+
+test("gossip over the fake transport is deduplicated and replays are no-ops", async (t) => {
+  const { ctx, hostP, bobP, aliceP, revoke } = await revocationWorld(t);
+  const record = await revoke(
+    "membership",
+    (await ctx.proofFor(ctx.mallory.id)).id,
+  );
+  const countGossip = () =>
+    bobP.inbox().filter((e) => e.body.type === "revocation/gossip").length;
+  await hostP.gossip.publish(record);
+  await waitFor(
+    () => bobP.room.policy.isRevoked("membership", record.target),
+    "applied at bob",
+  );
+  await tick(20);
+  const seenOnce = countGossip();
+  assert.ok(seenOnce >= 1);
+  const settled = hostP.inbox().length + aliceP.inbox().length;
+  // A replay from the host, and a manual re-send by another peer, change nothing.
+  assert.equal((await hostP.gossip.publish(record)).applied, false);
+  await aliceP.room.send("revocation/gossip", { revocation: record });
+  await tick(20);
+  // Bob admitted host and alice; the unrelated revocation evicted nobody.
+  assert.equal(bobP.room.policy.snapshot().length, 2);
+  assert.equal(bobP.gossip.diagnostics().length, 0);
+  // Only the manual re-send reached the wire; the replays were not relayed.
+  assert.equal(hostP.inbox().length + aliceP.inbox().length, settled + 1);
+});
+
+test("a forged revocation over the wire changes nothing", async (t) => {
+  const { ctx, aliceP, bobP } = await revocationWorld(t);
+  const forged = await createRevocation(ctx.mallory, {
+    kind: "wallet",
+    target: ctx.host.id,
+    origin: ORIGIN,
+    room: ROOM,
+  });
+  await aliceP.room.send("revocation/gossip", { revocation: forged });
+  await waitFor(
+    () => bobP.gossip.diagnostics().length > 0,
+    "diagnostic recorded",
+  );
+  assert.equal(bobP.room.policy.isRevoked("wallet", ctx.host.id), false);
+  assert.equal(bobP.room.policy.isMember(ctx.host.id), true);
+  assert.equal(bobP.gossip.diagnostics()[0].reason, "untrusted-issuer");
 });

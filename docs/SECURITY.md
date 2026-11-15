@@ -56,3 +56,15 @@ In restricted rooms, the receiver drops every event from a wallet that has no va
 `remove(walletId)` revokes the admitting proof and takes effect on the next event; the host must issue a fresh proof to re-admit. `block(walletId)` is permanent for the policy instance. Roles (`owner`, `member`, `observer`) govern authorization; any human or agent label is only a claim. Observers may hold only `*.read` scopes.
 
 Limits: membership is checked locally per receiver, proofs are bearer-bound to the subject but are not revoked remotely (use short lifetimes), and a member can still copy content it receives. The same-browser BroadcastChannel carries presence only in restricted rooms.
+
+## Revocation, epochs, and execution grants: offline consistency limits
+
+Authorization in a serverless, peer-to-peer system is eventually consistent. Read these limits before relying on revocation.
+
+- **There is no global, instant revocation.** No AI Auth server can push one. A signed `ai-auth-revocation` record takes effect at a peer only when that peer receives, verifies and applies it. `createRevocationGossip` floods records to the peers connected to the sender, and those peers relay once. A peer that was offline, partitioned, or joined later receives nothing retroactively; there is no catch-up or history sync.
+- **A peer that missed a revocation is bounded by the execution-grant TTL.** Protected operations require a live execution grant (at most 15 minutes, default 5). A peer that never learned of a revocation keeps honoring that identity until its stored grant expires and the site declines to renew it. Sites should choose a short grant TTL for sensitive scopes and stop renewing a revoked identity. Plain membership lifetimes are much longer (up to a year for `until-revoked`), which is why membership alone never authorizes protected operations.
+- **Authorization epochs are local knowledge.** `bumpEpoch` invalidates older proofs and grants only at peers that learn the new epoch (`observeEpoch`, or by holding the policy that bumped it). Epoch values are not gossiped by this release.
+- **Revocation authority.** A record counts only if signed by an issuer in the verifier's trust policy, or by a wallet revoking itself. A forged or wrong-room record is rejected and not relayed. Revocations are permanent for the life of the in-memory policy; durable storage across restarts is the site's responsibility, as with link nonces. The policy stores at most 4096 revocations and refuses more (`revocation-store-full`) rather than forgetting old ones.
+- **Replay.** A record id is applied once; replays are no-ops. A revocation cannot be undone by replaying older state, but a site that loses its store loses the revocations.
+- **Open rooms.** Open rooms have no membership, so wallet revocations only stop a key at peers that applied them; a revoked key can rejoin under a new key. Protected operations are never allowed in open rooms.
+- **Agent descriptors** carry `provider`, `model`, `runtime` and `agentType` as claims, not attestations. Clone detection only sees what reaches the observing peer and is advisory.

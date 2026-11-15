@@ -53,6 +53,7 @@
     "README.md",
     "CHANGELOG.md",
     "docs/WIRE_FORMAT.md",
+    "docs/PROTOCOL.md",
     "docs/SECURITY.md",
     "docs/ARCHITECTURE.md",
     "docs/RECOVERY.md",

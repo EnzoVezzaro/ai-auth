@@ -510,3 +510,39 @@ export {
   ROLES,
   OPEN_ROOM_DISCLOSURE,
 } from "./membership.js";
+
+export {
+  resolveDuration,
+  issueExecutionGrant,
+  renewExecutionGrant,
+  verifyExecutionGrant,
+  authorizeProtected,
+  EXECUTION_GRANT_TYPE,
+  MAX_EXECUTION_GRANT_TTL_MS,
+  DEFAULT_EXECUTION_GRANT_TTL_MS,
+  DURATION_KINDS,
+  DURATION_LIMITS,
+} from "./membership.js";
+export {
+  createRevocation,
+  verifyRevocation,
+  createRevocationGossip,
+  REVOCATION_TYPE,
+  REVOCATION_VERSION,
+  REVOCATION_KINDS,
+  REVOCATION_GOSSIP_EVENT,
+} from "./revocation.js";
+export {
+  createAgentDescriptor,
+  verifyAgentDescriptor,
+  createInstanceId,
+  bindInstance,
+  verifyInstanceBinding,
+  createCloneDetector,
+  AGENT_DESCRIPTOR_TYPE,
+  AGENT_DESCRIPTOR_VERSION,
+  INSTANCE_BINDING_TYPE,
+  AGENT_PROTOCOL_VERSION,
+  MAX_DESCRIPTOR_TTL_MS,
+  DEFAULT_DESCRIPTOR_TTL_MS,
+} from "./agent-identity.js";

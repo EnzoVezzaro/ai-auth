@@ -70,3 +70,10 @@ This release adds a source client for the local Worker prototype. It does not im
 - Add the site/agent link lifecycle: `createLinkChallenge`, `approveLink`, `verifyLink`, `listLinks`, `unlink`, `verifyLinkRevocation`, plus in-memory `createLinkNonceStore` and `createRevokedLinkSet`. Document the wire formats and the absence of global revocation.
 
 - Add participation modes: `open` rooms with an explicit disclosure and `restricted` rooms that require a site-issued `ai-auth-membership` proof. New exports: `issueMembership`, `verifyMembership`, `createParticipationPolicy`, and related constants. `P2PRoom` accepts an optional `participation` option and `send(..., { to })`; restricted rooms drop events from non-members and never deliver non-presence events to them.
+
+## Unreleased (0.5.0 protocol work)
+
+- Add `docs/PROTOCOL.md`: versioned contracts for agent identity, instance identity, agent descriptor, membership, session, presence, room, cursor, revocation, authorization epoch, tool authorization and the runtime adapter, with 0.4.x migration rules. Self-declared fields are documented as claims, not attestations.
+- Add `createAgentDescriptor`, `verifyAgentDescriptor`, `createInstanceId`, `bindInstance`, `verifyInstanceBinding` and `createCloneDetector` (`clone-suspected` diagnostics).
+- Add membership `duration` kinds (`short`, `configured`, `long`, `until-revoked`), the authorization epoch (`bumpEpoch`, `observeEpoch`), short-lived execution grants and the fail-closed `authorizeProtected`.
+- Add signed `ai-auth-revocation` records and `createRevocationGossip(room)` for peer-to-peer propagation. Document the offline consistency limits in `docs/SECURITY.md`.

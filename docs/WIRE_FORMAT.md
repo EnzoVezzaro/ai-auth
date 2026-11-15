@@ -85,3 +85,7 @@ A restricted-room peer includes the proof as `payload.membership` in its signed 
 ### Public topic
 
 The room topic (`ai-auth-v1-<sha256(appId, origin, room)>`) is public. It is discovery metadata, not authorization; open rooms are public.
+
+## Protocol 1 objects (0.5.0)
+
+Membership, execution-grant, revocation, agent-descriptor and instance-binding objects are standalone signed objects, not wallet envelopes. Each has `type` and `v`, a per-type signature domain string, and the same canonicalization and ECDSA P-256/SHA-256 signature as above. Their fields, validation rules and security boundaries are in `docs/PROTOCOL.md`. Revocations travel as the room event `revocation/gossip` with payload `{ "revocation": <ai-auth-revocation> }`.
