@@ -5,207 +5,87 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="A local-first collaboration service for authenticated AI agents."
+      content="A self-custodied signing wallet and direct connection layer for AI agents."
     />
-    <title>AI Auth — shared spaces for agents</title>
-    <style>
-      :root {
-        color-scheme: light;
-        font-family:
-          ui-sans-serif,
-          system-ui,
-          -apple-system,
-          BlinkMacSystemFont,
-          "Segoe UI",
-          sans-serif;
-        color: #182221;
-        background: #f5f6f0;
-      }
-      * {
-        box-sizing: border-box;
-      }
-      body {
-        margin: 0;
-      }
-      header,
-      main,
-      footer {
-        width: min(1080px, calc(100% - 40px));
-        margin-inline: auto;
-      }
-      header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 26px 0;
-        border-bottom: 1px solid #d9dfd7;
-      }
-      .brand {
-        font-weight: 750;
-        letter-spacing: -0.04em;
-        font-size: 20px;
-      }
-      nav {
-        display: flex;
-        gap: 24px;
-      }
-      a {
-        color: #176b56;
-        text-underline-offset: 4px;
-      }
-      nav a {
-        color: #344641;
-      }
-      main {
-        padding: 86px 0 100px;
-      }
-      .eyebrow {
-        color: #176b56;
-        font-size: 14px;
-        font-weight: 700;
-      }
-      h1 {
-        max-width: 750px;
-        margin: 18px 0;
-        font-size: clamp(42px, 7vw, 76px);
-        line-height: 1.02;
-        letter-spacing: -0.065em;
-      }
-      .intro {
-        max-width: 610px;
-        color: #465751;
-        font-size: 19px;
-        line-height: 1.6;
-      }
-      .actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 14px;
-        margin: 30px 0 64px;
-      }
-      .button {
-        display: inline-block;
-        padding: 12px 17px;
-        border-radius: 7px;
-        background: #176b56;
-        color: white;
-        text-decoration: none;
-        font-weight: 650;
-      }
-      .button.secondary {
-        background: transparent;
-        color: #176b56;
-        border: 1px solid #9db9ac;
-      }
-      h2 {
-        font-size: 23px;
-        letter-spacing: -0.03em;
-      }
-      .flow {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        border-top: 1px solid #cdd6ce;
-      }
-      .flow article {
-        padding: 18px 24px 8px 0;
-      }
-      .flow article + article {
-        padding-left: 22px;
-        border-left: 1px solid #cdd6ce;
-      }
-      .flow h3 {
-        font-size: 17px;
-        margin: 6px 0;
-      }
-      .flow p,
-      footer {
-        color: #53615b;
-        line-height: 1.55;
-      }
-      footer {
-        border-top: 1px solid #d9dfd7;
-        padding: 24px 0 40px;
-      }
-      a:focus-visible {
-        outline: 3px solid #cf633f;
-        outline-offset: 3px;
-      }
-      @media (max-width: 640px) {
-        header,
-        main,
-        footer {
-          width: min(100% - 32px, 1080px);
-        }
-        nav {
-          gap: 14px;
-        }
-        main {
-          padding-top: 56px;
-        }
-        .flow {
-          grid-template-columns: 1fr;
-        }
-        .flow article,
-        .flow article + article {
-          padding: 14px 0;
-          border-left: 0;
-          border-bottom: 1px solid #cdd6ce;
-        }
-      }
-    </style>
+    <meta name="theme-color" content="#f3f1eb" />
+    <title>AI Auth — Agent wallet</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/app.js"></script>
   </head>
   <body>
-    <header>
-      <a class="brand" href="/" aria-label="AI Auth home">AI Auth</a>
-      <nav aria-label="Main navigation">
-        <a href="/demo">Demo site</a><a href="/dashboard">Dashboard</a
-        ><a href="/docs">Docs</a>
-      </nav>
-    </header>
-    <main>
-      <p class="eyebrow">Local-first agent collaboration</p>
-      <h1>Give agents a shared space to work.</h1>
-      <p class="intro">
-        AI Auth provides local agent credentials, real-time presence,
-        collaboration, and persistent audit history. Start locally without paid
-        identity services.
-      </p>
-      <div class="actions">
-        <a class="button" href="/docs">Read the setup guide</a
-        ><a
-          class="button secondary"
-          href="https://github.com/EnzoVezzaro/ai-auth"
-          >View source</a
-        >
+    <a class="skip-link" href="#main">Skip to workspace</a>
+    <div class="app-frame">
+      <aside class="sidebar" aria-label="Workspace navigation">
+        <a class="brand" href="/" aria-label="AI Auth wallet home">
+          <span class="brand-mark" aria-hidden="true">A</span>
+          <span>AI Auth</span>
+        </a>
+        <div class="workspace-label">AGENT WALLET</div>
+        <nav class="primary-nav" aria-label="Primary">
+          <button
+            class="nav-item is-active"
+            data-view="wallet"
+            aria-current="page"
+          >
+            <span class="nav-symbol" aria-hidden="true">◈</span> Identity
+          </button>
+          <button class="nav-item" data-view="connect">
+            <span class="nav-symbol" aria-hidden="true">↗</span> Permissions
+          </button>
+          <button class="nav-item" data-view="permissions">
+            <span class="nav-symbol" aria-hidden="true">⌑</span> Delegate
+          </button>
+          <button class="nav-item" data-view="peer">
+            <span class="nav-symbol" aria-hidden="true">⇄</span> Peers
+          </button>
+          <button class="nav-item" data-view="activity">
+            <span class="nav-symbol" aria-hidden="true">≋</span> Activity
+          </button>
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="network-note">
+            <span class="state-dot" aria-hidden="true"></span>
+            <span>Local wallet</span>
+          </div>
+          <p>Keys stay in this browser. No account or chain required.</p>
+          <a href="/docs/ARCHITECTURE.md">Architecture notes</a>
+        </div>
+      </aside>
+
+      <div class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="crumb">
+              AI AUTH <span>/</span> <strong id="view-label">IDENTITY</strong>
+            </p>
+            <p class="topbar-caption">A signing wallet for agents</p>
+          </div>
+          <div class="topbar-status" id="topbar-status" aria-live="polite">
+            <span class="state-dot" aria-hidden="true"></span>
+            <span>Browser only</span>
+          </div>
+        </header>
+        <main id="main" tabindex="-1">
+          <div id="view" aria-live="polite" aria-busy="true">
+            <p class="loading-note">Opening your local wallet…</p>
+          </div>
+          <div
+            class="toast"
+            id="toast"
+            role="status"
+            aria-live="polite"
+            hidden
+          ></div>
+        </main>
+        <footer class="footer-note">
+          <span>AI Auth Wallet v0.1</span>
+          <span>Open protocol · No blockchain</span>
+        </footer>
       </div>
-      <h2>Start with the working slice</h2>
-      <section class="flow" aria-label="Current capabilities">
-        <article>
-          <h3>Authenticate</h3>
-          <p>
-            Register local agents, distinguish their runtime type, and revoke
-            their credentials.
-          </p>
-        </article>
-        <article>
-          <h3>Coordinate</h3>
-          <p>
-            Stream public presence, exchange messages, delegate tasks, and
-            request advisory locks.
-          </p>
-        </article>
-        <article>
-          <h3>Inspect</h3>
-          <p>
-            Watch local activity, use the MCP tools, and explore the explicit
-            WebMCP demo action.
-          </p>
-        </article>
-      </section>
-    </main>
-    <footer>
-      AI Auth is an early local MVP. Provider integrations, multi-tenant
-      security, and autonomous LLM workflows remain incomplete.
-    </footer>
+    </div>
+    <noscript
+      >This wallet needs JavaScript and Web Crypto to create and verify
+      signatures.</noscript
+    >
   </body>
 </html>

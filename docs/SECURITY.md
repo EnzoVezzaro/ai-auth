@@ -1,19 +1,27 @@
-# Security notes and threat model
+# Security boundaries
 
-## Current local controls
+## What signatures establish
 
-- Local credentials are generated from 256 random bits, expire after 12 hours, and only SHA-256 hashes are stored. Registration returns the plaintext once. Revocation invalidates HTTP use and closes active sockets. An optional generic OIDC JWT verifier validates issuer, audience, signature, expiry, and required claims before mapping an identity.
-- Request bodies are limited to 16 KiB. Zod validates route inputs; SQLite queries are parameterized. CORS defaults to disabled. WebSockets validate a supplied origin against `CORS_ORIGIN` when an Origin header is present.
-- Private sessions are filtered from public presence/broadcasts/counters and cannot publish into shared rooms. Shared collaboration data is not tenant-isolated in this version.
-- The SDK authenticates WebSockets with a one-use, room-bound ticket expiring in 30 seconds. A legacy query-token path remains for local opaque credentials and should not be used outside localhost.
-- No bearer token is included in audit payloads.
+An ECDSA signature verifies that the holder of a particular private key signed a specific canonical JSON record. It does not establish a legal or human identity, prove that a person read the request, authorize a website resource, or guarantee that an agent is safe.
 
-## Material limitations
+Websites are the authorization authority for their own resources. They must verify the signer, exact audience/origin, nonce, expiry, requested and approved capabilities, recipient, resource, and any applicable revocation policy before taking an action. Never trust a client-supplied `authorized: true` flag.
 
-This is a localhost development service, not a secure multi-tenant deployment. Registration is unauthenticated. The optional OIDC adapter verifies JWT access tokens only; interactive OIDC, PKCE, per-action scopes, provider-side revocation, external provider integration tests, and tenant isolation are absent. There is no admin/user organization model, CSRF-protected cookie flow, distributed rate limit, signed/tamper-evident audit chain, encryption-at-rest key management, retention policy, OpenTelemetry, or production secret management. CORS origin checking does not replace authentication and a missing Origin header is allowed for non-browser clients. Private mode is claim/self-declared and not an organization policy. AAPP connections and presence are process-local.
+## Key storage and recovery
 
-Do not bind to a public interface, use real credentials, expose privileged agent tokens in browser code, or treat a lock as enforcement of a protected resource. Before deployment, replace open registration with an administrator-controlled provisioning/OIDC flow, use short-lived audience/scope-restricted credentials, add tenant and room authorization on every query, secure WebSocket ticket exchange, rate limits, CSP guidance, audit integrity/retention, and external security review.
+The private key is imported as a non-extractable Web Crypto key and stored in origin-scoped IndexedDB. During first creation, the browser briefly generates an extractable key pair so it can create the encrypted recovery file; the private JWK is encrypted before the non-extractable key is persisted. Same-origin JavaScript can still ask the wallet to sign, so protect the wallet origin against XSS, compromised dependencies, and malicious extensions.
 
-## Threat coverage status
+The recovery file contains encrypted key material, not plaintext private JWK. Use a unique strong passphrase and store the file offline. There is no password reset service. Clearing browser data without the file permanently loses the wallet. Removing a wallet clears its local signed activity too.
 
-Input validation, credential hashing, direct agent identity assignment, revocation, basic private event filtering, parameterized SQL, and lock conflict transactions have code paths. Automated coverage currently checks missing credentials, messaging identity, private visibility/counters, lock conflicts, and revocation. Token replay, origin bypass, cross-tenant access, rate limiting, malicious MCP descriptions, XSS at integration sites, and distributed races are not comprehensively tested or solved.
+## Signed data and freshness
+
+Signed records use the `ai-auth-wallet` protocol marker, version, type, issuer, creation time, payload, and ECDSA P-256/SHA-256 proof. Canonicalization follows RFC 8785 for supported JSON values. Verifiers reject malformed keys, changed payloads, expired or future-dated events, incorrect audiences, and replayed nonces where a nonce guard is supplied.
+
+## Peer network
+
+Same-origin BroadcastChannel events are visible to other tabs on the same origin. Manual SDP may include IP/network candidates; exchange it only through a private channel. Direct WebRTC data channels are encrypted in transit, but message signatures and identity do not prevent a user from receiving unsafe content. No relay is configured. A network that requires TURN will fail to connect in this MVP.
+
+Private mode stops this app's public presence and shared messages. It does not hide activity from browser extensions, operating-system software, the hosting provider, or another site, and it does not erase already received data on another peer.
+
+## Not production authorization
+
+The permission demonstration uses one origin for the wallet UI and sample verifier. It is not an isolated browser extension, native wallet boundary, or independent website integration. Do not use it to protect real accounts or tools. A production relying party needs its own challenge endpoint or message protocol, a trusted origin-binding mechanism, server-side policy enforcement, replay storage, revocation, audit retention, and security review.

@@ -1,73 +1,60 @@
 {
-  "name": "@enzovezzaro/ai-auth-server",
-  "version": "0.2.1",
-  "description": "AI Auth is a local-first collaboration service for authenticated AI agents.",
+  "name": "@enzovezzaro/ai-auth-wallet",
+  "version": "0.1.0",
+  "description": "Browser wallet identity, signed capabilities, and peer connections for AI agents",
   "type": "module",
-  "main": "dist/server.js",
-  "bin": {
-    "ai-auth-server": "bin/ai-auth-server.js"
+  "main": "./packages/p2p/index.js",
+  "types": "./packages/p2p/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./packages/p2p/index.d.ts",
+      "import": "./packages/p2p/index.js"
+    },
+    "./wallet": {
+      "types": "./packages/p2p/wallet.d.ts",
+      "import": "./packages/p2p/wallet.js"
+    },
+    "./connect": {
+      "types": "./packages/p2p/connect.d.ts",
+      "import": "./packages/p2p/connect.js"
+    },
+    "./capabilities": {
+      "types": "./packages/p2p/capabilities.d.ts",
+      "import": "./packages/p2p/capabilities.js"
+    },
+    "./p2p": {
+      "types": "./packages/p2p/p2p.d.ts",
+      "import": "./packages/p2p/p2p.js"
+    }
   },
   "files": [
-    "dist/server.js",
-    "dist/apps/server/src/server.js",
-    "dist/apps/server/src/web-assets.generated.js",
-    "dist/apps/server/src/mcp-server.js",
-    "bin/ai-auth-server.js",
-    "index.html",
-    "apps/dashboard/index.html",
-    "apps/demo-website/index.html",
+    "packages/p2p/*.js",
+    "packages/p2p/*.d.ts",
     "README.md",
-    "docs",
-    "packages/sdk",
+    "docs/WIRE_FORMAT.md",
+    "docs/SECURITY.md",
+    "docs/ARCHITECTURE.md",
+    "docs/RECOVERY.md",
     "LICENSE"
   ],
   "publishConfig": {
     "access": "public"
   },
-  "directories": {
-    "doc": "docs"
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22"
   },
   "scripts": {
-    "dev": "tsx watch apps/server/src/server.ts",
-    "start": "node dist/apps/server/src/server.js",
-    "build": "tsc -p tsconfig.json",
-    "vercel-build": "node scripts/build-vercel-assets.mjs && npm run build",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --import tsx --test apps/server/src/*.test.ts",
-    "test:e2e": "node --import tsx --test apps/server/src/browser-e2e.test.ts",
-    "dev:mcp": "node --import tsx apps/server/src/mcp-server.ts",
-    "start:mcp": "node dist/apps/server/src/mcp-server.js",
-    "format": "prettier --write \"apps/**/*.{ts,js,html}\" \"packages/**/*.{js,d.ts,json,md}\" \"docs/**/*.{md,json,html}\" README.md index.html server.js package.json tsconfig.json vercel.json",
-    "format:check": "prettier --check \"apps/**/*.{ts,js,html}\" \"packages/**/*.{js,d.ts,json,md}\" \"docs/**/*.{md,json,html}\" README.md index.html server.js package.json tsconfig.json vercel.json",
-    "test:load": "node --import tsx --test apps/server/src/load.test.ts",
-    "test:security": "node --import tsx --test apps/server/src/server.test.ts apps/server/src/oidc.test.ts",
-    "test:keycloak": "bash scripts/test-keycloak.sh"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "MIT",
-  "dependencies": {
-    "@fastify/cors": "^11.4.3",
-    "@modelcontextprotocol/server": "^2.4.0",
-    "better-sqlite3": "^13.2.0",
-    "fastify": "^5.12.8",
-    "jose": "^6.2.17",
-    "ws": "^8.23.0",
-    "zod": "^4.6.7"
+    "dev": "node scripts/serve.mjs",
+    "build": "node scripts/build-p2p-static.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:e2e": "node --test tests/e2e.test.mjs",
+    "format": "prettier --write \"packages/p2p/*.{js,d.ts}\" \"tests/*.mjs\" \"docs/*.md\" README.md index.html styles.css apps/p2p/app.js package.json vercel.json",
+    "format:check": "prettier --check \"packages/p2p/*.{js,d.ts}\" \"tests/*.mjs\" \"docs/*.md\" README.md index.html styles.css apps/p2p/app.js package.json vercel.json",
+    "prepublishOnly": "npm test && npm run build"
   },
   "devDependencies": {
-    "@modelcontextprotocol/client": "^2.4.0",
-    "@types/better-sqlite3": "^9.6.0",
-    "@types/node": "^26.6.6",
-    "@types/ws": "^8.18.2",
-    "axe-core": "^4.14.0",
-    "playwright-core": "^1.65.1",
-    "prettier": "^3.10.1",
-    "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "prettier": "^3.10.1"
   },
-  "allowScripts": {
-    "better-sqlite3@13.2.0": true,
-    "esbuild@0.28.2": true
-  }
+  "license": "MIT"
 }

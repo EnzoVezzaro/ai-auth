@@ -1,49 +1,435 @@
-// AI Auth server-optional proof of concept. Identity is NOT authorization.
-const te = new TextEncoder();
-const toHex = x => [...new Uint8Array(x)].map(v=>v.toString(16).padStart(2,"0")).join("");
-const b64 = x => btoa(String.fromCharCode(...new Uint8Array(x))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
-const from64 = x => Uint8Array.from(atob(x.replace(/-/g,"+").replace(/_/g,"/")+"=".repeat((4-x.length%4)%4)),v=>v.charCodeAt(0));
-const idFor = async jwk => "agent:"+toHex(await crypto.subtle.digest("SHA-256",te.encode(JSON.stringify({crv:jwk.crv,kty:jwk.kty,x:jwk.x,y:jwk.y})))).slice(0,40);
-export async function createIdentity(label="Agent"){
-  // Non-extractable keys are persisted by the browser's IndexedDB structured clone.
-  const db = await new Promise((ok,fail)=>{const r=indexedDB.open("ai-auth-wallet-v1",1);r.onupgradeneeded=()=>r.result.createObjectStore("keys");r.onsuccess=()=>ok(r.result);r.onerror=()=>fail(r.error)});
-  let keys=await new Promise((ok,fail)=>{const r=db.transaction("keys").objectStore("keys").get("main");r.onsuccess=()=>ok(r.result);r.onerror=()=>fail(r.error)});
-  if(!keys){keys=await crypto.subtle.generateKey({name:"ECDSA",namedCurve:"P-256"},false,["sign","verify"]);await new Promise((ok,fail)=>{const t=db.transaction("keys","readwrite");t.objectStore("keys").put(keys,"main");t.oncomplete=ok;t.onerror=()=>fail(t.error)})}
-  const publicKey=await crypto.subtle.exportKey("jwk",keys.publicKey);
-  db.close();
-  return {id:await idFor(publicKey),label,session:crypto.randomUUID(),publicKey,sign:async value=>b64(await crypto.subtle.sign({name:"ECDSA",hash:"SHA-256"},keys.privateKey,te.encode(JSON.stringify(value))))};
+const encoder = new TextEncoder();
+const STORAGE_NAME = "ai-auth-wallet-v2";
+const STORAGE_VERSION = 1;
+const MAX_EVENT_AGE_MS = 120_000;
+const MAX_SEEN_EVENTS = 4096;
+
+function cryptoApi() {
+  if (!globalThis.crypto?.subtle) throw new Error("Web Crypto is unavailable");
+  return globalThis.crypto;
 }
-export async function signEvent(identity,room,type,payload={}){
-  if(!/^[\w:-]{1,100}$/.test(room))throw Error("Invalid room");
-  const value={v:1,agent:identity.id,session:identity.session,key:identity.publicKey,ts:Date.now(),nonce:crypto.randomUUID(),room,type,payload};
-  return {...value,sig:await identity.sign(value)};
+
+function base64url(bytes) {
+  let binary = "";
+  for (const byte of new Uint8Array(bytes)) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/u, "");
 }
-export async function verifyEvent(event){
-  if(!event||event.v!==1||typeof event.sig!=="string"||typeof event.ts!=="number"||Math.abs(Date.now()-event.ts)>120000||typeof event.nonce!=="string"||event.nonce.length<10)return false;
-  try{
-    if(event.key.kty!=="EC"||event.key.crv!=="P-256"||await idFor(event.key)!==event.agent)return false;
-    const key=await crypto.subtle.importKey("jwk",event.key,{name:"ECDSA",namedCurve:"P-256"},false,["verify"]);
-    const {sig,...value}=event;
-    return await crypto.subtle.verify({name:"ECDSA",hash:"SHA-256"},key,from64(sig),te.encode(JSON.stringify(value)));
-  }catch{return false}
+
+function decodeBase64url(value) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]+$/u.test(value)) {
+    throw new TypeError("Invalid base64url value");
+  }
+  const binary = atob(
+    value.replaceAll("-", "+").replaceAll("_", "/") +
+      "=".repeat((4 - (value.length % 4)) % 4),
+  );
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
-export class P2PRoom {
-  constructor(identity,room,{privateMode=false}={}){this.identity=identity;this.room=room;this.privateMode=privateMode;this.peers=new Map();this.seen=new Set();this.listeners=new Set();this.channels=new Set();this.closed=false}
-  subscribe(listener){this.listeners.add(listener);return()=>this.listeners.delete(listener)}
-  notify(event){for(const listener of this.listeners)listener(event)}
-  async start(){if(this.privateMode)return this;this.broadcast=new BroadcastChannel("ai-auth:"+location.origin+":"+this.room);this.broadcast.onmessage=({data})=>{void this.receive(data)};await this.send("hello",{label:this.identity.label});this.timer=setInterval(()=>{void this.send("heartbeat",{label:this.identity.label});this.expire()},7000);return this}
-  async send(type,payload={}){if(this.privateMode||this.closed)throw Error("Session is private or closed");const event=await signEvent(this.identity,this.room,type,payload);this.broadcast?.postMessage(event);for(const channel of this.channels)if(channel.readyState==="open")channel.send(JSON.stringify(event));this.notify({direction:"out",event});return event}
-  async receive(event){if(this.closed||event?.room!==this.room||(event.agent===this.identity.id&&event.session===this.identity.session))return false;const key=event.agent+":"+event.nonce;if(this.seen.has(key)||!(await verifyEvent(event)))return false;this.seen.add(key);if(this.seen.size>4000)this.seen.clear();const peer=event.agent+":"+event.session;if(event.type==="goodbye")this.peers.delete(peer);else this.peers.set(peer,{id:event.agent,session:event.session,label:String(event.payload?.label||event.agent).slice(0,80),seen:Date.now()});this.notify({direction:"in",event});if(event.type==="hello")await this.send("heartbeat",{label:this.identity.label});return true}
-  expire(){for(const [id,peer] of this.peers)if(Date.now()-peer.seen>24000)this.peers.delete(id)}
-  attach(channel){this.channels.add(channel);channel.onmessage=({data})=>{try{void this.receive(JSON.parse(data))}catch{}};channel.onclose=()=>this.channels.delete(channel);return channel}
-  async close(){if(this.closed)return;if(!this.privateMode)await this.send("goodbye",{});this.closed=true;clearInterval(this.timer);this.broadcast?.close();for(const c of this.channels)c.close();this.channels.clear();this.listeners.clear()}
+
+function assertUnicode(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const unit = value.charCodeAt(index);
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff))
+        throw new TypeError("Unpaired Unicode surrogate");
+      index += 1;
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      throw new TypeError("Unpaired Unicode surrogate");
+    }
+  }
 }
-// No signaling infrastructure is involved; users exchange the offer/answer manually.
-export class ManualWebRTC {
-  constructor(room){this.room=room;this.peer=new RTCPeerConnection({iceServers:[]});this.peer.ondatachannel=e=>room.attach(e.channel)}
-  async offer(){this.room.attach(this.peer.createDataChannel("ai-auth"));await this.peer.setLocalDescription(await this.peer.createOffer());return this.sdp()}
-  async answer(offer){await this.peer.setRemoteDescription(JSON.parse(offer));await this.peer.setLocalDescription(await this.peer.createAnswer());return this.sdp()}
-  async finish(answer){await this.peer.setRemoteDescription(JSON.parse(answer))}
-  async sdp(){if(this.peer.iceGatheringState!=="complete")await new Promise(resolve=>{let timer=setTimeout(resolve,12000);this.peer.addEventListener("icegatheringstatechange",()=>{if(this.peer.iceGatheringState==="complete"){clearTimeout(timer);resolve()}})});return JSON.stringify(this.peer.localDescription)}
-  close(){this.peer.close()}
+
+// RFC 8785 JSON Canonicalization Scheme for ordinary JSON values.
+export function canonicalize(value) {
+  if (value === null || typeof value === "boolean")
+    return JSON.stringify(value);
+  if (typeof value === "string") {
+    assertUnicode(value);
+    return JSON.stringify(value);
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value))
+      throw new TypeError("JSON numbers must be finite");
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    const values = [];
+    for (let index = 0; index < value.length; index += 1) {
+      if (!Object.hasOwn(value, index))
+        throw new TypeError(
+          "Sparse arrays are outside the supported JSON data model",
+        );
+      values.push(canonicalize(value[index]));
+    }
+    return `[${values.join(",")}]`;
+  }
+  if (
+    typeof value !== "object" ||
+    Object.getPrototypeOf(value) !== Object.prototype
+  ) {
+    throw new TypeError("Value is outside the supported JSON data model");
+  }
+  const keys = Object.keys(value).sort();
+  return `{${keys.map((key) => `${canonicalize(key)}:${canonicalize(value[key])}`).join(",")}}`;
 }
+
+export function randomNonce() {
+  return base64url(cryptoApi().getRandomValues(new Uint8Array(24)));
+}
+
+export async function identityFor(publicKey) {
+  if (
+    publicKey?.kty !== "EC" ||
+    publicKey?.crv !== "P-256" ||
+    !publicKey.x ||
+    !publicKey.y
+  ) {
+    throw new TypeError("Expected an ECDSA P-256 public JWK");
+  }
+  const material = {
+    crv: publicKey.crv,
+    kty: publicKey.kty,
+    x: publicKey.x,
+    y: publicKey.y,
+  };
+  const digest = await cryptoApi().subtle.digest(
+    "SHA-256",
+    encoder.encode(canonicalize(material)),
+  );
+  return `agent:${base64url(digest)}`;
+}
+
+function openDatabase() {
+  if (!globalThis.indexedDB)
+    throw new Error("IndexedDB is unavailable in this browser");
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(STORAGE_NAME, STORAGE_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains("wallets"))
+        db.createObjectStore("wallets", { keyPath: "id" });
+      if (!db.objectStoreNames.contains("activity"))
+        db.createObjectStore("activity", {
+          keyPath: "sequence",
+          autoIncrement: true,
+        });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function idbRequest(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function deriveBackupKey(passphrase, salt) {
+  const material = await cryptoApi().subtle.importKey(
+    "raw",
+    encoder.encode(passphrase),
+    "PBKDF2",
+    false,
+    ["deriveKey"],
+  );
+  return cryptoApi().subtle.deriveKey(
+    { name: "PBKDF2", hash: "SHA-256", salt, iterations: 310_000 },
+    material,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+async function encryptPrivateKey(privateJwk, metadata, passphrase) {
+  if (typeof passphrase !== "string" || passphrase.length < 12) {
+    throw new Error("Choose a recovery passphrase with at least 12 characters");
+  }
+  const salt = cryptoApi().getRandomValues(new Uint8Array(16));
+  const iv = cryptoApi().getRandomValues(new Uint8Array(12));
+  const key = await deriveBackupKey(passphrase, salt);
+  const plaintext = encoder.encode(canonicalize({ metadata, privateJwk }));
+  const ciphertext = await cryptoApi().subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    plaintext,
+  );
+  return JSON.stringify({
+    format: "ai-auth-wallet-backup",
+    version: 1,
+    kdf: {
+      name: "PBKDF2",
+      hash: "SHA-256",
+      iterations: 310_000,
+      salt: base64url(salt),
+    },
+    cipher: {
+      name: "AES-GCM",
+      iv: base64url(iv),
+      ciphertext: base64url(ciphertext),
+    },
+  });
+}
+
+export async function createWallet({ name, passphrase }) {
+  const label = String(name ?? "")
+    .trim()
+    .slice(0, 60);
+  if (!label) throw new Error("Enter a wallet name");
+  const pair = await cryptoApi().subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  );
+  const privateJwk = await cryptoApi().subtle.exportKey("jwk", pair.privateKey);
+  const publicKey = await cryptoApi().subtle.exportKey("jwk", pair.publicKey);
+  const id = await identityFor(publicKey);
+  const createdAt = new Date().toISOString();
+  const metadata = { id, name: label, createdAt, publicKey };
+  const backup = await encryptPrivateKey(privateJwk, metadata, passphrase);
+  const privateKey = await cryptoApi().subtle.importKey(
+    "jwk",
+    privateJwk,
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["sign"],
+  );
+  privateJwk.d = "";
+  const wallet = makeWallet({ ...metadata, privateKey, backup });
+  await saveWallet(wallet);
+  return wallet;
+}
+
+function makeWallet({ id, name, createdAt, publicKey, privateKey, backup }) {
+  return {
+    id,
+    name,
+    createdAt,
+    publicKey,
+    privateKey,
+    backup,
+    sign: async (type, payload) =>
+      signEnvelope({ id, publicKey, privateKey }, type, payload),
+  };
+}
+
+export async function loadWallet() {
+  const db = await openDatabase();
+  try {
+    const record = await idbRequest(
+      db.transaction("wallets").objectStore("wallets").get("primary"),
+    );
+    return record ? makeWallet({ ...record, id: record.identity }) : null;
+  } finally {
+    db.close();
+  }
+}
+
+async function saveWallet(wallet) {
+  const db = await openDatabase();
+  try {
+    const transaction = db.transaction("wallets", "readwrite");
+    transaction.objectStore("wallets").put({
+      id: "primary",
+      name: wallet.name,
+      createdAt: wallet.createdAt,
+      publicKey: wallet.publicKey,
+      privateKey: wallet.privateKey,
+      backup: wallet.backup,
+      identity: wallet.id,
+    });
+    await new Promise((resolve, reject) => {
+      transaction.oncomplete = resolve;
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error("Wallet storage was aborted"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export async function importWalletBackup(backupText, passphrase) {
+  let backup;
+  try {
+    backup = JSON.parse(backupText);
+  } catch {
+    throw new Error("Recovery file is not valid JSON");
+  }
+  if (
+    backup?.format !== "ai-auth-wallet-backup" ||
+    backup.version !== 1 ||
+    backup.kdf?.iterations !== 310_000
+  ) {
+    throw new Error("Unsupported AI Auth wallet recovery file");
+  }
+  try {
+    const key = await deriveBackupKey(
+      passphrase,
+      decodeBase64url(backup.kdf.salt),
+    );
+    const plaintext = await cryptoApi().subtle.decrypt(
+      { name: "AES-GCM", iv: decodeBase64url(backup.cipher.iv) },
+      key,
+      decodeBase64url(backup.cipher.ciphertext),
+    );
+    const { metadata, privateJwk } = JSON.parse(
+      new TextDecoder().decode(plaintext),
+    );
+    if ((await identityFor(metadata.publicKey)) !== metadata.id)
+      throw new Error("Recovery identity does not match its public key");
+    const privateKey = await cryptoApi().subtle.importKey(
+      "jwk",
+      privateJwk,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"],
+    );
+    const wallet = makeWallet({ ...metadata, privateKey, backup: backupText });
+    const probe = await wallet.sign("wallet/recovery-check", {
+      nonce: randomNonce(),
+    });
+    if (!(await verifyEnvelope(probe, { expectedIssuer: wallet.id })))
+      throw new Error("Recovery key did not match wallet identity");
+    await saveWallet(wallet);
+    return wallet;
+  } catch (error) {
+    throw new Error(
+      "Could not unlock this recovery file; check the passphrase and file",
+      { cause: error },
+    );
+  }
+}
+
+export async function forgetWallet() {
+  const db = await openDatabase();
+  try {
+    const transaction = db.transaction(["wallets", "activity"], "readwrite");
+    transaction.objectStore("wallets").clear();
+    transaction.objectStore("activity").clear();
+    await new Promise((resolve, reject) => {
+      transaction.oncomplete = resolve;
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error("Wallet removal was aborted"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export function downloadBackup(wallet) {
+  return wallet.backup;
+}
+
+export async function signEnvelope(identity, type, payload) {
+  if (typeof type !== "string" || !/^[a-z0-9][a-z0-9/._-]{1,63}$/u.test(type))
+    throw new Error("Invalid signed record type");
+  const body = {
+    protocol: "ai-auth-wallet",
+    version: 1,
+    type,
+    issuer: identity.id,
+    createdAt: new Date().toISOString(),
+    payload,
+  };
+  const signature = await cryptoApi().subtle.sign(
+    { name: "ECDSA", hash: "SHA-256" },
+    identity.privateKey,
+    encoder.encode(canonicalize(body)),
+  );
+  return {
+    body,
+    proof: {
+      algorithm: "ECDSA-P256-SHA256",
+      publicKey: identity.publicKey,
+      signature: base64url(signature),
+    },
+  };
+}
+
+export async function verifyEnvelope(
+  envelope,
+  { expectedIssuer, now = Date.now(), maxAgeMs = MAX_EVENT_AGE_MS } = {},
+) {
+  try {
+    const { body, proof } = envelope;
+    if (
+      body.protocol !== "ai-auth-wallet" ||
+      body.version !== 1 ||
+      typeof body.createdAt !== "string"
+    )
+      return false;
+    const time = Date.parse(body.createdAt);
+    if (!Number.isFinite(time) || time > now + 30_000 || now - time > maxAgeMs)
+      return false;
+    if (
+      proof.algorithm !== "ECDSA-P256-SHA256" ||
+      (await identityFor(proof.publicKey)) !== body.issuer
+    )
+      return false;
+    if (expectedIssuer && body.issuer !== expectedIssuer) return false;
+    const publicKey = await cryptoApi().subtle.importKey(
+      "jwk",
+      proof.publicKey,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"],
+    );
+    return cryptoApi().subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      publicKey,
+      decodeBase64url(proof.signature),
+      encoder.encode(canonicalize(body)),
+    );
+  } catch {
+    return false;
+  }
+}
+
+export async function appendActivity(wallet, type, payload) {
+  const envelope = await signEnvelope(wallet, type, payload);
+  const db = await openDatabase();
+  try {
+    const transaction = db.transaction("activity", "readwrite");
+    transaction.objectStore("activity").add(envelope);
+    await new Promise((resolve, reject) => {
+      transaction.oncomplete = resolve;
+      transaction.onerror = () => reject(transaction.error);
+    });
+  } finally {
+    db.close();
+  }
+  return envelope;
+}
+
+export async function readActivity() {
+  const db = await openDatabase();
+  try {
+    return await idbRequest(
+      db.transaction("activity").objectStore("activity").getAll(),
+    );
+  } finally {
+    db.close();
+  }
+}
+
+export { MAX_EVENT_AGE_MS, MAX_SEEN_EVENTS };
+export {
+  createPermissionRequest,
+  approvePermissionRequest,
+  verifyPermissionRequest,
+  verifyPermissionConsent,
+  NonceGuard,
+} from "./connect.js";
+export {
+  createCapabilityGrant,
+  verifyCapabilityGrant,
+} from "./capabilities.js";
+export { P2PRoom, ManualWebRTC } from "./p2p.js";

@@ -1,87 +1,71 @@
 # AI Auth
 
-AI Auth is a local-first service for agent identity, live presence, room messaging, task handoff, advisory resource locks, and persistent audit history. This repository contains an early, working local MVP. External identity providers and the full product vision are not implemented.
+AI Auth is a browser wallet for cryptographic agent identity, scoped consent, capability delegation and direct peer collaboration. It uses the browser's Web Crypto and IndexedDB APIs. It needs no AI Auth backend, account provider, blockchain, cryptocurrency, or gas.
 
-## Start locally
+## Run the wallet locally
 
-Requires Node.js 22+ and npm. No paid credentials or external database are required.
+Requires Node.js 22+ and npm.
 
 ```sh
 npm ci
 npm run dev
 ```
 
-The API listens at `http://127.0.0.1:3333`, persists to `./data/ai-auth.sqlite`, and serves the dashboard at `/dashboard`. `AI_AUTH_DB` changes the database file. Browser origins are blocked by default; set `CORS_ORIGIN` to an explicit comma-separated allowlist. Set `HOST=0.0.0.0` only for local network access.
+Open `http://127.0.0.1:4173`. This command builds and serves static files only; it exposes no API or stateful backend. For Vercel, the configured output is also static.
 
-Open `/demo` for the local website with the explicit WebMCP test tool, `/docs` for the short guide, and `/dashboard` for authenticated activity.
+Create a wallet and save its encrypted recovery file. The browser stores a non-exportable private `CryptoKey` in origin-local IndexedDB. If browser data is cleared, the recovery file is required to restore the identity.
 
-## Register and connect an agent
+## MVP flows
+
+1. Create or restore an agent wallet with a public P-256 identity.
+2. Review selected capabilities for an exact website origin and sign short-lived consent.
+3. Create a scoped capability grant naming its recipient, resource, operations and expiry.
+4. Share signed presence with other tabs on the same origin.
+5. Connect wallets with manual WebRTC offer/answer exchange and send signed messages.
+6. Review the local signed activity log.
+
+Manual WebRTC signaling uses no AI Auth service and no TURN relay. This limits network reachability; some devices will not connect. Do not share SDP publicly because it can include network candidates.
+
+The consent flow is a same-app protocol demonstration, not an independent wallet-to-website integration. A relying website must issue its own challenge and enforce its own authorization policy. A wallet signature proves key possession and consent to a message; it does not authorize website resources.
+
+## Install the wallet SDK
 
 ```sh
-curl -s http://127.0.0.1:3333/v1/agents/register \
-  -H 'content-type: application/json' \
-  -d '{"name":"Writer","runtime":"example-runtime","category":"autonomous_agent"}'
+npm install @enzovezzaro/ai-auth-wallet
 ```
 
-The bearer token is shown only once; only its SHA-256 hash is stored. Categories distinguish autonomous agents, browser automation, simulated test clients, and human users. These local credentials are not OIDC identities. Registration is intentionally open for a single-user development service and must not be exposed publicly.
-
-Authenticated endpoints use `Authorization: Bearer <token>`. The SDK obtains a one-use, room-bound WebSocket ticket that expires after 30 seconds. The legacy token-in-URL path remains for local-only compatibility. Public sessions can exchange messages/tasks/locks in shared rooms. A private session is omitted from public presence, connection events, and counters, and is blocked from shared room writes. Private state still creates restricted per-agent security audit records.
-
-## Website snippet
-
-Serve the SDK from the local service:
-
-```html
-<script
-  src="http://localhost:3333/sdk/ai-auth.js"
-  data-site="my-website"
-  defer
-></script>
-<script>
-  document.addEventListener(
-    "DOMContentLoaded",
-    () => {
-      AIAuth.init({
-        baseUrl: "http://localhost:3333",
-        token: agentToken,
-        room: "workspace",
-      });
-      AIAuth.presence.subscribe((event) => console.log(event));
-    },
-    { once: true },
-  );
-</script>
+```js
+import {
+  createPermissionRequest,
+  approvePermissionRequest,
+  verifyPermissionConsent,
+  createCapabilityGrant,
+  verifyCapabilityGrant,
+  P2PRoom,
+  ManualWebRTC,
+} from "@enzovezzaro/ai-auth-wallet";
 ```
 
-The script alone does not authenticate a website visitor or create files/routes on the website's origin. The token must come from a trusted agent runtime. Do not embed a privileged long-lived credential in public HTML.
+The package also exposes `@enzovezzaro/ai-auth-wallet/wallet`, `/connect`, `/capabilities`, and `/p2p`. It has no runtime dependencies and uses browser APIs. ESM import is available in modern Node.js for signature verification; wallet key storage and WebRTC require a browser.
 
-## Local functionality
+## Security and limits
 
-- `POST /v1/agents/register`, `GET /v1/me`, `POST /v1/revoke`, `POST /v1/status`
-- `GET /v1/presence?room=workspace`, `GET /v1/events?token=…&room=…`
-- Room messages, task creation and updates, advisory locks with 5–300 second leases
-- Per-agent `GET /v1/audit`; authenticated summary at `GET /v1/analytics`
-- `/.well-known/ai-auth`, `/agents.txt`, `/dashboard`, `/sdk/ai-auth.js`
-- `GET /demo` serves the explicitly authored demo site; `AIAuth.webmcp` uses native WebMCP when present and an in-page compatibility adapter otherwise
-- `npm run dev:mcp` starts an official-SDK MCP stdio server when `AI_AUTH_TOKEN` is set; it uses the same authenticated API
+- Keys: ECDSA P-256 / SHA-256, IndexedDB CryptoKey storage, AES-GCM-encrypted recovery file.
+- Signed JSON: RFC 8785 canonicalization, versioned envelopes, bounded freshness, origin-bound consent, nonce replay guard.
+- Presence: BroadcastChannel, limited to same-origin tabs.
+- Peer data: manually signaled WebRTC DataChannels, signed message envelopes, no configured relay.
+- Delegation: signed explicit scopes and short expiry; no global revocation broadcast yet.
+- Clerk: optional future human-account linking. It will not own the agent key.
 
-For MCP, first start the API and register an agent, then configure your MCP client to launch `npm run dev:mcp` with `AI_AUTH_TOKEN` set to that agent's token. `AI_AUTH_URL` defaults to `http://127.0.0.1:3333`. The token is process configuration and is not accepted as a tool parameter.
+See [architecture](docs/ARCHITECTURE.md), [security boundaries](docs/SECURITY.md), [wire format](docs/WIRE_FORMAT.md), [recovery](docs/RECOVERY.md), and the [migration plan](docs/IMPLEMENTATION_PLAN.md).
 
-## Install from npm
-
-The server package is `@enzovezzaro/ai-auth-server`; the browser SDK package is `@enzovezzaro/ai-auth`. Install the server package and run `npx ai-auth-server`. For a script tag, serve `/sdk/ai-auth.js` from the server or use the SDK package's `./script` export. The SDK module entry is browser-only and expects `window` and `document`.
-
-Locks are coordination hints; the protected website must enforce its own transaction or authorization. Room/site isolation and administrator roles are not yet implemented: this is a single-site local service. Audit rows are durable SQLite records but are not tamper-evident. Cursor sharing, OpenTelemetry, external OIDC, and autonomous LLM browser-agent workflows are not implemented. MCP stdio and the demo's native WebMCP tool have been exercised locally; this does not imply remote MCP authorization or general browser compatibility.
+The historical `@enzovezzaro/ai-auth-server` npm package remains published, but its source, Docker configuration, and Fly app have been removed from this repository. Old published server releases are not part of the wallet architecture.
 
 ## Checks
 
 ```sh
 npm test
-npm run test:security
-npm run test:load
-npm run typecheck
+npm run test:e2e
 npm run build
-npm run format:check
+npm pack --dry-run
 ```
-
-See [the protocol](docs/PROTOCOL.md), [API reference](docs/API.md), [security notes](docs/SECURITY.md), [MCP guide](docs/MCP.md), [WebMCP guide](docs/WEBMCP.md), [research record](docs/RESEARCH.md), and [test record](docs/TESTING.md). The [machine-readable test report](docs/test-report.json) lists passed and unrun work separately.

@@ -1,5 +1,9 @@
-node_modules
-data
 .git
 .vercel
-*.sqlite
+.env*
+node_modules
+data
+dist
+dist-p2p
+tests
+scripts/serve.mjs
