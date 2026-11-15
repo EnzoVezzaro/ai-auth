@@ -178,6 +178,18 @@ export async function approvePermissionRequest(
       "Approval contains a capability the website did not request",
     );
   }
+  if (request.version === 1) {
+    // Version 1 requests come from sites bundling an older SDK that only
+    // accepts the legacy consent: no version field and an expiry bounded by
+    // the handshake. Session options are ignored; long sessions need a v2 SDK.
+    return signEnvelope(wallet, "connect/consent", {
+      audience: request.audience,
+      requestNonce: request.nonce,
+      capabilities: approved,
+      expiresAt: request.expiresAt,
+      room: validRoom(request.room ?? "default"),
+    });
+  }
   if (request.renews !== undefined) {
     const previous = previousConsent?.body?.payload;
     if (

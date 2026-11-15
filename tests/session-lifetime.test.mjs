@@ -331,3 +331,65 @@ test("lease renewal extends an active session and never revives a dead one", asy
   lease.revoke();
   assert.equal(lease.status(), "revoked");
 });
+
+const legacyVerifier = () => import("./fixtures/connect-0.4.1.mjs");
+
+function legacyRequest(request) {
+  return { ...request, version: 1 };
+}
+
+test("a version 1 request gets the legacy consent the 0.4.1 verifier accepts", async () => {
+  const old = await legacyVerifier();
+  const wallet = await makeWallet();
+  const modern = await createPermissionRequest(ORIGIN, ["presence.read"]);
+  const { sessionTtlMs, idleTimeoutMs, renews, ...base } = modern;
+  void sessionTtlMs;
+  void idleTimeoutMs;
+  void renews;
+  const request = legacyRequest(base);
+  const consent = await approvePermissionRequest(wallet, request, [
+    "presence.read",
+  ]);
+  assert.deepEqual(Object.keys(consent.body.payload).sort(), [
+    "audience",
+    "capabilities",
+    "expiresAt",
+    "requestNonce",
+    "room",
+  ]);
+  assert.equal(consent.body.payload.expiresAt, request.expiresAt);
+  // Session options are ignored for legacy requests.
+  const ignored = await approvePermissionRequest(
+    wallet,
+    request,
+    ["presence.read"],
+    { sessionTtlMs: 5 * MINUTE },
+  );
+  assert.equal(ignored.body.payload.expiresAt, request.expiresAt);
+  assert.equal(
+    await old.verifyPermissionConsent(consent, request, {
+      expectedOrigin: ORIGIN,
+      expectedWallet: wallet.id,
+      nonceGuard: new old.NonceGuard(),
+    }),
+    true,
+  );
+  assert.equal(await verify(consent, request, wallet), true);
+});
+
+test("version 2 requests still get version 2 consent and v1 requests cannot carry session hints", async () => {
+  const { wallet, request } = await handshake();
+  const consent = await approvePermissionRequest(wallet, request, [
+    "presence.read",
+  ]);
+  assert.equal(consent.body.payload.version, 2);
+  const smuggled = { ...request, version: 1, sessionTtlMs: 5 * MINUTE };
+  assert.equal(
+    await verifyPermissionRequest(smuggled, { expectedOrigin: ORIGIN }),
+    false,
+  );
+  await assert.rejects(
+    approvePermissionRequest(wallet, smuggled, ["presence.read"]),
+    /invalid or expired/u,
+  );
+});

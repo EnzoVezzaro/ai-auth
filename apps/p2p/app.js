@@ -230,7 +230,7 @@ function externalPermissionView() {
       ? `<section class="panel" id="renewal-panel"><p class="mini-label">RENEWAL REQUESTED</p><h2>Keep ${esc(displayOrigin)} connected?</h2><p class="panel-copy">The site asks for another ${esc(durationText(Math.min(sessionLimits(state.renewal).maxSessionTtlMs, DEFAULT_SESSION_TTL_MS)))} session with the same capabilities: ${esc(state.renewal.capabilities.join(", "))}. Renewing never adds capabilities.</p><div class="button-row"><button class="button" id="approve-renewal">Renew session</button><button class="button quiet" id="decline-renewal">Decline</button></div></section>`
       : "";
     return `${pageHead("CONSENT SENT", "Return to the requesting site.", "The signed proof was sent to the site that opened this wallet. You can close this tab.")}
-      <section class="panel"><p class="mini-label">APPROVED SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">Approved capabilities: ${esc(grant?.capabilities?.join(", ") ?? "")}</p><div class="metric-line"><span>Session expires</span><strong id="session-expiry">${esc(dateText(grant?.expiresAt))} (<span id="session-countdown">${esc(remainingText(grant?.expiresAt))}</span> left)</strong></div><div class="metric-line"><span>Idle timeout</span><strong>${esc(durationText(grant?.idleTimeoutMs ?? 0))}</strong></div><div class="button-row top-gap"><button class="button quiet" id="end-session">End session now</button></div></section>${renewalPanel}`;
+      <section class="panel"><p class="mini-label">APPROVED SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">Approved capabilities: ${esc(grant?.capabilities?.join(", ") ?? "")}</p><div class="metric-line"><span>Session expires</span><strong id="session-expiry">${esc(dateText(grant?.expiresAt))} (<span id="session-countdown">${esc(remainingText(grant?.expiresAt))}</span> left)</strong></div>${grant?.idleTimeoutMs ? `<div class="metric-line"><span>Idle timeout</span><strong>${esc(durationText(grant.idleTimeoutMs))}</strong></div>` : `<p class="help">Legacy short session from a site on an older SDK; it cannot be renewed.</p>`}<div class="button-row top-gap"><button class="button quiet" id="end-session">End session now</button></div></section>${renewalPanel}`;
   }
   if (state.externalStatus === "rejected") {
     return `${pageHead("REQUEST DECLINED", "The site stays disconnected.", "No identity or permission proof was shared.")}
@@ -255,7 +255,7 @@ function externalPermissionView() {
     .join("");
   return `${pageHead("EXTERNAL SITE REQUEST", "Review before you sign.", "The wallet will send a public identity and only the capabilities you select. Your private key never leaves this browser.")}
     <div class="grid-main"><section class="panel"><div class="panel-head"><div><p class="mini-label">REQUESTING SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">This request expires at ${esc(dateText(request.expiresAt))}. It is valid only for this exact origin and this one connection attempt.</p></div><span class="status-tag pending">REVIEW REQUIRED</span></div>
-      <form id="external-permission-form"><p class="scope-label">REQUESTED CAPABILITIES</p><div class="scope-list">${scopes}</div><div class="field"><label for="session-ttl">Session lasts</label><select class="control" id="session-ttl" name="session-ttl">${sessionTtlChoices(
+      <form id="external-permission-form"><p class="scope-label">REQUESTED CAPABILITIES</p><div class="scope-list">${scopes}</div>${request.version === 1 ? `<p class="help">This site uses an older AI Auth SDK, so this connection lasts only until ${esc(dateText(request.expiresAt))} (under two minutes). Ask the site to upgrade for longer sessions.</p>` : ""}<div class="field"${request.version === 1 ? " hidden" : ""}><label for="session-ttl">Session lasts</label><select class="control" id="session-ttl" name="session-ttl">${sessionTtlChoices(
         request,
       )
         .map(
@@ -732,9 +732,12 @@ function bindView() {
         state.externalRequest,
         approved,
         {
-          sessionTtlMs: Number(
-            event.currentTarget.querySelector("#session-ttl")?.value,
-          ),
+          sessionTtlMs:
+            state.externalRequest.version === 1
+              ? undefined
+              : Number(
+                  event.currentTarget.querySelector("#session-ttl")?.value,
+                ),
         },
       );
       externalHost.postMessage(
