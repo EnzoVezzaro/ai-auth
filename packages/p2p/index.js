@@ -483,3 +483,18 @@ export {
   CONNECTION_STATUSES,
   CONNECTION_TRANSITIONS,
 } from "./connection-state.js";
+
+export {
+  RECEIPT_TYPE,
+  RECEIPT_VERSION,
+  MESSAGE_STATES,
+  buildReceiptPayload,
+  verifyReceipt,
+  createDeliveryLedger,
+  isAddressedTo,
+} from "./receipts.js";
+export {
+  SENSITIVE_SELECTOR,
+  isSensitiveElement,
+  extractSafeText,
+} from "./wheel-redaction.js";
