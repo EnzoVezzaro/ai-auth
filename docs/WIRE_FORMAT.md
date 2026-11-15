@@ -52,3 +52,36 @@ A verifier checks the signature, the `walletId`/`publicKey`/issuer binding, exac
 ## Site link revocation (`ai-auth-link-revocation`, v1)
 
 Unlinking in the wallet deletes the local record and emits a signed envelope with `type: "ai-auth-link-revocation"` and payload `{ type, v: 1, linkId, origin, resource, walletId, nonce, revokedAt }`. A verifier checks the signature, that the issuer is `walletId`, the exact `origin`, and that `linkId` re-derives from the fields (so only the linked wallet can revoke its own link). The wallet must deliver the event to the site; the site records the `linkId` in its own revoked set and rejects that link afterwards.
+
+## Participation modes
+
+Rooms are `open` or `restricted`. Open rooms use the formats above unchanged.
+
+### Membership proof
+
+```json
+{
+  "type": "ai-auth-membership",
+  "v": 1,
+  "id": "<unique base64url id>",
+  "issuer": { "kty": "EC", "crv": "P-256", "x": "…", "y": "…" },
+  "subject": "agent:…",
+  "origin": "https://site.example",
+  "room": "research",
+  "role": "owner | member | observer",
+  "scopes": ["presence.read", "messages.send"],
+  "issuedAt": 0,
+  "expiresAt": 0,
+  "signature": "<base64url ECDSA-P256-SHA256>"
+}
+```
+
+The signature covers `"ai-auth-membership/v1\n"` followed by the RFC 8785 canonical JSON of every field except `signature`. Unknown fields are rejected. `expiresAt - issuedAt` must be positive and at most 24 hours. Verifiers require a trusted issuer, and exact matches for origin, room, and subject.
+
+### Presenting a proof
+
+A restricted-room peer includes the proof as `payload.membership` in its signed `peer/hello` and `peer/heartbeat` events (at most 4096 serialized characters). The receiver accepts it only when `subject` equals the envelope `issuer`. Other event types are processed only after admission, and only within the proof's scopes (the event-to-capability mapping is the same as for wallet capabilities).
+
+### Public topic
+
+The room topic (`ai-auth-v1-<sha256(appId, origin, room)>`) is public. It is discovery metadata, not authorization; open rooms are public.

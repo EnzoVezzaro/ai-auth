@@ -498,3 +498,15 @@ export {
   verifyLink,
   verifyLinkRevocation,
 } from "./links.js";
+
+export {
+  issueMembership,
+  verifyMembership,
+  createParticipationPolicy,
+  MEMBERSHIP_TYPE,
+  MEMBERSHIP_VERSION,
+  MAX_MEMBERSHIP_TTL_MS,
+  ROOM_MODES,
+  ROLES,
+  OPEN_ROOM_DISCLOSURE,
+} from "./membership.js";

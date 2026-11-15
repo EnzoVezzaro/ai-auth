@@ -19,6 +19,12 @@ const TRYSTERO_APP_ID = "ai-auth-wallet-v1";
 const TRYSTERO_ACTION = "ai-auth-signed-v1";
 const MAX_TRYSTERO_EVENT_BYTES = 64_000;
 const MAX_QUEUED_OUTBOUND_EVENTS = 128;
+const PRESENCE_ONLY_TYPES = new Set([
+  "peer/hello",
+  "peer/heartbeat",
+  "peer/goodbye",
+]);
+const MAX_MEMBERSHIP_WIRE_CHARS = 4096;
 const EVENT_CAPABILITY = new Map([
   ["peer/hello", "presence.read"],
   ["peer/heartbeat", "presence.read"],
@@ -52,10 +58,19 @@ export class P2PRoom {
       privateMode = false,
       origin = globalThis.location?.origin ?? "",
       capabilities = null,
+      participation = null,
     } = {},
   ) {
     if (!ROOM_PATTERN.test(room))
       throw new Error("Room names must be 1–100 safe characters");
+    const policy = participation?.policy ?? null;
+    if (policy && (policy.room !== room || policy.origin !== origin))
+      throw new Error("Participation policy must match this origin and room");
+    this.policy = policy;
+    this.membership = participation?.membership ?? null;
+    this.participationMode = policy?.mode ?? "open";
+    this.disclosure = policy?.disclosure ?? null;
+    this.sourceWallets = new WeakMap();
     this.wallet = wallet;
     this.room = room;
     this.origin = origin;
@@ -80,6 +95,48 @@ export class P2PRoom {
   subscribe(listener) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  get restricted() {
+    return this.participationMode === "restricted";
+  }
+
+  // Whether a transport source has presented a still-valid member identity.
+  // Open rooms deliver to everyone, exactly as before.
+  isMemberSource(source, to = null) {
+    if (!this.restricted) return true;
+    const key = this.channelSources.get(source) ?? source;
+    for (const wallet of this.sourceWallets.get(key) ?? [])
+      if ((!to || wallet === to) && this.policy.isMember(wallet)) return true;
+    return false;
+  }
+
+  mayDeliver(source, type, to) {
+    if (!this.restricted) return true;
+    if (to) return this.isMemberSource(source, to);
+    return PRESENCE_ONLY_TYPES.has(type) || this.isMemberSource(source);
+  }
+
+  // Restricted rooms drop everything from wallets without a valid proof.
+  async admitInbound(envelope, source) {
+    const { type, issuer } = envelope.body;
+    const proof = envelope.body.payload.membership;
+    if (
+      proof !== undefined &&
+      (type === "peer/hello" || type === "peer/heartbeat") &&
+      JSON.stringify(proof ?? null).length <= MAX_MEMBERSHIP_WIRE_CHARS
+    ) {
+      const admitted = await this.policy.admit(issuer, proof);
+      if (admitted.ok) {
+        const key = this.channelSources.get(source) ?? source;
+        const wallets = this.sourceWallets.get(key) ?? new Set();
+        if (wallets.size < 8) wallets.add(issuer);
+        this.sourceWallets.set(key, wallets);
+      }
+    }
+    if (!this.policy.isMember(issuer)) return false;
+    const capability = EVENT_CAPABILITY.get(type);
+    return !capability || this.policy.can(issuer, capability);
   }
 
   hasDirectPeer() {
@@ -120,14 +177,19 @@ export class P2PRoom {
     return this;
   }
 
-  async send(type, payload = {}) {
+  async send(type, payload = {}, { to = null } = {}) {
     if (this.privateMode || this.closed)
       throw new Error("This wallet session is private or closed");
+    if (this.restricted && to && !this.policy.isMember(to))
+      throw new Error("Recipient is not a member of this restricted room");
     const capability = EVENT_CAPABILITY.get(type);
     if (capability && this.capabilities && !this.capabilities.has(capability))
       throw new Error(`This wallet session did not approve ${capability}`);
     const envelope = await signEnvelope(this.wallet, type, {
       ...payload,
+      ...(this.membership && PRESENCE_ONLY_TYPES.has(type)
+        ? { membership: this.membership }
+        : {}),
       room: this.room,
       origin: this.origin,
       session: this.session,
@@ -135,11 +197,13 @@ export class P2PRoom {
       expiresAt: Date.now() + MAX_EVENT_AGE_MS,
     });
     const wire = JSON.stringify(envelope);
-    if (this.broadcast) this.broadcast.postMessage(envelope);
+    if (this.broadcast && (!this.restricted || PRESENCE_ONLY_TYPES.has(type)))
+      this.broadcast.postMessage(envelope);
     for (const channel of this.channels) {
-      if (channel.readyState === "open") channel.send(wire);
+      if (channel.readyState === "open" && this.mayDeliver(channel, type, to))
+        channel.send(wire);
     }
-    this.notify({ direction: "out", envelope });
+    this.notify({ direction: "out", envelope, ...(to ? { to } : {}) });
     return envelope;
   }
 
@@ -180,6 +244,8 @@ export class P2PRoom {
     )
       return false;
     if (!(await verifyEnvelope(envelope, { maxAgeMs: MAX_EVENT_AGE_MS })))
+      return false;
+    if (this.restricted && !(await this.admitInbound(envelope, source)))
       return false;
     const replayKey = `${envelope.body.issuer}:${payload.session}:${payload.nonce}`;
     this.pruneReplayEntries();
@@ -528,10 +594,14 @@ export class NostrWebRTC {
       });
     });
     this.sendAction = action.send;
-    this.stopForwarding = this.coreRoom.subscribe(({ direction, envelope }) => {
-      if (direction !== "out" || this.closed) return;
-      this.forward(envelope);
-    });
+    this.stopForwarding = this.coreRoom.subscribe(
+      ({ direction, envelope, to }) => {
+        if (this.closed) return;
+        if (direction === "out") this.forward(envelope, to);
+        else if (direction === "in" && this.coreRoom.restricted)
+          void this.flushOutbox();
+      },
+    );
     this.stopPeerJoin = this.transport.onPeerJoin(
       ({ peerId }) => {
         this.directPeers.add(peerId);
@@ -555,6 +625,7 @@ export class NostrWebRTC {
     this.stopPeerLeave = this.transport.onPeerLeave(({ peerId }) => {
       this.directPeers.delete(peerId);
       this.lifecycle.removePeer(peerId);
+      if (this.coreRoom.restricted) this.peerSources.delete(peerId);
       this.coreRoom.directPeerCount = this.directPeers.size;
       if (this.transport && Object.keys(this.transport.getPeers()).length === 0)
         this.onStatus("Waiting for agents on this page");
@@ -566,7 +637,30 @@ export class NostrWebRTC {
     return this;
   }
 
-  forward(envelope) {
+  // Restricted rooms deliver only to peers that proved membership; presence
+  // announcements (which carry only our own proof) go to every direct peer.
+  // Returns undefined in open rooms (broadcast, unchanged) or a peer id list.
+  targetsFor(envelope, to) {
+    if (!this.coreRoom.restricted) return undefined;
+    const everyone = !to && PRESENCE_ONLY_TYPES.has(envelope?.body?.type);
+    return [...this.directPeers].filter(
+      (peerId) =>
+        everyone ||
+        (this.peerSources.has(peerId) &&
+          this.coreRoom.isMemberSource(this.peerSources.get(peerId), to)),
+    );
+  }
+
+  deliver(envelope, to) {
+    const targets = this.targetsFor(envelope, to);
+    return targets === undefined
+      ? this.sendAction(envelope)
+      : targets.length
+        ? this.sendAction(envelope, targets)
+        : null;
+  }
+
+  forward(envelope, to) {
     if (this.closed) return;
     const wire = JSON.stringify(envelope);
     const expiresAt = envelope?.body?.payload?.expiresAt;
@@ -579,7 +673,12 @@ export class NostrWebRTC {
       this.onStatus("A collaboration event was too large or expired");
       return;
     }
-    if (this.directPeers.size === 0) {
+    const targets = this.targetsFor(envelope, to);
+    if (this.directPeers.size === 0 || targets?.length === 0) {
+      if (to) {
+        this.onStatus("The recipient is not connected as a verified member");
+        return;
+      }
       if (envelope?.body?.type === "collab/attachment") {
         this.onStatus(
           "Attachment transfer stopped: no direct peer is connected",
@@ -593,7 +692,7 @@ export class NostrWebRTC {
         this.onStatus("Waiting for peers; the outgoing event queue is full");
         return;
       }
-      this.outbox.push({ envelope, expiresAt });
+      this.outbox.push({ envelope, expiresAt, to });
       this.onDiagnostic({
         stage: "event-queued-until-direct-peer",
         type: envelope?.body?.type,
@@ -604,7 +703,7 @@ export class NostrWebRTC {
       stage: "transport-sending",
       type: envelope?.body?.type,
     });
-    void this.sendAction(envelope)
+    void this.deliver(envelope, to)
       .then(() =>
         this.onDiagnostic({
           stage: "transport-sent",
@@ -616,7 +715,7 @@ export class NostrWebRTC {
           this.onStatus("An attachment chunk could not be sent");
           return;
         }
-        this.outbox.unshift({ envelope, expiresAt });
+        this.outbox.unshift({ envelope, expiresAt, to });
         this.onStatus(
           "A peer message could not be sent; it is queued for retry",
         );
@@ -628,6 +727,7 @@ export class NostrWebRTC {
       return;
     this.flushingOutbox = true;
     try {
+      const waiting = [];
       while (
         !this.closed &&
         this.directPeers.size > 0 &&
@@ -635,8 +735,12 @@ export class NostrWebRTC {
       ) {
         const queued = this.outbox.shift();
         if (queued.expiresAt <= Date.now()) continue;
+        if (this.targetsFor(queued.envelope, queued.to)?.length === 0) {
+          waiting.push(queued);
+          continue;
+        }
         try {
-          await this.sendAction(queued.envelope);
+          await this.deliver(queued.envelope, queued.to);
           this.onDiagnostic({
             stage: "transport-sent",
             type: queued.envelope?.body?.type,
@@ -647,6 +751,7 @@ export class NostrWebRTC {
           break;
         }
       }
+      this.outbox.unshift(...waiting);
     } finally {
       this.flushingOutbox = false;
     }
