@@ -206,7 +206,7 @@ export function createAIAuthConnectController({ connect, instruction } = {}) {
     activeConnection = connection;
     lifecycleUnsubscribe = connection.onLifecycle((event) => {
       if (closed || activeConnection !== connection) return;
-      if (event?.type === "connected") {
+      if (event?.type === "connected" || event?.type === "renewed") {
         setState({
           status: "connected",
           connection,
@@ -222,7 +222,9 @@ export function createAIAuthConnectController({ connect, instruction } = {}) {
         activeConnection = null;
         setState({
           status: "disconnected",
-          reason: event.reason === "expired" ? "expired" : "closed",
+          reason: ["expired", "idle", "revoked"].includes(event.reason)
+            ? event.reason
+            : "closed",
         });
       }
     });
@@ -419,6 +421,27 @@ export function mountAIAuthConnectPanel({
   disconnectButton.className = "secondary";
   disconnectButton.textContent = "Disconnect";
   disconnectButton.addEventListener("click", () => controller.disconnect());
+  const renewButton = document.createElement("button");
+  renewButton.type = "button";
+  renewButton.className = "secondary";
+  renewButton.textContent = "Renew session";
+  renewButton.addEventListener("click", () => {
+    const connection = controller.getState().connection;
+    if (!connection?.renew) return;
+    renewButton.disabled = true;
+    connection
+      .renew()
+      .then(() => {
+        errorLine.hidden = true;
+      })
+      .catch((error) => {
+        errorLine.textContent = error?.message ?? "Renewal failed";
+        errorLine.hidden = false;
+      })
+      .finally(() => {
+        renewButton.disabled = false;
+      });
+  });
 
   const stopCountdown = () => {
     if (countdownTimer) {
@@ -485,12 +508,16 @@ export function mountAIAuthConnectPanel({
       detail.append(" · ", expiresLabel);
       countdownTimer = setInterval(updateCountdown, 1000);
       disconnectButton.textContent = "Disconnect";
-      actions.append(disconnectButton);
+      actions.append(renewButton, disconnectButton);
       return;
     }
     if (state.status === "disconnected") {
       statusText.textContent =
-        state.reason === "expired" ? "Connection expired" : "Disconnected";
+        {
+          expired: "Connection expired",
+          idle: "Disconnected after an idle timeout",
+          revoked: "Session ended by the wallet",
+        }[state.reason] ?? "Disconnected";
       connectButton.disabled = false;
       connectButton.textContent = "Connect agent";
       actions.append(connectButton);

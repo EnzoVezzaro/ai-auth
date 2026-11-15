@@ -1,11 +1,13 @@
 import {
   NonceGuard,
+  SessionLease,
   createPermissionRequest,
   verifyPermissionConsent,
 } from "./connect.js";
 import { verifyEnvelope } from "./index.js";
 import {
   markVerifiedPageConnection,
+  renewVerifiedPageConnection,
   revokeVerifiedPageConnection,
 } from "./session.js";
 
@@ -17,6 +19,12 @@ const CAPABILITY_FOR_EVENT = {
   "message/text": "messages.send",
   "agent/action": "tools.invoke",
 };
+const PASSIVE_EVENT_TYPES = new Set([
+  "peer/hello",
+  "peer/heartbeat",
+  "peer/goodbye",
+  "presence/cursor",
+]);
 const TOOL_EVENT_KINDS = new Set([
   "tool-catalog",
   "tool-request",
@@ -81,6 +89,8 @@ export async function connectAIAuthModal({
   origin = globalThis.location?.origin,
   timeoutMs = 120_000,
   windowObject = globalThis.window,
+  sessionTtlMs,
+  idleTimeoutMs,
 } = {}) {
   if (!windowObject?.document?.body)
     throw new Error("AI Auth modal connections require a browser document");
@@ -93,9 +103,13 @@ export async function connectAIAuthModal({
   )
     throw new TypeError("Site origin must be an exact HTTP origin");
   const walletPage = walletPageUrl(walletUrl);
+  // The challenge stays short-lived and single-use; the session lifetime the
+  // site would like is only a bounded hint the wallet may shorten.
+  const sessionOptions = { sessionTtlMs, idleTimeoutMs };
   let request = await createPermissionRequest(origin, capabilities, {
     room,
     expiresInMs: 120_000,
+    ...sessionOptions,
   });
   const document = windowObject.document;
   const dialog = document.createElement("dialog");
@@ -127,6 +141,8 @@ export async function connectAIAuthModal({
   const pendingTransfers = new Map();
   let transferSequence = 0;
   let consent;
+  let lease;
+  let pendingRenewal = null;
   let walletIdentity = null;
   let walletSession = null;
   const roomReadyListeners = new Set();
@@ -141,9 +157,31 @@ export async function connectAIAuthModal({
     rejectReady = reject;
   });
 
+  let onRenewed = () => {};
+  const hideDialog = () => {
+    dialog.close();
+    dialog.style.display = "none";
+  };
+  // One timer follows the earlier of grant expiry and idle deadline, and
+  // re-checks the lease each time so renewal and activity move it forward.
+  const scheduleExpiry = () => {
+    clearTimeout(expiryTimer);
+    if (!lease || !activeConnection) return;
+    const status = lease.status();
+    if (status !== "active") {
+      activeConnection.close(status);
+      return;
+    }
+    expiryTimer = setTimeout(
+      scheduleExpiry,
+      Math.max(1, lease.deadline - Date.now()),
+    );
+  };
+
   const cleanup = () => {
     clearTimeout(timeout);
     clearTimeout(expiryTimer);
+    clearTimeout(pendingRenewal?.timer);
     windowObject.removeEventListener("message", onMessage);
     dialog.removeEventListener("cancel", onCancel);
     dialog.remove();
@@ -160,8 +198,8 @@ export async function connectAIAuthModal({
 
   const onMessage = async (event) => {
     if (event.source !== popup || event.origin !== walletPage.origin) return;
-    if (consent?.body?.payload?.expiresAt <= Date.now()) {
-      activeConnection?.close("expired");
+    if (lease && !lease.isActive()) {
+      activeConnection?.close(lease.status());
       return;
     }
     debug("wallet-message", event.data?.type);
@@ -174,6 +212,7 @@ export async function connectAIAuthModal({
       request = await createPermissionRequest(origin, capabilities, {
         room,
         expiresInMs: 120_000,
+        ...sessionOptions,
       });
       clearTimeout(timeout);
       timeout = setTimeout(() => {
@@ -222,12 +261,65 @@ export async function connectAIAuthModal({
         return;
       }
       consent = candidate;
+      lease = new SessionLease(consent.body.payload);
       walletIdentity = verifiedWalletIdentity(event.data.wallet, consent);
-      dialog.close();
-      dialog.style.display = "none";
+      hideDialog();
       clearTimeout(timeout);
       timeout = undefined;
       resolveReady(createConnection());
+      return;
+    }
+    if (consent && event.data?.type === "ai-auth/session-ended") {
+      // The wallet user ended the session or the wallet timed it out.
+      const reason = event.data.reason;
+      activeConnection?.close(
+        reason === "idle" ? "idle" : reason === "ended" ? "revoked" : "expired",
+      );
+      return;
+    }
+    if (
+      consent &&
+      pendingRenewal &&
+      event.data?.type === "ai-auth/renew-rejected" &&
+      event.data.requestNonce === pendingRenewal.request.nonce
+    ) {
+      const renewal = pendingRenewal;
+      pendingRenewal = null;
+      clearTimeout(renewal.timer);
+      hideDialog();
+      renewal.reject(new Error("The wallet declined to renew this session"));
+      return;
+    }
+    if (
+      consent &&
+      pendingRenewal &&
+      event.data?.type === "ai-auth/renew-consent" &&
+      event.data.requestNonce === pendingRenewal.request.nonce
+    ) {
+      const renewal = pendingRenewal;
+      pendingRenewal = null;
+      clearTimeout(renewal.timer);
+      const candidate = event.data.consent;
+      const valid = await verifyPermissionConsent(candidate, renewal.request, {
+        expectedOrigin: origin,
+        expectedWallet: consent.body.issuer,
+        nonceGuard: consentGuard,
+        previousConsent: consent,
+      });
+      hideDialog();
+      if (
+        !valid ||
+        !lease?.isActive() ||
+        !lease.renew(candidate.body.payload)
+      ) {
+        renewal.reject(new Error("The wallet renewal could not be verified"));
+        return;
+      }
+      consent = candidate;
+      renewVerifiedPageConnection(activeConnection, consent);
+      scheduleExpiry();
+      onRenewed();
+      renewal.resolve();
       return;
     }
     if (consent && event.data?.type === "ai-auth/transfer-result") {
@@ -250,6 +342,7 @@ export async function connectAIAuthModal({
         !consent.body.payload.capabilities.includes(capability)
       )
         return;
+      lease?.touch();
       for (const listener of transferListeners) {
         try {
           listener(transfer);
@@ -353,6 +446,8 @@ export async function connectAIAuthModal({
       return;
     }
     seen.set(replayKey, payload.expiresAt);
+    // Passive presence traffic must not keep an idle session alive.
+    if (!PASSIVE_EVENT_TYPES.has(envelope.body.type)) lease?.touch();
     debug("sdk-event-accepted", envelope.body.type);
     for (const listener of listeners) {
       try {
@@ -372,7 +467,24 @@ export async function connectAIAuthModal({
       identity: walletIdentity,
       capabilities: Object.freeze([...consent.body.payload.capabilities]),
       expiresAt: consent.body.payload.expiresAt,
+      idleTimeoutMs: consent.body.payload.idleTimeoutMs ?? null,
     });
+    onRenewed = () =>
+      notifyLifecycle({
+        ...connectedEvent(),
+        type: "renewed",
+      });
+    // An expired, idle or revoked session closes the connection before any
+    // authorized publish, receive or transfer proceeds.
+    const guardActive = () => {
+      if (closed) return false;
+      const status = lease.status();
+      if (status !== "active") {
+        connection.close(status);
+        return false;
+      }
+      return true;
+    };
     const notifyLifecycle = (event) => {
       for (const listener of lifecycleListeners) {
         try {
@@ -381,12 +493,13 @@ export async function connectAIAuthModal({
       }
     };
     function sendTransfer(method, args, capability) {
-      if (closed || consent.body.payload.expiresAt <= Date.now())
+      if (!guardActive())
         return Promise.reject(new Error("The AI Auth connection is closed"));
       if (!consent.body.payload.capabilities.includes(capability))
         return Promise.reject(
           new Error("This wallet did not approve this capability"),
         );
+      lease.touch();
       const id = String(++transferSequence);
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
@@ -420,7 +533,59 @@ export async function connectAIAuthModal({
     const connection = Object.freeze({
       transfers,
       request,
-      consent,
+      get consent() {
+        return consent;
+      },
+      get expiresAt() {
+        return consent.body.payload.expiresAt;
+      },
+      get idleTimeoutMs() {
+        return consent.body.payload.idleTimeoutMs ?? null;
+      },
+      /**
+       * Ask the wallet to renew this session. The wallet user must approve
+       * again; renewal can only keep or narrow the approved capabilities.
+       */
+      renew() {
+        if (!guardActive())
+          return Promise.reject(
+            new Error("The session is no longer active; connect again"),
+          );
+        if (pendingRenewal) return pendingRenewal.promise;
+        return (async () => {
+          const renewalRequest = await createPermissionRequest(
+            origin,
+            consent.body.payload.capabilities,
+            {
+              room,
+              expiresInMs: 120_000,
+              ...sessionOptions,
+              renews: consent.body.payload.requestNonce,
+            },
+          );
+          if (closed || pendingRenewal)
+            throw new Error("The AI Auth connection is closed");
+          const renewal = { request: renewalRequest };
+          renewal.promise = new Promise((resolve, reject) => {
+            renewal.resolve = resolve;
+            renewal.reject = reject;
+          });
+          renewal.timer = setTimeout(() => {
+            if (pendingRenewal !== renewal) return;
+            pendingRenewal = null;
+            hideDialog();
+            renewal.reject(new Error("The wallet renewal timed out"));
+          }, timeoutMs);
+          pendingRenewal = renewal;
+          dialog.style.display = "";
+          dialog.showModal();
+          popup.postMessage(
+            { type: "ai-auth/renew-request", request: renewalRequest },
+            walletPage.origin,
+          );
+          return renewal.promise;
+        })();
+      },
       identity: walletIdentity,
       capabilities: Object.freeze([...consent.body.payload.capabilities]),
       onLifecycle(listener) {
@@ -429,7 +594,7 @@ export async function connectAIAuthModal({
         if (closed) {
           listener({
             type: "disconnected",
-            reason: closedReason === "expired" ? "expired" : "closed",
+            reason: closedReason || "closed",
           });
           return () => {};
         }
@@ -452,10 +617,7 @@ export async function connectAIAuthModal({
       onEvent(listener) {
         if (typeof listener !== "function")
           throw new TypeError("An event listener function is required");
-        if (consent.body.payload.expiresAt <= Date.now()) {
-          connection.close();
-          return () => {};
-        }
+        if (!guardActive()) return () => {};
         listeners.add(listener);
         return () => listeners.delete(listener);
       },
@@ -474,9 +636,7 @@ export async function connectAIAuthModal({
         return () => roomReadyListeners.delete(listener);
       },
       publishAgentEvent(agentEvent) {
-        if (consent.body.payload.expiresAt <= Date.now())
-          connection.close("expired");
-        if (closed) throw new Error("The AI Auth connection is closed");
+        if (!guardActive()) throw new Error("The AI Auth connection is closed");
         if (!consent.body.payload.capabilities.includes("tools.invoke"))
           throw new Error("This wallet did not approve tool invocation");
         if (
@@ -486,14 +646,14 @@ export async function connectAIAuthModal({
             8_192
         )
           throw new TypeError("The shared agent event is invalid or too large");
+        lease.touch();
         popup.postMessage(
           { type: "ai-auth/site-agent-event", event: agentEvent },
           walletPage.origin,
         );
       },
       publishAction({ name, state, summary }) {
-        if (consent.body.payload.expiresAt <= Date.now()) connection.close();
-        if (closed) throw new Error("The AI Auth connection is closed");
+        if (!guardActive()) throw new Error("The AI Auth connection is closed");
         if (!consent.body.payload.capabilities.includes("tools.invoke"))
           throw new Error("This wallet did not approve site action sharing");
         if (
@@ -513,14 +673,14 @@ export async function connectAIAuthModal({
           throw new TypeError(
             "Site action events need a valid name, state, and short summary",
           );
+        lease.touch();
         popup.postMessage(
           { type: "ai-auth/site-action", action: { name, state, summary } },
           walletPage.origin,
         );
       },
       publishCursor({ x, y, visible = true, scroll }) {
-        if (consent.body.payload.expiresAt <= Date.now()) connection.close();
-        if (closed) return;
+        if (!guardActive()) return;
         if (!consent.body.payload.capabilities.includes("presence.read"))
           return;
         if (
@@ -537,6 +697,7 @@ export async function connectAIAuthModal({
           (!Number.isFinite(scroll) || scroll < 0 || scroll > 1)
         )
           return;
+        lease.touch();
         popup.postMessage(
           {
             type: "ai-auth/site-cursor",
@@ -553,7 +714,10 @@ export async function connectAIAuthModal({
       close(reason = "closed") {
         if (closed) return;
         closed = true;
-        closedReason = reason === "expired" ? "expired" : "closed";
+        closedReason = ["expired", "idle", "revoked"].includes(reason)
+          ? reason
+          : "closed";
+        lease?.revoke();
         revokeVerifiedPageConnection(connection);
         cleanup();
         listeners.clear();
@@ -575,11 +739,8 @@ export async function connectAIAuthModal({
       },
     });
     activeConnection = connection;
-    expiryTimer = setTimeout(
-      () => connection.close("expired"),
-      Math.max(0, consent.body.payload.expiresAt - Date.now()),
-    );
     markVerifiedPageConnection(connection, consent);
+    scheduleExpiry();
     return connection;
   }
 

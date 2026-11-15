@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Separate the handshake challenge from the usable session. The permission request stays a single-use 1–120 second challenge (now `version: 2`, with optional `sessionTtlMs`, `idleTimeoutMs`, and `renews`); the signed `connect/consent` payload (`version: 2`) now carries `issuedAt`, `challengeExpiresAt`, `sessionTtlMs`, `idleTimeoutMs`, and an `expiresAt` that is the bounded session grant instead of `request.expiresAt`.
+- Default session is 30 minutes with a hard 60 minute cap and a 10 minute idle timeout. A request can only ask for less than the cap; verifiers reject any consent that exceeds the cap or the request's own hint.
+- Add explicit renewal: `connection.renew()` asks the wallet owner to approve again. Renewal can keep or narrow capabilities, never widen them, and is only possible while the session is still active.
+- Add idle timeout, wallet "End session" (reported to the site as `revoked`), and a visible session expiry countdown in the wallet. Expired, idle, or revoked sessions stop authorized publish, receive, transfer, and WebMCP tool calls.
+- Add `sessionTtlMs` and `idleTimeoutMs` options to `connectAIAuthModal`, the `renewed` lifecycle event, `idle` and `revoked` disconnect reasons, and the exported `SessionLease`, `sessionLimits`, and session constants.
+- Sites must upgrade their SDK to get long sessions. The wallet answers a version 1 request (older SDKs) with the legacy consent exactly as 0.4.1 did, so existing sites keep working but retain the two-minute handshake-bound session, and the wallet says so.
+- Compatibility: version 1 consents still verify but keep their handshake-bound expiry. An older SDK cannot verify a version 2 consent, so deploy the SDK and wallet together.
+
 ## 0.4.1 - 2026-11-15
 
 - Dispose wallet sessions when a connection ends and prevent orphaned handshakes from leaving pending wallet state behind.
