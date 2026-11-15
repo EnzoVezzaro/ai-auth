@@ -4,6 +4,14 @@ const CAPABILITY_PATTERN = /^[a-z][a-z0-9]*(?:[.:/_-][a-z0-9]+)*$/u;
 const MAX_NONCE_LENGTH = 512;
 const MAX_NONCE_ENTRIES = 10_000;
 const NONCE_CLEANUP_INTERVAL_MS = 1_000;
+const ROOM_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,99}$/u;
+
+function validRoom(value) {
+  if (typeof value !== "string" || !ROOM_PATTERN.test(value)) {
+    throw new TypeError("A shared room name must be 1–100 safe characters");
+  }
+  return value;
+}
 
 function normalizeCapabilities(capabilities) {
   if (!Array.isArray(capabilities) || capabilities.length === 0) {
@@ -66,7 +74,7 @@ export class NonceGuard {
 export async function createPermissionRequest(
   origin,
   capabilities,
-  { expiresInMs = 60_000 } = {},
+  { expiresInMs = 60_000, room = "default" } = {},
 ) {
   if (
     !Number.isInteger(expiresInMs) ||
@@ -85,6 +93,7 @@ export async function createPermissionRequest(
     createdAt: Date.now(),
     expiresAt: Date.now() + expiresInMs,
     capabilities: normalizeCapabilities(capabilities),
+    room: validRoom(room),
   };
 }
 
@@ -111,6 +120,7 @@ export async function approvePermissionRequest(
     requestNonce: request.nonce,
     capabilities: approved,
     expiresAt: request.expiresAt,
+    room: validRoom(request.room ?? "default"),
   });
 }
 
@@ -122,6 +132,7 @@ export async function verifyPermissionRequest(
     if (request.type !== "ai-auth/permission-request" || request.version !== 1)
       return false;
     if (request.audience !== validOrigin(expectedOrigin)) return false;
+    validRoom(request.room ?? "default");
     if (
       !Number.isFinite(request.expiresAt) ||
       request.expiresAt <= now ||
@@ -194,7 +205,9 @@ export async function verifyPermissionConsent(
     if (
       consent.body.type !== "connect/consent" ||
       payload.audience !== validOrigin(expectedOrigin) ||
-      payload.audience !== request.audience
+      payload.audience !== request.audience ||
+      validRoom(payload.room ?? "default") !==
+        validRoom(request.room ?? "default")
     )
       return false;
     if (

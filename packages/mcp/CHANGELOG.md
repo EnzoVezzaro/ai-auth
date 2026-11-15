@@ -1,8 +1,16 @@
 # Changelog
 
-## 0.1.0-beta.0 - 2026-11-15
+## Unreleased
 
-- Add a local stdio MCP server that uses a host-supplied wallet and explicit capability approval callback.
-- Expose identity, workspace, invitation, join, and message tools according to the authenticated session scopes.
-- Keep wallet private-key storage and approval UX in the host application; redact session tokens from operation errors.
-- Mark the adapter as preview-only until the AI Auth shared-state service is deployed and production E2E passes.
+- Replace authenticated service sessions with locally approved wallet actions.
+- Sign action lifecycle events and allow the host to forward them through a locally chosen transport.
+- Remove AI Auth backend and tenant API dependencies.
+- Return generic MCP errors when an action or host event transport fails, so host secrets are not exposed to the client.
+
+## 0.1.0 - 2026-11-15
+
+- Release the local stdio adapter for explicitly approved, wallet-signed actions.
+
+## 0.1.0-beta.0
+
+- Initial local stdio MCP adapter preview with host-supplied wallet approval.

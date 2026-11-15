@@ -1,7 +1,7 @@
 {
   "name": "@enzovezzaro/ai-auth-mcp",
-  "version": "0.1.0-beta.0",
-  "description": "Wallet-authenticated MCP tools for AI Auth shared workspaces",
+  "version": "0.1.0",
+  "description": "Locally approved AI Auth wallet actions exposed over MCP stdio",
   "type": "module",
   "main": "./index.js",
   "types": "./index.d.ts",
@@ -30,7 +30,7 @@
   },
   "publishConfig": {
     "access": "public",
-    "tag": "next"
+    "tag": "latest"
   },
   "license": "MIT"
 }

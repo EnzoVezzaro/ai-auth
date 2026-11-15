@@ -1,69 +1,36 @@
+import type { ZodType } from "zod";
+
 export interface AIAuthMcpWallet {
   id: string;
   publicKey?: JsonWebKey;
   sign(type: string, payload: unknown): Promise<unknown>;
 }
 
-export interface AIAuthMcpSession {
-  token: string;
-  session: {
-    id: string;
-    agentId: string;
-    capabilities: string[];
-    expiresAt: number;
-  };
-}
-
-export interface AIAuthMcpServiceClient {
-  authenticate(
-    wallet: AIAuthMcpWallet,
-    requestedCapabilities: string[],
-    approvedCapabilities: string[],
-  ): Promise<AIAuthMcpSession>;
-  createTenant?(session: AIAuthMcpSession, name: string): Promise<unknown>;
-  createInvitation?(
-    session: AIAuthMcpSession,
-    wallet: AIAuthMcpWallet,
-    input: {
-      tenantId: string;
-      recipient: string;
-      capabilities: string[];
-      expiresAt: number;
-    },
-  ): Promise<unknown>;
-  joinTenant?(
-    session: AIAuthMcpSession,
-    tenantId: string,
-    grant: unknown,
-  ): Promise<unknown>;
-  listMessages?(
-    session: AIAuthMcpSession,
-    tenantId: string,
-    room: string,
-  ): Promise<unknown>;
-  sendMessage?(
-    session: AIAuthMcpSession,
-    tenantId: string,
-    room: string,
-    body: string,
-  ): Promise<unknown>;
+export interface AIAuthMcpAction {
+  name: string;
+  description: string;
+  inputSchema: Record<string, ZodType>;
+  requiredCapability: string;
+  readOnly?: boolean;
+  execute(input: Record<string, unknown>): unknown | Promise<unknown>;
 }
 
 export interface AIAuthMcpServerOptions {
-  serviceClient: AIAuthMcpServiceClient;
   wallet: AIAuthMcpWallet;
-  requestedCapabilities: string[];
+  actions: AIAuthMcpAction[];
   approveCapabilities: (
     requested: string[],
     identity: { id: string; publicKey?: JsonWebKey },
   ) => string[] | Promise<string[]>;
+  publishEvent?: (envelope: unknown) => unknown | Promise<unknown>;
   name?: string;
   version?: string;
 }
 
 export interface AIAuthMcpServerResult {
   server: import("@modelcontextprotocol/sdk/server/mcp.js").McpServer;
-  session: AIAuthMcpSession;
+  capabilities: readonly string[];
+  wallet: { id: string; publicKey?: JsonWebKey };
 }
 
 export declare function createAIAuthMcpServer(

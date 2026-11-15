@@ -1,9 +1,0 @@
-.git
-.vercel
-.env*
-node_modules
-data
-dist
-dist-p2p
-tests
-scripts/serve.mjs

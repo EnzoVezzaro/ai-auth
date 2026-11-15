@@ -1,62 +1,38 @@
-# AI Auth wallet architecture
+# AI Auth architecture
 
-AI Auth has a static self-custodied browser wallet and an optional shared-state service prototype. The wallet and peer flows run without an AI Auth backend; the Worker service adds origin-bound sessions, tenant storage, and authenticated collaboration. The service is not deployed. AI Auth uses no blockchain, cryptocurrency, or gas.
+AI Auth is a self-custodied agent wallet and browser collaboration SDK. It has no AI Auth-operated server, database, or account service. A website is the logical collaboration hub: wallets authorized by people join that site's shared public space. Each wallet keeps its ECDSA signing key in origin-scoped IndexedDB. Websites request explicit capability scopes and decide how those scopes map to their own resources.
+
+## Connection flow
 
 ```mermaid
-flowchart LR
-  UI[Static wallet app] --> W[Web Crypto wallet]
-  W --> DB[(Origin-local IndexedDB)]
-  W --> S[Signed consent and grant records]
-  UI --> BC[BroadcastChannel]
-  BC --> T[Other tabs on this origin]
-  UI --> SDP[Manual offer / answer exchange]
-  SDP --> RTC[WebRTC DataChannel]
-  RTC --> P[Verified peer wallet]
-  S --> RP[Website relying party]
-  RP --> AUTH[Website enforces its own resource policy]
-  W --> SDK[Service SDK: wallet-signed challenge]
-  SDK --> WORKER[Optional Cloudflare Worker prototype]
-  WORKER --> DIR[AuthDirectory Durable Object]
-  WORKER --> TENANT[Workspace Durable Objects]
-  TENANT --> SQL[(Tenant-scoped SQLite)]
-  TENANT --> WS[Authenticated WebSockets]
-  MCP[Local stdio MCP adapter] --> SDK
-  MCP --> APPROVAL[Host wallet approval callback]
-  APPROVAL --> W
+sequenceDiagram
+  participant Site
+  participant Wallet
+  participant Relay as Public Nostr relays
+  participant Peer as Other agent wallet
+  Site->>Wallet: Origin-bound request, nonce, room, requested scopes
+  Wallet->>Wallet: User selects scopes and signs consent
+  Wallet-->>Site: Signed consent to exact opener origin
+  Wallet->>Relay: Join hashed room topic for discovery/signaling
+  Peer->>Relay: Join the same room topic
+  Wallet->>Peer: Signed events over direct WebRTC data channel
+  Peer-->>Site: Verified events through wallet popup bridge
 ```
 
-## Browser wallet
+The popup binds the request to the requesting origin and source window. The wallet starts collaboration only after consent. Each session is restricted to the approved scopes, exact origin, and shared site space. The default space uses the room name `default`; a site may provide a stable room key to make another space on the same origin. P2P messages carry signed envelopes with a unique session, nonce, room, origin, and expiry. Receivers verify signatures and reject replayed or out-of-scope events.
 
-The wallet creates an ECDSA P-256 signing key with the Web Crypto API. It encrypts a recovery copy before importing the private key into a non-extractable `CryptoKey`, then stores that key in IndexedDB. The recovery file uses PBKDF2-SHA-256 and AES-GCM. Losing both browser storage and the recovery file loses the identity.
+## Data path
 
-The public agent identifier is `agent:` followed by the base64url-encoded SHA-256 fingerprint of the public JWK's P-256 parameters. It is a project identifier format, not a registered DID method.
+- **Identity:** ECDSA P-256 keys from Web Crypto; public identity is derived from the public key.
+- **Local storage:** IndexedDB stores the non-extractable signing key and bounded local activity. An encrypted recovery file is the export path.
+- **Discovery:** Trystero's Nostr strategy exchanges signaling metadata through public relays. Room topics are hashes of the exact site origin and room name, so default-space wallets on one site discover each other while other sites and explicit spaces stay separate.
+- **Collaboration:** WebRTC data channels carry signed presence, cursor, message, and action events directly between peers.
+- **Permissions:** The wallet signs only the requested subset approved by the user. The site must independently verify the proof and enforce access to its own resources.
+- **Page actions:** WebMCP is the primary in-page tool surface. The site registers explicit-schema actions, wallet-approved scopes filter which actions are available, and signed lifecycle events enter the shared site space. A JavaScript API fallback covers browsers without WebMCP.
+- **Local agent tools:** The optional MCP stdio and runtime adapters are host-local integrations. Websites do not need them and neither requires an AI Auth service.
+- **Website hub:** A site connects the wallets it wants to admit and receives verified events from its public space. It still decides whether each requested operation may touch site-owned resources.
+- **Static hosting:** The wallet and browser SDK are static files. GitHub Pages is the supported product site; no server runtime is required.
 
-## Permission connection
+## Limits
 
-The demo creates a short-lived request with an exact origin, random nonce and explicit operation names. The user selects the scopes and the wallet signs the approval. A verifier checks key possession, audience, expiry, nonce replay and that approved scopes are a subset of requested scopes.
-
-The request and verifier are shown in the same app for this MVP. A separate site must create its own challenge, validate the signed approval, and enforce access to its own resources. Wallet consent is not itself a grant from the site.
-
-## Capability delegation
-
-A wallet can sign a grant naming a recipient agent, resource, explicit operations and expiry. The resource owner must decide whether to trust the issuer and honor that grant. The package does not provide global revocation delivery; use short expiries until a revocation mechanism exists.
-
-## Presence and peer connections
-
-Same-origin tabs discover each other with BroadcastChannel. That is local presence, not global discovery. A WebRTC data channel can connect separate browsers after a user manually exchanges SDP offer/answer text. This MVP configures no STUN/TURN service; connectivity depends on network routes, and some peer pairs cannot connect.
-
-Data channel messages carry signed envelopes. WebRTC provides transport encryption; AI Auth signatures let the receiving wallet verify the sender. Manual SDP can expose network candidates and must be shared privately.
-
-## Optional shared-state service
-
-`apps/worker` uses a global `AuthDirectory` Durable Object for challenges, replay-safe sessions, challenge quotas, and tenant registration. Each tenant maps to a `Workspace` Durable Object with its own SQLite tables for members, invitations, messages, and audit events. Workspace operations check both the session capabilities and tenant membership. WebSocket credentials are sent in the first frame; the server verifies session and membership before presence or message operations. The SDK's additive `connectPresenceResilient` controller reconnects after transient closes, reauthenticates, and forwards the fresh `presence.snapshot`; terminal session or scope revocation closes the controller instead of retrying.
-
-The local prototype bounds challenge rates, pending challenges, active sessions, active and lifetime tenant creation (10,000 globally and 100 per wallet identity), invitations, message/audit retention, and socket counts. Deleting a workspace does not reset lifetime creation quotas. Local restart tests do not prove Cloudflare managed durability, backups, quota behavior, or production readiness. Cloudflare is not authenticated in the current deployment environment.
-
-The `packages/runtime` host defines typed identity, authorization, storage, presence, transport and observability contracts. API v2 validates each implementation before plugin startup and preserves dependency-aware cleanup. The Worker uses those contracts for wallet identity, exact-scope authorization, tenant storage and presence handles, WebSocket forwarding and sanitized request logging. Two synchronous authorization providers are included: exact session-scope membership and an application callback that denies unless it returns literal `true`. The runtime preview is published as `@enzovezzaro/ai-auth-runtime@0.1.0-beta.0`; its `next` tag resolves and passes an isolated install. Plugin code is trusted and is not sandboxed. See [runtime contracts](../packages/runtime/README.md).
-
-The `packages/mcp` stdio adapter requires a locally managed wallet and an explicit capability approval callback. It authenticates at process startup, keeps the short-lived service session in memory, and registers only tools allowed by that session. Wallet loading and user approval stay the responsibility of the host application.
-
-## Package boundaries
-
-The stable wallet package exposes wallet, connect, capability, and P2P subpaths. The service SDK is included in `@enzovezzaro/ai-auth-wallet@0.2.0-beta.4` on npm's `next` tag. The MCP adapter is published as `@enzovezzaro/ai-auth-mcp@0.1.0-beta.0`, and the runtime is published as `@enzovezzaro/ai-auth-runtime@0.1.0-beta.0`; isolated installs of these `next` tags resolve their exports. Clerk may later link a human account to a public wallet identity; Clerk will not hold or replace the agent's private key.
+No TURN server is configured by default. Direct WebRTC can fail behind restrictive NATs or firewalls. Nostr relay operators can observe room participation and timing metadata. The hashed topic is not a secret or an authorization boundary. Consent signatures prove control of a wallet key, not human identity or site authorization. Capability revocation is not broadcast by this MVP, so grants should expire quickly.

@@ -1,37 +1,31 @@
 # Security boundaries
 
-## What signatures establish
+## Identity and consent
 
-An ECDSA signature verifies that the holder of a particular private key signed a specific canonical JSON record. It does not establish a legal or human identity, prove that a person read the request, authorize a website resource, or guarantee that an agent is safe.
+An ECDSA signature proves that the corresponding private key signed a specific canonical record. It does not establish a human identity, prove a person read the request, make an agent trustworthy, or grant access to a site's resources.
 
-Websites are the authorization authority for their own resources. They must verify the signer, exact audience/origin, nonce, expiry, requested and approved capabilities, recipient, resource, and any applicable revocation policy before taking an action. Never trust a client-supplied `authorized: true` flag.
+The wallet stores a non-extractable Web Crypto key in origin-scoped IndexedDB. First-time creation briefly generates exportable key material so it can create an AES-GCM encrypted recovery file before storing the non-extractable key. Same-origin JavaScript can still ask the wallet to sign. Protect the wallet origin from XSS, compromised dependencies, and malicious extensions.
 
-## Key storage and recovery
+The site must verify the consent signature, expected wallet, exact audience, one-use nonce, expiry, and requested capability subset. It must enforce authorization for its own resources. Do not treat client-side consent as server-side authorization.
 
-The private key is imported as a non-extractable Web Crypto key and stored in origin-scoped IndexedDB. During first creation, the browser briefly generates an extractable key pair so it can create the encrypted recovery file; the private JWK is encrypted before the non-extractable key is persisted. Same-origin JavaScript can still ask the wallet to sign, so protect the wallet origin against XSS, compromised dependencies, and malicious extensions.
+## Signed collaboration events
 
-The recovery file contains encrypted key material, not plaintext private JWK. Use a unique strong passphrase and store the file offline. There is no password reset service. Clearing browser data without the file permanently loses the wallet. Removing a wallet clears its local signed activity too.
+Signed events include protocol version, type, issuer, creation time, origin, room, wallet session, nonce, and expiry. Receivers verify the public-key identity, signature, expiry, room, origin, and replay state. Room limits cap active peers, channels, and accepted inbound event rates. Events with a known capability are rejected unless that capability was approved for the session.
 
-## Signed data and freshness
+WebRTC encrypts the data channel in transit. Signatures authenticate event authorship; they do not make message contents safe. Validate each action payload before using it. Never execute received content as code or interpret an action event as an authorization grant.
 
-Signed records use the `ai-auth-wallet` protocol marker, version, type, issuer, creation time, payload, and ECDSA P-256/SHA-256 proof. Canonicalization follows RFC 8785 for supported JSON values. Verifiers reject malformed keys, changed payloads, expired or future-dated events, incorrect audiences, and replayed nonces where a nonce guard is supplied. A room permits at most 16 active direct peer connections and at most 16 new peer connections per ten seconds, up to four data channels per connection, and eight inbound frames per peer connection before signature verification. Verified events are limited to 32 per signing identity and 256 per room in each fixed ten-second window. Since signed events expire within 125 seconds, at most 14 room windows can contribute live entries (3,584), below the 4,096-entry replay-cache capacity. The room-wide limit also prevents identity or channel rotation from exhausting that cache.
+## Discovery and privacy
 
-## Peer network
+Public Nostr relays carry discovery and signaling metadata, not the signed collaboration event stream. Relay operators can observe participation, timing, and room-topic hashes. The hash is not a secret, and knowing a room name does not grant permission. Do not put private information in room names or labels.
 
-Same-origin BroadcastChannel events are visible to other tabs on the same origin. Manual SDP may include IP/network candidates; exchange it only through a private channel. Direct WebRTC data channels are encrypted in transit, but message signatures and identity do not prevent a user from receiving unsafe content. No relay is configured. A network that requires TURN will fail to connect in this MVP.
+Direct WebRTC uses public STUN servers to discover possible network paths. No TURN service or third-party data relay is configured. Some NATs and firewalls will prevent a direct connection; this MVP reports the failure and does not route application data through a relay.
 
-Private mode stops this app's public presence and shared messages. It does not hide activity from browser extensions, operating-system software, the hosting provider, or another site, and it does not erase already received data on another peer.
+Private mode stops this wallet session from joining the public room. It cannot erase events already received by another peer or hide activity from the browser, extensions, operating system, or hosting provider.
 
-## Popup consent and site enforcement
+## Recovery and WebMCP
 
-The external popup flow accepts a request only from `window.opener`, binds its audience to the sender origin, and returns only a wallet-signed consent envelope to that exact origin. The relying page must still verify the signature, request nonce, audience, expiry, and approved scope. The wallet page uses `Cross-Origin-Opener-Policy: unsafe-none` so cross-origin sites can retain the popup relationship; this does not grant same-origin DOM access, and the receiver checks both the popup's origin and window source before accepting a response. Public SDK module files alone allow cross-origin GET/OPTIONS requests.
+Store the encrypted recovery file separately from the browser profile and use a strong unique passphrase. AI Auth has no password reset service. Clearing browser data without the recovery file permanently loses the wallet.
 
-A verified browser proof is not server-side authorization. Do not use the static wallet flow alone to protect real accounts, private data, or tools. A production resource owner must verify proof and enforce its own policy server-side, with replay storage, revocation, audit retention, and a security review.
+WebMCP is the primary in-page tool surface and is feature-detected. Page tools require the active connection object returned by `connectAIAuthPopup`; a plain consent-shaped object is not accepted. The connection enters a private in-memory trust map only after its wallet signature, origin, nonce, and expiry have been verified. Tool registration requires `tools.invoke`; other scopes do not authorize page-tool invocation. Closing or expiring the connection aborts registered tools, and execution rechecks the active wallet approval. Keep the JavaScript API available for browsers without WebMCP. Tool results and human intervention must be handled by the site.
 
-## Optional shared-state service
-
-The local Worker prototype adds origin-bound wallet challenges, short-lived opaque sessions, server-verified capability grants, tenant-scoped Durable Object storage, and authenticated WebSockets. It never receives the wallet private key. Session tokens are sent in HTTP authorization headers or in the first WebSocket frame, not URLs. The Worker verifies a session and workspace membership again for protected operations.
-
-Challenge issuance, active sessions, tenant registration, lifetime tenant creation, messages, audit events, invitations, and sockets have local caps. WebSocket upgrades are limited to 4 per client IP in each 10-second window. Each tenant member may publish 30 presence updates and write 60 messages per minute, with tenant-wide ceilings of 300 presence updates and 600 message writes per minute. These fixed-window limits are enforced in durable objects. Tenant creation is limited to 10,000 workspaces over the service lifetime and 100 per wallet identity; deletion does not reset those quotas. Browser activity history keeps at most 100 entries, pruning the oldest first. Message and audit retention are bounded and are not backups. Invitation replay tombstones remain until the signed grant expires. The Worker has only been verified in the local Cloudflare test harness; it is not deployed, has no managed-runtime or backup evidence, and must not be treated as production-ready.
-
-The MCP adapter runs locally over stdio. A host application supplies the wallet, service client, and explicit approval callback. The adapter exposes only tools covered by the authenticated session and redacts bearer tokens from tool errors. It does not persist keys or tokens. Protect the MCP host and its wallet storage as local credentials.
+The popup connection automatically closes when its signed consent expires. Sites must start a new request and obtain a new wallet approval to continue collaboration.

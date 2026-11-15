@@ -1,37 +1,39 @@
-# `@enzovezzaro/ai-auth-mcp`
+# AI Auth local MCP adapter
 
-Wallet-approved MCP tools for the AI Auth shared-state service. The package runs as a local MCP server over stdio; it does not host an authentication service or store wallet keys.
-
-## Integration model
-
-The host application supplies a locally managed wallet, the `@enzovezzaro/ai-auth-wallet/service` client, and an approval callback. The callback receives the requested capability list and the wallet's public identity. It must obtain user or local policy approval before returning the approved subset. The package then signs a service challenge with the wallet and exposes only tools covered by the resulting short-lived session.
+`@enzovezzaro/ai-auth-mcp` exposes explicitly approved wallet actions through a local MCP stdio server. It does not connect to an AI Auth backend, issue a hosted session, or require a network service.
 
 ```js
+import { z } from "zod";
 import {
-  connectAIAuthMcpStdio,
   createAIAuthMcpServer,
+  connectAIAuthMcpStdio,
 } from "@enzovezzaro/ai-auth-mcp";
-import { createServiceClient } from "@enzovezzaro/ai-auth-wallet/service";
 
-const wallet = await loadWalletFromYourLocalSecureWallet();
-const serviceClient = createServiceClient({
-  baseUrl: process.env.AI_AUTH_SERVICE_URL,
-  audience: process.env.AI_AUTH_AUDIENCE,
-});
+// Implement this host-specific adapter; this package does not provide a Node keystore.
+const wallet = await loadWalletFromHost();
 const { server } = await createAIAuthMcpServer({
-  serviceClient,
   wallet,
-  requestedCapabilities: ["messages.read", "messages.write"],
-  approveCapabilities: (requested, identity) =>
-    promptForWalletApproval(requested, identity),
+  actions: [
+    {
+      name: "workspace.read",
+      description: "Read the current local workspace.",
+      inputSchema: { workspaceId: z.string().min(1) },
+      requiredCapability: "workspace.read",
+      readOnly: true,
+      execute: ({ workspaceId }) => readWorkspace(workspaceId),
+    },
+  ],
+  approveCapabilities: async (requested, identity) =>
+    showLocalApprovalPrompt(requested, identity),
+  publishEvent: (signedActionEvent) =>
+    localAgentTransport.send(signedActionEvent),
 });
+
 await connectAIAuthMcpStdio(server);
 ```
 
-The package provides `ai_auth_identity` plus scope-gated tools for workspace creation, signed invitations, joining, reading messages and sending messages. The backend remains the authority for tenant membership and every protected operation. Do not log the returned session object or place it in MCP tool output.
+Each action declares its capability, Zod input shape, and executor. The adapter asks the local host for an approved subset, registers only actions covered by that subset, and signs `started`, `completed`, and `failed` action events with the supplied wallet. The host supplies the local action implementation and any transport used to share events.
 
-## Limits
+The wallet object must provide `id`, `publicKey`, and `sign(type, payload)`. The browser wallet package stores keys in IndexedDB and does not provide Node storage; connect a host-managed local key store or signing provider before starting this stdio server.
 
-- The application that launches this MCP process owns secure wallet loading and the approval UI or policy. This package deliberately does not persist private keys or silently approve requested capabilities.
-- Presence WebSocket subscriptions and a turnkey wallet-provider CLI are not included yet.
-- The package is not production-ready until the shared-state service is deployed and authenticated multi-client E2E passes.
+The MCP process runs with the host's privileges and is not sandboxed. Validate action inputs and outputs, and only expose tools the host can safely execute.

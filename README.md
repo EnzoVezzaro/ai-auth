@@ -1,95 +1,88 @@
 # AI Auth
 
-AI Auth is a browser wallet for cryptographic agent identity, scoped consent, capability delegation and direct peer collaboration. It uses Web Crypto and IndexedDB. The wallet works without a hosted backend, account provider, blockchain, cryptocurrency, or gas. An optional Cloudflare Worker prototype adds server-verified sessions and durable shared workspaces; it is not deployed.
+AI Auth is a self-custodied identity wallet and collaboration SDK for AI agents. Agents keep signing keys in their own browser storage. A site requests specific capabilities, the wallet owner approves a subset, and the site remains responsible for enforcing access to its own resources.
 
-## Run the wallet locally
+AI Auth operates no authentication server, database, or collaboration backend. The website is the logical collaboration hub: wallet-approved agents on the same site join its shared public space. Public Nostr relays coordinate discovery and WebRTC signaling; signed collaboration events travel over direct WebRTC data channels. No blockchain or cryptocurrency is involved.
 
-Requires Node.js 22+ and npm.
+## Run the wallet
+
+Requirements: Node.js 22 or newer and npm.
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Open `http://127.0.0.1:4173`. This command builds and serves static files only; it exposes no API or stateful backend. For Vercel, the configured output is also static.
+Open the site root for the product landing page, `/wallet/` for the local wallet, and `/docs/ARCHITECTURE.md` for architecture. The command builds and serves static files only. The wallet starts in private mode; enable public collaboration when you want to join the current page's shared space.
 
-Create a wallet and save its encrypted recovery file. The browser stores a non-exportable private `CryptoKey` in origin-local IndexedDB. If browser data is cleared, the recovery file is required to restore the identity.
+## Connect a site
 
-## MVP flows
-
-1. Create or restore an agent wallet with a public P-256 identity.
-2. Review selected capabilities for an exact website origin and sign short-lived consent.
-3. Create a scoped capability grant naming its recipient, resource, operations and expiry.
-4. Share signed presence with other tabs on the same origin.
-5. Connect wallets with manual WebRTC offer/answer exchange and send signed messages.
-6. Review the local signed activity log.
-
-Manual WebRTC signaling uses no AI Auth service and no TURN relay. This limits network reachability; some devices will not connect. Do not share SDP publicly because it can include network candidates.
-
-The built-in consent flow is a same-app protocol demonstration, not an independent wallet-to-website integration. A relying website must issue its own challenge and enforce its own authorization policy. A wallet signature proves key possession and consent to a message; it does not authorize website resources.
-
-## Optional shared-workspace service
-
-`apps/worker` is a local Cloudflare Workers prototype for signed wallet sessions, isolated tenants, delegated invitations, messages, and authenticated WebSocket presence. The service uses Cloudflare Durable Objects and SQLite; it is not part of the static wallet or currently deployed. See [Worker setup, routes and limits](apps/worker/README.md).
-
-The `@enzovezzaro/ai-auth-wallet@next` service client connects a local wallet to that service. Its `connectPresenceResilient` method reconnects after transient socket loss, reauthenticates in the first frame, and forwards the server's fresh presence snapshot; call `close()` to stop retries. The standalone MCP adapter is published as `@enzovezzaro/ai-auth-mcp@next`. MCP requires an explicit wallet approval callback and exposes only session-scoped tools. The host loads and protects its own wallet; the adapter does not save private keys. See [MCP integration](packages/mcp/README.md). These are preview components for the local Worker; the service is not deployed.
-
-## Install the wallet SDK
-
-```sh
-npm install @enzovezzaro/ai-auth-wallet@0.1.1
-```
+The browser bundle is generated at `dist-p2p/ai-auth.js`. In a site build, bundle the SDK as an ES module or load that browser bundle from your static AI Auth wallet host:
 
 ```js
 import {
-  createPermissionRequest,
-  approvePermissionRequest,
-  verifyPermissionConsent,
-  createCapabilityGrant,
-  verifyCapabilityGrant,
-  P2PRoom,
-  ManualWebRTC,
+  connectAIAuthPopup,
+  mountAIAuthCollaboration,
+  registerAIAuthPageActions,
 } from "@enzovezzaro/ai-auth-wallet";
+
+const connection = await connectAIAuthPopup({
+  walletUrl: "https://wallet.example/wallet/",
+  capabilities: ["presence.read", "tools.invoke"],
+  room: "project-room",
+});
+
+const removeCursorOverlay = mountAIAuthCollaboration(connection);
+
+const pageActions = await registerAIAuthPageActions({
+  connection,
+  actions: [
+    {
+      name: "workspace.summary",
+      description: "Summarize the current workspace.",
+      inputSchema: { type: "object", properties: {} },
+      requiredCapability: "tools.invoke",
+      readOnly: true,
+      execute: async () => ({ summary: "Site-specific result" }),
+    },
+  ],
+  publishAction: (event) =>
+    connection.publishAction({
+      name: event.name,
+      state: event.state,
+      summary: event.summary,
+    }),
+});
+
+connection.onEvent((event) => {
+  // Verify the event's site-specific effects before acting on them.
+  console.log(event.body.type, event.body.payload);
+});
+
+// When the page is done:
+pageActions.close();
+removeCursorOverlay();
+connection.close();
 ```
 
-The stable `latest` wallet package remains `0.1.1` and exposes `/wallet`, `/connect`, `/capabilities`, and `/p2p`. The `next` preview is `0.2.0-beta.4` and adds `/service`; install it with `npm install @enzovezzaro/ai-auth-wallet@next`. The MCP adapter is published as `@enzovezzaro/ai-auth-mcp@0.1.0-beta.0` and installs with `npm install @enzovezzaro/ai-auth-mcp@next`. Both preview packages target the local Worker prototype and do not imply that a hosted service is available.
+The wallet opens from a user gesture, presents the site's requested capabilities, and signs only the selected subset. Use HTTPS outside local development. The popup and relying page must share a live `window.opener` relationship. See [the architecture](docs/ARCHITECTURE.md), [security boundaries](docs/SECURITY.md), [wire format](docs/WIRE_FORMAT.md), and [wallet recovery](docs/RECOVERY.md).
 
-The provider host is published separately as `@enzovezzaro/ai-auth-runtime@0.1.0-beta.0`; install it with `npm install @enzovezzaro/ai-auth-runtime@next`. Its typed plugin contracts are documented in [the runtime package guide](packages/runtime/README.md).
+The default public space is keyed by the exact website origin and the `default` room name, so wallets connecting to the same site discover one another. A site can pass the same explicit `room` key to group agents into another space. This public space is a client-side coordination boundary, not an AI Auth-hosted hub or an authorization boundary; each site must enforce access to its own resources.
 
-## Security and limits
+## Optional local integrations
 
-- Keys: ECDSA P-256 / SHA-256, IndexedDB CryptoKey storage, AES-GCM-encrypted recovery file.
-- Signed JSON: RFC 8785 canonicalization, versioned envelopes, bounded freshness, origin-bound consent, nonce replay guard.
-- Presence: BroadcastChannel, limited to same-origin tabs.
-- Peer data: manually signaled WebRTC DataChannels, signed message envelopes, no configured relay.
-- Delegation: signed explicit scopes and short expiry; no global revocation broadcast yet.
-- Clerk: optional future human-account linking. It will not own the agent key.
+WebMCP is the primary in-page agent tool surface: the site registers its own actions, wallet-approved scopes limit which actions appear, and signed action lifecycle events enter the site's shared space. The SDK feature-detects WebMCP and retains a JavaScript API fallback. WebMCP handles tool invocation; direct WebRTC carries peer collaboration. `@enzovezzaro/ai-auth-mcp` and `@enzovezzaro/ai-auth-runtime` are optional local integrations and are not required for a website or hosted service.
 
-See [architecture](docs/ARCHITECTURE.md), [security boundaries](docs/SECURITY.md), [wire format](docs/WIRE_FORMAT.md), [recovery](docs/RECOVERY.md), and the [migration plan](docs/IMPLEMENTATION_PLAN.md).
+## Network limits
 
-The historical `@enzovezzaro/ai-auth-server` npm package is deprecated; its source, Docker configuration, and Fly app have been removed from this repository. Existing old releases do not receive updates and are not part of the wallet architecture.
+Nostr relay operators can observe participation and timing metadata. The hashed room topic is not a secret or an authorization boundary. No TURN server is configured. Collaboration data uses direct WebRTC only, so peers behind restrictive NATs or firewalls may fail to connect.
 
-## Checks
+## Development checks
 
 ```sh
 npm test
-npx playwright install chromium
-npm run test:e2e
 npm run build
-npm pack --dry-run
+npm run test:browser:e2e
 ```
 
-The browser E2E uses an isolated Playwright Chromium context. In CI, install only the headless shell with `npx playwright install --with-deps --only-shell chromium`.
-
-To verify all source packages, the wallet-to-MCP-to-Worker service path, and the browser-to-local-Worker HTTP/WebSocket flow, install each isolated package with the default npm workflow first:
-
-```sh
-npm ci
-npm ci --prefix packages/mcp
-npm ci --prefix apps/worker
-npm run test:all
-npm run test:service:e2e
-npm run test:service:browser:e2e
-```
-
-CI performs these installs and runs the same checks. Root `npm test` and `npm publish` intentionally verify only the wallet package; runtime, MCP and Worker have separate manifests, while CI verifies local package tarballs and published registry installs.
+The browser E2E uses two isolated wallets and public relay/WebRTC connectivity. It currently requires network paths that allow direct ICE; do not interpret peer discovery alone as a successful collaboration session. Release status and remaining work are tracked in [the implementation plan](docs/IMPLEMENTATION_PLAN.md).

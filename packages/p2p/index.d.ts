@@ -32,6 +32,7 @@ export interface PermissionRequest {
   createdAt: number;
   expiresAt: number;
   capabilities: string[];
+  room?: string;
 }
 
 export function canonicalize(value: unknown): string;
@@ -72,7 +73,7 @@ export class NonceGuard {
 export function createPermissionRequest(
   origin: string,
   capabilities: string[],
-  options?: { expiresInMs?: number },
+  options?: { expiresInMs?: number; room?: string },
 ): Promise<PermissionRequest>;
 export function approvePermissionRequest(
   wallet: WalletIdentity,
@@ -84,6 +85,7 @@ export function approvePermissionRequest(
     requestNonce: string;
     capabilities: string[];
     expiresAt: number;
+    room?: string;
   }>
 >;
 export function verifyPermissionRequest(
@@ -144,7 +146,11 @@ export class P2PRoom {
   constructor(
     wallet: WalletIdentity,
     room: string,
-    options?: { privateMode?: boolean; origin?: string },
+    options?: {
+      privateMode?: boolean;
+      origin?: string;
+      capabilities?: string[] | null;
+    },
   );
   readonly peers: Map<
     string,
@@ -166,7 +172,7 @@ export class P2PRoom {
   ): () => void;
   start(): Promise<this>;
   send<T>(type: string, payload?: T): Promise<SignedEnvelope>;
-  receive(envelope: SignedEnvelope): Promise<boolean>;
+  receive(envelope: SignedEnvelope, source?: object): Promise<boolean>;
   attach(channel: RTCDataChannel, peer?: object): RTCDataChannel;
   close(): Promise<void>;
 }
@@ -178,3 +184,96 @@ export class ManualWebRTC {
   finish(answerText: string): Promise<void>;
   close(): void;
 }
+
+export function createSharedRoomTopic(
+  origin: string,
+  room: string,
+): Promise<string>;
+
+export class NostrWebRTC {
+  constructor(
+    room: P2PRoom,
+    options?: {
+      origin?: string;
+      room?: string;
+      relayUrls?: string[];
+      onStatus?: (status: string) => void;
+      onDiagnostic?: (event: {
+        stage: string;
+        type?: string;
+        peerId?: string;
+      }) => void;
+      joinRoom?: (...args: unknown[]) => unknown;
+    },
+  );
+  start(): Promise<this>;
+  close(): Promise<void>;
+}
+
+export interface AIAuthPageConnection {
+  readonly request: PermissionRequest;
+  readonly consent: SignedEnvelope<{
+    audience: string;
+    requestNonce: string;
+    capabilities: string[];
+    expiresAt: number;
+    room?: string;
+  }>;
+  readonly capabilities: readonly string[];
+  onEvent(listener: (event: SignedEnvelope) => void): () => void;
+  publishAction(action: {
+    name: string;
+    state: "started" | "progress" | "completed" | "failed" | "needs-human";
+    summary: string;
+  }): void;
+  publishCursor(cursor: { x: number; y: number; visible?: boolean }): void;
+  close(): void;
+}
+
+export function connectAIAuthPopup(options: {
+  walletUrl: string;
+  capabilities: string[];
+  room?: string;
+  origin?: string;
+  timeoutMs?: number;
+  windowObject?: Window;
+}): Promise<AIAuthPageConnection>;
+
+export function mountAIAuthCollaboration(
+  connection: AIAuthPageConnection,
+  options?: { target?: HTMLElement },
+): () => void;
+
+export interface AIAuthPageAction {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown> & { type: "object"; properties: object };
+  requiredCapability: "tools.invoke";
+  readOnly?: boolean;
+  execute(
+    input: unknown,
+    context: { signal?: AbortSignal },
+  ): Promise<unknown> | unknown;
+}
+
+export function registerAIAuthPageActions(options: {
+  actions: AIAuthPageAction[];
+  connection: AIAuthPageConnection;
+  modelContext?: { registerTool?: Function };
+  signal?: AbortSignal;
+  publishAction?: (event: {
+    name: string;
+    capability: string;
+    state: string;
+    summary: string;
+  }) => Promise<void> | void;
+}): Promise<{
+  webMcpAvailable: boolean;
+  tools: readonly string[];
+  execute(
+    name: string,
+    input?: unknown,
+    context?: { signal?: AbortSignal },
+  ): Promise<unknown>;
+  close(): void;
+}>;

@@ -450,4 +450,11 @@ export {
   createCapabilityGrant,
   verifyCapabilityGrant,
 } from "./capabilities.js";
-export { P2PRoom, ManualWebRTC } from "./p2p.js";
+export {
+  P2PRoom,
+  ManualWebRTC,
+  NostrWebRTC,
+  createSharedRoomTopic,
+} from "./p2p.js";
+export { connectAIAuthPopup, mountAIAuthCollaboration } from "./embed.js";
+export { registerAIAuthPageActions } from "./webmcp.js";

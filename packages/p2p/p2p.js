@@ -14,12 +14,41 @@ const MAX_INBOUND_EVENTS_PER_IDENTITY_WINDOW = 32;
 const MAX_INBOUND_EVENTS_PER_ROOM_WINDOW = 256;
 const MAX_ATTACHED_PEERS = 16;
 const MAX_CHANNELS_PER_PEER = 4;
+const TRYSTERO_APP_ID = "ai-auth-wallet-v1";
+const TRYSTERO_ACTION = "ai-auth-signed-v1";
+const MAX_TRYSTERO_EVENT_BYTES = 64_000;
+const MAX_QUEUED_OUTBOUND_EVENTS = 128;
+const EVENT_CAPABILITY = new Map([
+  ["peer/hello", "presence.read"],
+  ["peer/heartbeat", "presence.read"],
+  ["peer/goodbye", "presence.read"],
+  ["presence/cursor", "presence.read"],
+  ["message/text", "messages.send"],
+  ["agent/action", "tools.invoke"],
+  ["agent/task", "tasks.delegate"],
+]);
+
+export async function createSharedRoomTopic(origin, room) {
+  if (typeof origin !== "string" || typeof room !== "string")
+    throw new TypeError("A site origin and shared room name are required");
+  if (!ROOM_PATTERN.test(room))
+    throw new TypeError("Room names must be 1–100 safe characters");
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`${TRYSTERO_APP_ID}\n${origin}\n${room}`),
+  );
+  return `ai-auth-v1-${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
 
 export class P2PRoom {
   constructor(
     wallet,
     room,
-    { privateMode = false, origin = globalThis.location?.origin ?? "" } = {},
+    {
+      privateMode = false,
+      origin = globalThis.location?.origin ?? "",
+      capabilities = null,
+    } = {},
   ) {
     if (!ROOM_PATTERN.test(room))
       throw new Error("Room names must be 1–100 safe characters");
@@ -27,6 +56,7 @@ export class P2PRoom {
     this.room = room;
     this.origin = origin;
     this.privateMode = privateMode;
+    this.capabilities = capabilities === null ? null : new Set(capabilities);
     this.session = crypto.randomUUID();
     this.peers = new Map();
     this.seen = new Map();
@@ -65,17 +95,24 @@ export class P2PRoom {
     this.broadcast.onmessage = ({ data }) => {
       void this.receive(data, this.broadcast);
     };
-    await this.send("peer/hello", { label: this.wallet.name });
-    this.timer = setInterval(() => {
-      void this.send("peer/heartbeat", { label: this.wallet.name });
-      this.expire();
-    }, 8_000);
+    if (!this.capabilities || this.capabilities.has("presence.read")) {
+      await this.send("peer/hello", { label: this.wallet.name });
+      this.timer = setInterval(() => {
+        void this.send("peer/heartbeat", { label: this.wallet.name });
+        this.expire();
+      }, 8_000);
+    } else {
+      this.timer = setInterval(() => this.expire(), 8_000);
+    }
     return this;
   }
 
   async send(type, payload = {}) {
     if (this.privateMode || this.closed)
       throw new Error("This wallet session is private or closed");
+    const capability = EVENT_CAPABILITY.get(type);
+    if (capability && this.capabilities && !this.capabilities.has(capability))
+      throw new Error(`This wallet session did not approve ${capability}`);
     const envelope = await signEnvelope(this.wallet, type, {
       ...payload,
       room: this.room,
@@ -101,6 +138,9 @@ export class P2PRoom {
       envelope?.body?.payload?.room !== this.room ||
       envelope.body.payload.origin !== this.origin
     )
+      return false;
+    const capability = EVENT_CAPABILITY.get(envelope.body.type);
+    if (capability && this.capabilities && !this.capabilities.has(capability))
       return false;
     const payload = envelope.body.payload;
     if (
@@ -370,5 +410,217 @@ export class ManualWebRTC {
 
   close() {
     this.peer.close();
+  }
+}
+
+export class NostrWebRTC {
+  constructor(
+    coreRoom,
+    {
+      origin,
+      room,
+      relayUrls,
+      onStatus = () => {},
+      onDiagnostic = () => {},
+      joinRoom: joinRoomOverride,
+    } = {},
+  ) {
+    if (!coreRoom || typeof coreRoom.receive !== "function")
+      throw new TypeError("An authenticated AI Auth room is required");
+    this.coreRoom = coreRoom;
+    this.origin = origin ?? coreRoom.origin;
+    this.roomName = room ?? coreRoom.room;
+    this.relayUrls = relayUrls;
+    this.onStatus = onStatus;
+    this.onDiagnostic = onDiagnostic;
+    this.joinRoomOverride = joinRoomOverride;
+    this.peerSources = new Map();
+    this.directPeers = new Set();
+    this.outbox = [];
+    this.flushingOutbox = false;
+    this.closed = false;
+  }
+
+  async start() {
+    if (this.coreRoom.privateMode)
+      throw new Error("Private wallets do not join public collaboration rooms");
+    if (this.closed) throw new Error("This collaboration room is closed");
+    this.onStatus("Connecting to public Nostr relays");
+    const [trystero, topic] = await Promise.all([
+      this.joinRoomOverride
+        ? Promise.resolve(null)
+        : import("@trystero-p2p/nostr"),
+      createSharedRoomTopic(this.origin, this.roomName),
+    ]);
+    const joinRoom = this.joinRoomOverride ?? trystero.joinRoom;
+    this.transport = joinRoom(
+      {
+        appId: TRYSTERO_APP_ID,
+        ...(this.relayUrls?.length
+          ? { relayConfig: { urls: this.relayUrls } }
+          : {}),
+        turnConfig: [],
+      },
+      topic,
+    );
+    this.stopTransportError = this.transport.onError((error) => {
+      this.onStatus(
+        error.code === "peer-connect-failed"
+          ? error.turnConfigured
+            ? "Direct ICE failed while using relay configuration"
+            : "Direct ICE failed after SDP exchange; this network may block peer candidates"
+          : error.code === "relay-failed"
+            ? "Could not reach a Nostr relay"
+            : "The peer collaboration room reported an error",
+      );
+    });
+    const action = this.transport.makeAction(TRYSTERO_ACTION);
+    this.stopReceiving = action.onMessage((envelope, { peerId }) => {
+      if (this.closed || typeof peerId !== "string") return;
+      let wire;
+      try {
+        wire = JSON.stringify(envelope);
+      } catch {
+        return;
+      }
+      if (!wire || wire.length > MAX_TRYSTERO_EVENT_BYTES) return;
+      let source = this.peerSources.get(peerId);
+      if (!source) {
+        source = { peerId };
+        this.peerSources.set(peerId, source);
+      }
+      this.onDiagnostic({
+        stage: "transport-received",
+        type: envelope?.body?.type,
+        peerId,
+      });
+      void this.coreRoom.receive(envelope, source).then((accepted) => {
+        this.onDiagnostic({
+          stage: accepted ? "event-accepted" : "event-rejected",
+          type: envelope?.body?.type,
+          peerId,
+        });
+      });
+    });
+    this.sendAction = action.send;
+    this.stopForwarding = this.coreRoom.subscribe(({ direction, envelope }) => {
+      if (direction !== "out" || this.closed) return;
+      this.forward(envelope);
+    });
+    this.stopPeerJoin = this.transport.onPeerJoin(
+      ({ peerId }) => {
+        this.directPeers.add(peerId);
+        this.onStatus("Connected to agent peers");
+        void this.flushOutbox();
+        if (
+          !this.coreRoom.capabilities ||
+          this.coreRoom.capabilities.has("presence.read")
+        )
+          void this.coreRoom
+            .send("peer/hello", {
+              label: this.coreRoom.wallet.name,
+            })
+            .catch(() => this.onStatus("Could not announce wallet presence"));
+      },
+      { replay: true },
+    );
+    this.stopPeerLeave = this.transport.onPeerLeave(({ peerId }) => {
+      this.directPeers.delete(peerId);
+      if (this.transport && Object.keys(this.transport.getPeers()).length === 0)
+        this.onStatus("Waiting for agents on this page");
+    });
+    await this.coreRoom.start();
+    return this;
+  }
+
+  forward(envelope) {
+    if (this.closed) return;
+    const wire = JSON.stringify(envelope);
+    const expiresAt = envelope?.body?.payload?.expiresAt;
+    if (
+      !wire ||
+      wire.length > MAX_TRYSTERO_EVENT_BYTES ||
+      !Number.isFinite(expiresAt) ||
+      expiresAt <= Date.now()
+    ) {
+      this.onStatus("A collaboration event was too large or expired");
+      return;
+    }
+    if (this.directPeers.size === 0) {
+      this.outbox = this.outbox.filter(
+        ({ expiresAt: expiry }) => expiry > Date.now(),
+      );
+      if (this.outbox.length >= MAX_QUEUED_OUTBOUND_EVENTS) {
+        this.onStatus("Waiting for peers; the outgoing event queue is full");
+        return;
+      }
+      this.outbox.push({ envelope, expiresAt });
+      this.onDiagnostic({
+        stage: "event-queued-until-direct-peer",
+        type: envelope?.body?.type,
+      });
+      return;
+    }
+    this.onDiagnostic({
+      stage: "transport-sending",
+      type: envelope?.body?.type,
+    });
+    void this.sendAction(envelope)
+      .then(() =>
+        this.onDiagnostic({
+          stage: "transport-sent",
+          type: envelope?.body?.type,
+        }),
+      )
+      .catch(() => {
+        this.outbox.unshift({ envelope, expiresAt });
+        this.onStatus(
+          "A peer message could not be sent; it is queued for retry",
+        );
+      });
+  }
+
+  async flushOutbox() {
+    if (this.flushingOutbox || this.closed || this.directPeers.size === 0)
+      return;
+    this.flushingOutbox = true;
+    try {
+      while (
+        !this.closed &&
+        this.directPeers.size > 0 &&
+        this.outbox.length > 0
+      ) {
+        const queued = this.outbox.shift();
+        if (queued.expiresAt <= Date.now()) continue;
+        try {
+          await this.sendAction(queued.envelope);
+          this.onDiagnostic({
+            stage: "transport-sent",
+            type: queued.envelope?.body?.type,
+          });
+        } catch {
+          this.outbox.unshift(queued);
+          this.onStatus("A queued peer event could not be sent yet");
+          break;
+        }
+      }
+    } finally {
+      this.flushingOutbox = false;
+    }
+  }
+
+  async close() {
+    if (this.closed) return;
+    this.closed = true;
+    this.stopReceiving?.();
+    this.stopForwarding?.();
+    this.stopPeerJoin?.();
+    this.stopPeerLeave?.();
+    this.stopTransportError?.();
+    this.peerSources.clear();
+    this.directPeers.clear();
+    this.outbox.length = 0;
+    await this.transport?.leave();
+    this.onStatus("Collaboration is off");
   }
 }

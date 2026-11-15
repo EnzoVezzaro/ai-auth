@@ -16,12 +16,16 @@ import {
   verifyPermissionConsent,
   verifyPermissionRequest,
   verifyPopupPermissionRequest,
-  ManualWebRTC,
-} from "/packages/p2p/index.js";
+  NostrWebRTC,
+} from "../../packages/p2p/index.js";
 
 const $ = (selector) => document.querySelector(selector);
 const externalConnectMode =
   new URLSearchParams(location.search).get("connect") === "1";
+const debugMode = new URLSearchParams(location.search).get("debug") === "1";
+const debug = (stage, details = "") => {
+  if (debugMode) console.info("[AI Auth debug]", stage, details);
+};
 const state = {
   wallet: null,
   view: externalConnectMode ? "connect" : "overview",
@@ -36,9 +40,9 @@ const state = {
   externalRequestReceived: false,
   externalExpiryTimer: null,
   messages: [],
-  sdpIn: "",
-  sdpOut: "",
-  privateMode: false,
+  privateMode: true,
+  externalRoomReady: false,
+  externalPendingEvents: [],
   error: "",
 };
 const capabilityOptions = [
@@ -50,7 +54,7 @@ const capabilityOptions = [
   [
     "messages.send",
     "Exchange messages",
-    "Allow message exchange in the approved workspace.",
+    "Allow message exchange in this site's shared space.",
   ],
   [
     "tools.invoke",
@@ -151,7 +155,7 @@ function overviewView() {
   return `${pageHead("WALLET OVERVIEW", "Your agent, at a glance.", "Manage a local cryptographic identity, approve scoped requests, and connect directly with other wallets.")}
     ${identity}
     <div class="grid-main top-gap">
-      <section class="panel"><p class="mini-label">CURRENT SESSION</p><h2>${state.privateMode ? "Private" : "Local workspace"}</h2><p class="panel-copy">${state.privateMode ? "Presence sharing is off for this wallet." : "Presence is shared only with this origin's open wallet tabs and directly paired peers."}</p><div class="metric-line"><span>Connected peers</span><strong id="overview-peer-count">${peers}</strong></div><div class="metric-line"><span>Stored activity</span><strong>${activityCount}</strong></div><div class="callout top-gap">No hosted coordination service is connected. Direct cross-device pairing requires exchanging WebRTC setup text.</div></section>
+      <section class="panel"><p class="mini-label">CURRENT SESSION</p><h2>${state.privateMode ? "Private" : "Public collaboration"}</h2><p class="panel-copy">${state.privateMode ? "Presence sharing is off until you turn it on." : "Wallets on this site's public space discover one another through Nostr."}</p><div class="metric-line"><span>Connected peers</span><strong id="overview-peer-count">${peers}</strong></div><div class="metric-line"><span>Stored activity</span><strong>${activityCount}</strong></div><div class="callout top-gap">The website is the collaboration hub. Nostr relays coordinate discovery; signed events travel directly between wallets over WebRTC. No AI Auth server is involved.</div></section>
       <section class="panel"><p class="mini-label">QUICK ACTIONS</p><h2>What would you like to do?</h2><div class="overview-actions"><button class="button secondary" data-go-view="connect">Review a site request</button><button class="button secondary" data-go-view="permissions">Grant a capability</button><button class="button secondary" data-go-view="peer">Connect to an agent</button><button class="button quiet" data-go-view="activity">View signed activity</button></div></section>
     </div>`;
 }
@@ -224,13 +228,13 @@ function permissionsView() {
 function peerRows() {
   const peers = [...(state.room?.peers.values() ?? [])];
   if (!peers.length)
-    return `<div class="empty-state"><h3>No other agents here yet</h3><p>Open another wallet tab on this same site or exchange a manual WebRTC offer and answer with another device.</p></div>`;
+    return `<div class="empty-state"><h3>No other agents here yet</h3><p>Keep public presence on and connect another wallet to this site's shared space. Public Nostr relays coordinate discovery.</p></div>`;
   return `<div class="event-list">${peers.map((peer) => `<div class="peer-chip"><div><strong>${esc(peer.name)}</strong><code>${esc(peer.id)}</code><small class="help">Session ${esc(peer.session.slice(0, 8))} · verified signed presence</small></div><button class="button quiet small" type="button" data-grant-peer="${esc(peer.id)}">Grant</button></div>`).join("")}</div>`;
 }
 
 function connectPeerView() {
   if (!state.wallet)
-    return `${pageHead("DIRECT CONNECTION", "Connect two agent wallets.", "Presence stays on this origin. For another device, exchange one-time WebRTC setup text directly.")}${walletRequired()}`;
+    return `${pageHead("DIRECT CONNECTION", "Connect two agent wallets.", "Approve presence sharing to discover wallets on this page. Signed messages travel over direct peer connections.")}${walletRequired()}`;
   const msgs =
     state.messages
       .map(
@@ -239,12 +243,10 @@ function connectPeerView() {
       )
       .join("") ||
     `<p class="help">No signed messages yet. Connect a peer to begin.</p>`;
-  return `${pageHead("PEER CONNECTION", "Connect directly. No signaling service.", "Exchange offer and answer text out of band. Signed presence works between same-origin browser tabs; WebRTC data travels directly between peers when the network allows it.")}
-    <div class="stack"><section class="panel"><div class="panel-head"><div><h2>Agent presence</h2><p class="panel-copy">The public workspace is visible to tabs on this origin. Private mode stops presence and message sharing.</p></div><button class="button ${state.privateMode ? "" : "secondary"} small" id="toggle-private" aria-pressed="${state.privateMode}">${state.privateMode ? "Go public" : "Go private"}</button></div><div class="metric-line"><span>Local wallet</span><strong>${esc(state.wallet.name)}</strong></div><div class="metric-line"><span>Visibility</span><strong>${state.privateMode ? "Private" : "Public workspace"}</strong></div><div class="metric-line"><span>Peer sessions</span><strong>${state.room?.peers.size ?? 0}</strong></div>${peerRows()}</section>
+  return `${pageHead("PEER CONNECTION", "Find agents on this site.", "Public Nostr relays coordinate discovery. Once paired, signed events travel over direct WebRTC data channels.")}
+    <div class="stack"><section class="panel"><div class="panel-head"><div><h2>Agent presence</h2><p class="panel-copy">Wallets connected to this site's public space can discover one another. Private mode stops presence and message sharing.</p></div><button class="button ${state.privateMode ? "" : "secondary"} small" id="toggle-private" aria-pressed="${state.privateMode}">${state.privateMode ? "Go public" : "Go private"}</button></div><div class="metric-line"><span>Local wallet</span><strong>${esc(state.wallet.name)}</strong></div><div class="metric-line"><span>Visibility</span><strong>${state.privateMode ? "Private" : "Public site space"}</strong></div><div class="metric-line"><span>Peer sessions</span><strong>${state.room?.peers.size ?? 0}</strong></div>${peerRows()}</section>
     <div class="grid-main"><section class="panel"><div class="panel-head"><div><h2>Signed messages</h2><p class="panel-copy">Received messages are accepted only after their signature, expiry, origin and replay nonce pass verification.</p></div></div><div class="message-list" id="message-list" aria-live="polite">${msgs}</div><form id="message-form" class="split-form"><div class="field"><label for="peer-message">Message to connected peers</label><input class="control" id="peer-message" maxlength="3000" required placeholder="Write a short message" ${state.privateMode ? "disabled" : ""}/></div><button class="button" type="submit" ${state.privateMode ? "disabled" : ""}>Send signed</button></form></section>
-      <section class="panel"><div class="panel-head"><div><h2>Manual WebRTC pairing</h2><p class="panel-copy">Create an offer on one wallet, answer it on another, then apply the answer. Copy the SDP directly between devices.</p></div></div><div class="callout">SDP can contain local network candidates. Share it privately. This prototype configures no TURN relay; restrictive networks may not connect.</div>
-        <div class="button-row"><button class="button small" id="create-offer" ${state.privateMode ? "disabled" : ""}>Create offer</button><button class="button secondary small" id="answer-offer" ${state.privateMode ? "disabled" : ""}>Answer pasted offer</button><button class="button quiet small" id="apply-answer" ${state.privateMode ? "disabled" : ""}>Apply pasted answer</button></div><div class="field"><label for="sdp-in">Remote offer or answer</label><textarea class="control" id="sdp-in" spellcheck="false" autocomplete="off" placeholder="Paste a peer's SDP here" ${state.privateMode ? "disabled" : ""}>${esc(state.sdpIn)}</textarea></div><div class="field"><label for="sdp-out">Your offer or answer</label><textarea class="control" id="sdp-out" readonly spellcheck="false" placeholder="Generated setup text appears here">${esc(state.sdpOut)}</textarea><div class="button-row"><button class="button quiet small" id="copy-sdp" type="button">Copy setup text</button></div></div><p class="help" id="rtc-state" aria-live="polite">${esc(state.rtc?.peer.connectionState ?? "Not connected")}</p>
-      </section></div></div>`;
+      <section class="panel"><div class="panel-head"><div><h2>Connection details</h2><p class="panel-copy">The browser exchanges discovery metadata through public Nostr relays, then opens a direct WebRTC channel for peer events.</p></div></div><div class="metric-line"><span>Discovery</span><strong>Nostr relays</strong></div><div class="metric-line"><span>Peer data</span><strong>Direct WebRTC</strong></div><div class="callout">No TURN relay is configured. Some restrictive networks may not establish a direct connection. Public relay operators can observe room participation and timing.</div></section></div></div>`;
 }
 
 function activityView() {
@@ -320,11 +322,29 @@ function downloadJson(filename, text) {
 }
 
 async function startRoom() {
+  await state.rtc?.close();
   await state.room?.close();
-  state.room = new P2PRoom(state.wallet, "workspace", {
-    privateMode: state.privateMode,
+  if (state.privateMode) {
+    state.rtc = null;
+    state.room = null;
+    return;
+  }
+  const external =
+    externalConnectMode && state.externalRequest && state.consent;
+  const roomName = external
+    ? (state.externalRequest.room ?? "default")
+    : "default";
+  const roomOrigin = external ? state.externalOrigin : location.origin;
+  const capabilities = external
+    ? state.consent.body.payload.capabilities
+    : ["presence.read", "messages.send", "tools.invoke"];
+  state.room = new P2PRoom(state.wallet, roomName, {
+    privateMode: false,
+    origin: roomOrigin,
+    capabilities,
   });
   state.room.subscribe(({ direction, envelope, message }) => {
+    debug("room-event", { direction, type: envelope?.body?.type });
     if (direction === "error") {
       toast(message);
       return;
@@ -341,7 +361,8 @@ async function startRoom() {
     const refreshPeerView =
       type === "peer/hello" ||
       type === "peer/goodbye" ||
-      type === "message/text";
+      type === "message/text" ||
+      type === "presence/cursor";
     if (type === "message/text") {
       state.messages.push({
         direction,
@@ -350,6 +371,18 @@ async function startRoom() {
         at: envelope.body.createdAt,
       });
       if (state.messages.length > 100) state.messages.shift();
+    }
+    if (
+      externalConnectMode &&
+      direction === "in" &&
+      state.externalSource === window.opener &&
+      state.externalOrigin === state.externalRequest?.audience
+    ) {
+      window.opener.postMessage(
+        { type: "ai-auth/collaboration-event", envelope },
+        state.externalOrigin,
+      );
+      debug("event-forwarded-to-site", type);
     }
     if (direction === "in" && type) {
       void appendActivity(
@@ -370,14 +403,38 @@ async function startRoom() {
       void render();
     }
   });
-  await state.room.start();
+  if (externalConnectMode) {
+    state.rtc = new NostrWebRTC(state.room, {
+      origin: roomOrigin,
+      room: roomName,
+      onDiagnostic: (event) => debug("p2p-diagnostic", event),
+      onStatus: (status) => {
+        state.externalStatusText = status;
+        const topbar = $("#topbar-status span:last-child");
+        if (topbar) topbar.textContent = status;
+      },
+    });
+  } else {
+    state.rtc = new NostrWebRTC(state.room, {
+      origin: location.origin,
+      room: "default",
+      onDiagnostic: (event) => debug("p2p-diagnostic", event),
+      onStatus: (status) => {
+        const topbar = $("#topbar-status span:last-child");
+        if (topbar) topbar.textContent = status;
+      },
+    });
+  }
+  await state.rtc.start();
+  if (externalConnectMode) {
+    state.externalRoomReady = true;
+    for (const message of state.externalPendingEvents.splice(0))
+      await handleExternalSiteEvent(message);
+  }
 }
 
 function bindView() {
   rootViewButtons();
-  $("#sdp-in")?.addEventListener("input", (event) => {
-    state.sdpIn = event.currentTarget.value;
-  });
   $("#create-wallet-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     state.error = "";
@@ -529,7 +586,15 @@ function bindView() {
       );
       state.consent = consent;
       state.externalStatus = "sent";
+      state.privateMode = false;
+      state.externalRoomReady = false;
       clearTimeout(state.externalExpiryTimer);
+      void startRoom().catch((error) => {
+        state.externalRoomReady = false;
+        toast(
+          `Permission was sent, but peer discovery failed: ${error.message}`,
+        );
+      });
       await appendActivity(state.wallet, "connect/external-consent", {
         origin: state.externalOrigin,
         capabilities: approved,
@@ -620,7 +685,7 @@ function bindView() {
     toast(
       state.privateMode
         ? "Private mode is on. Shared presence and messages are paused."
-        : "Public workspace presence is on.",
+        : "Public site-space presence is on.",
     );
   });
   $("#message-form")?.addEventListener("submit", async (event) => {
@@ -631,53 +696,12 @@ function bindView() {
       await state.room.send("message/text", { text });
       await appendActivity(state.wallet, "peer/message-sent", {
         text,
-        room: "workspace",
+        room: "default",
       });
       render();
     } catch (error) {
       toast(error.message);
     }
-  });
-  $("#create-offer")?.addEventListener("click", async () => {
-    try {
-      state.rtc?.close();
-      state.rtc = new ManualWebRTC(state.room, { iceServers: [] });
-      state.sdpIn = "";
-      state.sdpOut = await state.rtc.offer();
-      $("#sdp-in").value = state.sdpIn;
-      $("#sdp-out").value = state.sdpOut;
-      $("#rtc-state").textContent =
-        `Offer ready · ${state.rtc.peer.connectionState}`;
-    } catch (error) {
-      toast(error.message);
-    }
-  });
-  $("#answer-offer")?.addEventListener("click", async () => {
-    try {
-      state.rtc?.close();
-      state.rtc = new ManualWebRTC(state.room, { iceServers: [] });
-      state.sdpOut = await state.rtc.answer($("#sdp-in").value);
-      $("#sdp-out").value = state.sdpOut;
-      $("#rtc-state").textContent =
-        `Answer ready · ${state.rtc.peer.connectionState}`;
-    } catch (error) {
-      toast(error.message);
-    }
-  });
-  $("#apply-answer")?.addEventListener("click", async () => {
-    try {
-      if (!state.rtc)
-        throw new Error("Create an offer before applying an answer");
-      await state.rtc.finish($("#sdp-in").value);
-      $("#rtc-state").textContent = "Answer applied · waiting for direct peer";
-    } catch (error) {
-      toast(error.message);
-    }
-  });
-  $("#copy-sdp")?.addEventListener("click", async () => {
-    if (!$("#sdp-out").value) return toast("Create an offer or answer first.");
-    await navigator.clipboard.writeText($("#sdp-out").value);
-    toast("Setup text copied. Share it privately.");
   });
   $("#refresh-activity")?.addEventListener("click", async () => {
     state.activity = await readActivity();
@@ -687,6 +711,63 @@ function bindView() {
     state.view = "wallet";
     render();
   });
+}
+
+async function handleExternalSiteEvent(data) {
+  debug("site-event-received", data?.type);
+  if (
+    !state.externalRequest ||
+    !state.consent ||
+    state.externalStatus !== "sent" ||
+    !state.room ||
+    !data
+  )
+    return;
+  const capabilities = state.consent.body.payload.capabilities;
+  if (data.type === "ai-auth/site-cursor") {
+    if (!capabilities.includes("presence.read")) return;
+    const { x, y, visible = true } = data.cursor ?? {};
+    if (
+      !Number.isFinite(x) ||
+      !Number.isFinite(y) ||
+      x < 0 ||
+      x > 1 ||
+      y < 0 ||
+      y > 1 ||
+      typeof visible !== "boolean"
+    )
+      return;
+    await state.room.send("presence/cursor", {
+      x,
+      y,
+      visible,
+      label: state.wallet.name,
+    });
+    debug("wallet-signed-site-cursor");
+    return;
+  }
+  if (data.type === "ai-auth/site-action") {
+    if (!capabilities.includes("tools.invoke")) return;
+    const action = data.action;
+    if (
+      !action ||
+      typeof action.name !== "string" ||
+      !/^[a-z][a-z0-9._-]{0,63}$/u.test(action.name) ||
+      !["started", "progress", "completed", "failed", "needs-human"].includes(
+        action.state,
+      ) ||
+      typeof action.summary !== "string" ||
+      action.summary.length > 240
+    )
+      return;
+    await state.room.send("agent/action", {
+      name: action.name,
+      state: action.state,
+      summary: action.summary,
+      label: state.wallet.name,
+    });
+    debug("wallet-signed-site-action", action.name);
+  }
 }
 
 function rootViewButtons() {
@@ -701,6 +782,25 @@ function rootViewButtons() {
 
 if (externalConnectMode) {
   window.addEventListener("message", async (event) => {
+    if (
+      event.source === window.opener &&
+      event.origin === state.externalOrigin &&
+      event.origin === state.externalRequest?.audience &&
+      ["ai-auth/site-cursor", "ai-auth/site-action"].includes(event.data?.type)
+    ) {
+      debug("opener-event-matched", event.data?.type);
+      if (!state.externalRoomReady) {
+        if (state.externalPendingEvents.length < 32)
+          state.externalPendingEvents.push(event.data);
+        return;
+      }
+      try {
+        await handleExternalSiteEvent(event.data);
+      } catch (error) {
+        toast(`Could not sign the site event: ${error.message}`);
+      }
+      return;
+    }
     if (
       event.data?.type !== "ai-auth/connect-request" ||
       event.source !== window.opener ||
@@ -747,7 +847,7 @@ document.querySelectorAll("[data-view]").forEach((button) =>
 try {
   state.wallet = await loadWallet();
   if (state.wallet && !externalConnectMode) {
-    await startRoom();
+    if (!state.privateMode) await startRoom();
   }
   render();
   if (externalConnectMode && window.opener)
