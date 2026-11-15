@@ -1,3 +1,5 @@
+import type { ConnectionSnapshot } from "./connection-state.js";
+
 export interface SignedEnvelope<T = unknown> {
   body: {
     protocol: "ai-auth-wallet";
@@ -209,7 +211,11 @@ export class NostrWebRTC {
     },
   );
   start(): Promise<this>;
-  close(): Promise<void>;
+  close(options?: { expired?: boolean }): Promise<void>;
+  readonly connectionState: ConnectionSnapshot;
+  onConnectionState(
+    listener: (snapshot: ConnectionSnapshot) => void,
+  ): () => void;
 }
 
 export interface AIAuthPageConnection {
@@ -537,3 +543,17 @@ export function mountAIAuthConnectPanel(options: {
   label?: string;
   onStateChange?: (state: AIAuthConnectPanelState) => void;
 }): () => void;
+
+export {
+  createConnectionState,
+  canTransition,
+  CONNECTION_STATUSES,
+  CONNECTION_TRANSITIONS,
+} from "./connection-state.js";
+export type {
+  ConnectionStatus,
+  ConnectionPeer,
+  ConnectionSnapshot,
+  ConnectionState,
+  ConnectionStateOptions,
+} from "./connection-state.js";

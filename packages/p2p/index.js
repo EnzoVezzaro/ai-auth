@@ -477,3 +477,9 @@ export {
   createAIAuthConnectController,
   mountAIAuthConnectPanel,
 } from "./agent-connect.js";
+export {
+  createConnectionState,
+  canTransition,
+  CONNECTION_STATUSES,
+  CONNECTION_TRANSITIONS,
+} from "./connection-state.js";

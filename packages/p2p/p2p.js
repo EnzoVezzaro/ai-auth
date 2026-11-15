@@ -1,3 +1,4 @@
+import { createConnectionState } from "./connection-state.js";
 import {
   MAX_EVENT_AGE_MS,
   MAX_SEEN_EVENTS,
@@ -451,6 +452,15 @@ export class NostrWebRTC {
     this.outbox = [];
     this.flushingOutbox = false;
     this.closed = false;
+    this.lifecycle = createConnectionState();
+  }
+
+  get connectionState() {
+    return this.lifecycle.snapshot;
+  }
+
+  onConnectionState(listener) {
+    return this.lifecycle.subscribe(listener);
   }
 
   async start() {
@@ -458,6 +468,7 @@ export class NostrWebRTC {
       throw new Error("Private wallets do not join public collaboration rooms");
     if (this.closed) throw new Error("This collaboration room is closed");
     this.onStatus("Connecting to public Nostr relays");
+    this.lifecycle.tryTransition("signaling");
     const [trystero, topic] = await Promise.all([
       this.joinRoomOverride
         ? Promise.resolve(null)
@@ -477,6 +488,7 @@ export class NostrWebRTC {
       topic,
     );
     this.stopTransportError = this.transport.onError((error) => {
+      this.lifecycle.recordError(error?.code ?? error?.message);
       this.onStatus(
         error.code === "peer-connect-failed"
           ? error.turnConfigured
@@ -523,6 +535,8 @@ export class NostrWebRTC {
     this.stopPeerJoin = this.transport.onPeerJoin(
       ({ peerId }) => {
         this.directPeers.add(peerId);
+        // Trystero emits onPeerJoin only after the data channel is open.
+        this.lifecycle.addPeer({ peerId });
         this.coreRoom.directPeerCount = this.directPeers.size;
         this.onStatus("Connected to agent peers");
         void this.flushOutbox();
@@ -540,12 +554,15 @@ export class NostrWebRTC {
     );
     this.stopPeerLeave = this.transport.onPeerLeave(({ peerId }) => {
       this.directPeers.delete(peerId);
+      this.lifecycle.removePeer(peerId);
       this.coreRoom.directPeerCount = this.directPeers.size;
       if (this.transport && Object.keys(this.transport.getPeers()).length === 0)
         this.onStatus("Waiting for agents on this page");
     });
     await this.coreRoom.start();
     if (this.closed) throw new Error("This collaboration room is closed");
+    if (this.directPeers.size === 0)
+      this.lifecycle.tryTransition("waiting-for-peers");
     return this;
   }
 
@@ -635,9 +652,10 @@ export class NostrWebRTC {
     }
   }
 
-  async close() {
+  async close({ expired = false } = {}) {
     if (this.closed) return;
     this.closed = true;
+    this.lifecycle.tryTransition(expired ? "expired" : "disconnected");
     this.stopReceiving?.();
     this.stopForwarding?.();
     this.stopPeerJoin?.();

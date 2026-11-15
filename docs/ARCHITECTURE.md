@@ -38,3 +38,9 @@ The modal binds the request to the requesting origin and source iframe. The wall
 ## Limits
 
 No TURN server is configured by default. Direct WebRTC can fail behind restrictive NATs or firewalls. Nostr relay operators can observe room participation and timing metadata. The hashed topic is not a secret or an authorization boundary. Consent signatures prove control of a wallet key, not human identity or site authorization. Capability revocation is not broadcast by this MVP, so grants should expire quickly.
+
+## Connection lifecycle
+
+`createConnectionState()` (`packages/p2p/connection-state.js`) is a small state machine with an explicit transition table: `idle`, `approval-pending`, `wallet-authorized`, `signaling`, `waiting-for-peers`, `direct-peer-connected`, `degraded`, `expired`, `disconnected`. Illegal transitions throw from `transition()`; `tryTransition()` returns `false` instead, and the transport uses that form so network callbacks never throw. Each change publishes a new frozen snapshot (`status`, `directPeerCount`, `peers`, `diagnostics`, `updatedAt`) to subscribers. Bounded retry with exponential backoff moves to `degraded` after `maxAttempts` and then stops.
+
+`NostrWebRTC` exposes `connectionState` and `onConnectionState(listener)`. It enters `signaling` on start, `waiting-for-peers` once joined with no peers, and `direct-peer-connected` only on Trystero's `onPeerJoin`, which fires after the WebRTC data channel is open and the peer is activated. A peer leave drops back to `waiting-for-peers` at zero peers. Transport and ICE errors are recorded in `diagnostics.lastIceError`. `close()` enters `disconnected` (or `expired` with `close({ expired: true })`). Handing an event to the transport is never treated as delivery; only a peer's signed acknowledgement can show that.
