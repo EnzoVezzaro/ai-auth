@@ -397,7 +397,7 @@ function bindView() {
         name: state.wallet.name,
         publicIdentity: state.wallet.id,
       });
-      await startRoom();
+      if (!externalConnectMode) await startRoom();
       state.view = state.externalRequest ? "connect" : "wallet";
       render();
       toast("Wallet created. Save the encrypted recovery file.");
@@ -415,7 +415,7 @@ function bindView() {
         await file.text(),
         $("#restore-passphrase").value,
       );
-      await startRoom();
+      if (!externalConnectMode) await startRoom();
       state.view = state.externalRequest ? "connect" : "wallet";
       render();
       toast("Wallet restored in this browser.");
@@ -615,7 +615,7 @@ function bindView() {
     state.privateMode = !state.privateMode;
     state.rtc?.close();
     state.rtc = null;
-    await startRoom();
+    if (!externalConnectMode) await startRoom();
     render();
     toast(
       state.privateMode
@@ -746,7 +746,7 @@ document.querySelectorAll("[data-view]").forEach((button) =>
 
 try {
   state.wallet = await loadWallet();
-  if (state.wallet) {
+  if (state.wallet && !externalConnectMode) {
     await startRoom();
   }
   render();
