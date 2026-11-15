@@ -509,7 +509,10 @@ export type AIAuthConnectPanelState =
       capabilities: readonly string[];
       expiresAt: number;
     }
-  | { status: "disconnected"; reason: "closed" | "expired" };
+  | {
+      status: "disconnected";
+      reason: "closed" | "expired" | "idle" | "revoked";
+    };
 
 export interface AIAuthConnectController {
   getState(): AIAuthConnectPanelState;

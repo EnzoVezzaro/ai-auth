@@ -269,6 +269,14 @@ export async function connectAIAuthModal({
       resolveReady(createConnection());
       return;
     }
+    if (consent && event.data?.type === "ai-auth/session-ended") {
+      // The wallet user ended the session or the wallet timed it out.
+      const reason = event.data.reason;
+      activeConnection?.close(
+        reason === "idle" ? "idle" : reason === "ended" ? "revoked" : "expired",
+      );
+      return;
+    }
     if (
       consent &&
       pendingRenewal &&
@@ -706,7 +714,9 @@ export async function connectAIAuthModal({
       close(reason = "closed") {
         if (closed) return;
         closed = true;
-        closedReason = ["expired", "idle"].includes(reason) ? reason : "closed";
+        closedReason = ["expired", "idle", "revoked"].includes(reason)
+          ? reason
+          : "closed";
         lease?.revoke();
         revokeVerifiedPageConnection(connection);
         cleanup();
