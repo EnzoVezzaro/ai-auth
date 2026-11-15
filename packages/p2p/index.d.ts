@@ -537,3 +537,5 @@ export function mountAIAuthConnectPanel(options: {
   label?: string;
   onStateChange?: (state: AIAuthConnectPanelState) => void;
 }): () => void;
+
+export * from "./links.js";

@@ -477,3 +477,15 @@ export {
   createAIAuthConnectController,
   mountAIAuthConnectPanel,
 } from "./agent-connect.js";
+export {
+  LINK_POLICY,
+  approveLink,
+  createLinkChallenge,
+  createLinkNonceStore,
+  createRevokedLinkSet,
+  deriveLinkId,
+  listLinks,
+  unlink,
+  verifyLink,
+  verifyLinkRevocation,
+} from "./links.js";

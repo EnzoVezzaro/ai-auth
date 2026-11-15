@@ -35,3 +35,20 @@ A `capability/grant` envelope carries `recipient`, `resource`, explicit `capabil
 ## Peer event
 
 P2P room payloads additionally carry `room`, `origin`, per-tab `session`, random `nonce`, and `expiresAt`. Events expire after two minutes. Each room instance retains seen nonces for that window and rejects additional traffic if its bounded replay table is full rather than clearing replay history.
+
+## Site link (`ai-auth-link`, v1)
+
+A site link binds one wallet to one site resource. The site first issues an unsigned challenge `{ type: "ai-auth-link-challenge", v: 1, origin, resource, capabilities, nonce, createdAt, expiresAt, subject? }` (sorted unique capabilities, millisecond timestamps, challenge lifetime at most 600 seconds). The wallet answers with a standard signed envelope (`protocol: "ai-auth-wallet"`, `version: 1`, `type: "ai-auth-link"`) whose payload is:
+
+`{ type: "ai-auth-link", v: 1, linkId, origin, resource, walletId, publicKey, capabilities, nonce, createdAt, expiresAt, subject? }`
+
+- `linkId` is `link:` plus the hex SHA-256 of the canonical JSON of `{ nonce, origin, resource, walletId }`.
+- `capabilities` is the approved subset of the challenge, sorted, unique, no wildcards.
+- `expiresAt - createdAt` is at most 30 days. The envelope signature covers the canonical body.
+- No unknown payload fields are accepted. `subject` is the site's own opaque account identifier and is optional.
+
+A verifier checks the signature, the `walletId`/`publicKey`/issuer binding, exact `origin` and `resource`, expiry, that the capabilities are a subset of what it expects, that `linkId` is recomputed correctly, that the link is not in its revoked set, and finally that the nonce is consumed exactly once from its own nonce store (a nonce the site did not issue is rejected).
+
+## Site link revocation (`ai-auth-link-revocation`, v1)
+
+Unlinking in the wallet deletes the local record and emits a signed envelope with `type: "ai-auth-link-revocation"` and payload `{ type, v: 1, linkId, origin, resource, walletId, nonce, revokedAt }`. A verifier checks the signature, that the issuer is `walletId`, the exact `origin`, and that `linkId` re-derives from the fields (so only the linked wallet can revoke its own link). The wallet must deliver the event to the site; the site records the `linkId` in its own revoked set and rejects that link afterwards.
