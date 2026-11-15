@@ -21,22 +21,14 @@ export interface ConnectionSnapshot {
   readonly directPeerCount: number;
   readonly peers: readonly ConnectionPeer[];
   readonly diagnostics: {
-    readonly relaysConnected: number;
+    readonly relaysConnected: number | null;
     readonly lastIceError?: string;
     readonly waitingSinceMs: number;
-    readonly retryAttempt: number;
   };
   readonly updatedAt: number;
 }
 
-export interface ConnectionStateOptions {
-  maxAttempts?: number;
-  baseDelayMs?: number;
-  maxDelayMs?: number;
-  now?: () => number;
-  setTimer?: (fn: () => void, ms: number) => unknown;
-  clearTimer?: (handle: unknown) => void;
-}
+export interface ConnectionStateOptions {}
 
 export interface ConnectionState {
   readonly snapshot: ConnectionSnapshot;
@@ -49,12 +41,7 @@ export interface ConnectionState {
   }): ConnectionSnapshot;
   removePeer(peerId: string): ConnectionSnapshot;
   recordError(error: unknown): ConnectionSnapshot;
-  setRelaysConnected(count: number): ConnectionSnapshot;
-  scheduleRetry(attempt: (n: number) => unknown): {
-    scheduled: boolean;
-    delayMs: number;
-  };
-  cancelRetry(): void;
+  setRelaysConnected(count: number | null): ConnectionSnapshot;
   subscribe(listener: (snapshot: ConnectionSnapshot) => void): () => void;
 }
 

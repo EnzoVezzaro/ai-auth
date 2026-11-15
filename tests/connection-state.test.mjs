@@ -11,28 +11,6 @@ import {
 
 globalThis.crypto ??= webcrypto;
 
-function fakeTimers() {
-  const pending = [];
-  return {
-    setTimer: (fn, ms) => {
-      const handle = { fn, ms, cancelled: false };
-      pending.push(handle);
-      return handle;
-    },
-    clearTimer: (handle) => {
-      handle.cancelled = true;
-    },
-    pending,
-    async fire() {
-      const next = pending.find((h) => !h.cancelled && !h.done);
-      if (!next) return null;
-      next.done = true;
-      await next.fn();
-      return next;
-    },
-  };
-}
-
 test("transition table covers every status and only references known ones", () => {
   assert.deepEqual(Object.keys(CONNECTION_TRANSITIONS), [
     ...CONNECTION_STATUSES,
@@ -98,47 +76,15 @@ test("listeners run in subscription order and unsubscribe stops delivery", () =>
   assert.throws(() => state.subscribe("nope"), TypeError);
 });
 
-test("bounded retry backs off, reaches degraded, then stops", async () => {
-  const timers = fakeTimers();
-  const state = createConnectionState({
-    maxAttempts: 3,
-    baseDelayMs: 100,
-    maxDelayMs: 250,
-    ...timers,
-  });
-  state.transition("signaling");
-  let attempts = 0;
-  const attempt = async () => {
-    attempts += 1;
-    throw new Error("ice failed");
-  };
-  assert.deepEqual(state.scheduleRetry(attempt), {
-    scheduled: true,
-    delayMs: 100,
-  });
-  const delays = [];
-  for (let i = 0; i < 3; i += 1) delays.push((await timers.fire()).ms);
-  assert.deepEqual(delays, [100, 200, 250]);
-  assert.equal(attempts, 3);
-  assert.equal(state.snapshot.status, "degraded");
-  assert.equal(state.snapshot.diagnostics.retryAttempt, 3);
-  assert.equal(state.snapshot.diagnostics.lastIceError, "ice failed");
-  assert.equal(await timers.fire(), null, "no further retries are scheduled");
-});
-
-test("a connected peer resets retries and close cancels pending retry", () => {
-  const timers = fakeTimers();
-  const state = createConnectionState({ ...timers });
-  state.transition("signaling");
-  state.scheduleRetry(() => {});
-  assert.equal(state.snapshot.diagnostics.retryAttempt, 1);
-  state.addPeer({ peerId: "p" });
-  assert.equal(state.snapshot.diagnostics.retryAttempt, 0);
-  state.removePeer("p");
-  state.scheduleRetry(() => {});
-  state.transition("disconnected");
-  assert.ok(timers.pending.length > 0);
-  assert.ok(timers.pending.every((handle) => handle.cancelled));
+test("relaysConnected is unknown (null) until a real count is supplied", () => {
+  const state = createConnectionState();
+  assert.equal(state.snapshot.diagnostics.relaysConnected, null);
+  assert.equal(state.snapshot.diagnostics.retryAttempt, undefined);
+  state.setRelaysConnected(2);
+  assert.equal(state.snapshot.diagnostics.relaysConnected, 2);
+  assert.throws(() => state.setRelaysConnected(-1), TypeError);
+  state.setRelaysConnected(null);
+  assert.equal(state.snapshot.diagnostics.relaysConnected, null);
 });
 
 function makeFakeTransport() {
@@ -189,6 +135,7 @@ test("transport: zero peers waits, join/leave track a real data channel, errors 
   await adapter.start();
   assert.equal(adapter.connectionState.status, "waiting-for-peers");
   assert.equal(adapter.connectionState.directPeerCount, 0);
+  assert.equal(adapter.connectionState.diagnostics.relaysConnected, null);
 
   transport.join({ peerId: "peer-1" });
   assert.equal(adapter.connectionState.status, "direct-peer-connected");

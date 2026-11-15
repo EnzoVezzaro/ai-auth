@@ -59,19 +59,6 @@ export function canTransition(from, to) {
   return CONNECTION_TRANSITIONS[from]?.includes(to) === true;
 }
 
-const DEFAULT_RETRY = Object.freeze({
-  maxAttempts: 5,
-  baseDelayMs: 500,
-  maxDelayMs: 30_000,
-});
-
-function positiveInt(value, fallback, name) {
-  if (value === undefined) return fallback;
-  if (!Number.isInteger(value) || value < 0)
-    throw new TypeError(`${name} must be a non-negative integer`);
-  return value;
-}
-
 function freezeSnapshot(state) {
   return Object.freeze({
     status: state.status,
@@ -83,45 +70,23 @@ function freezeSnapshot(state) {
       waitingSinceMs: state.waitingSince
         ? Math.max(0, state.now() - state.waitingSince)
         : 0,
-      retryAttempt: state.retryAttempt,
     }),
     updatedAt: state.updatedAt,
   });
 }
 
 export function createConnectionState(options = {}) {
-  const retry = {
-    maxAttempts: positiveInt(
-      options.maxAttempts,
-      DEFAULT_RETRY.maxAttempts,
-      "maxAttempts",
-    ),
-    baseDelayMs: positiveInt(
-      options.baseDelayMs,
-      DEFAULT_RETRY.baseDelayMs,
-      "baseDelayMs",
-    ),
-    maxDelayMs: positiveInt(
-      options.maxDelayMs,
-      DEFAULT_RETRY.maxDelayMs,
-      "maxDelayMs",
-    ),
-  };
   const now = options.now ?? Date.now;
-  const setTimer = options.setTimer ?? setTimeout;
-  const clearTimer = options.clearTimer ?? clearTimeout;
   const listeners = new Set();
   const state = {
     status: "idle",
     peers: [],
-    relaysConnected: 0,
+    relaysConnected: null,
     lastIceError: undefined,
     waitingSince: 0,
-    retryAttempt: 0,
     updatedAt: now(),
     now,
   };
-  let timer = null;
   let snapshot = freezeSnapshot(state);
 
   function publish() {
@@ -143,18 +108,11 @@ export function createConnectionState(options = {}) {
         ? state.waitingSince || now()
         : 0;
     if (status === "direct-peer-connected") {
-      state.retryAttempt = 0;
       state.lastIceError = undefined;
     }
     if (["expired", "disconnected", "idle"].includes(status)) {
-      cancelRetry();
       state.peers = [];
     }
-  }
-
-  function cancelRetry() {
-    if (timer !== null) clearTimer(timer);
-    timer = null;
   }
 
   function transition(status) {
@@ -220,37 +178,13 @@ export function createConnectionState(options = {}) {
   }
 
   function setRelaysConnected(count) {
-    if (!Number.isInteger(count) || count < 0)
-      throw new TypeError("relaysConnected must be a non-negative integer");
+    if (count !== null && (!Number.isInteger(count) || count < 0))
+      throw new TypeError(
+        "relaysConnected must be null (unknown) or a non-negative integer",
+      );
     state.relaysConnected = count;
     publish();
     return snapshot;
-  }
-
-  function scheduleRetry(attempt) {
-    if (typeof attempt !== "function")
-      throw new TypeError("attempt must be a function");
-    cancelRetry();
-    if (state.retryAttempt >= retry.maxAttempts) {
-      tryTransition("degraded");
-      return { scheduled: false, delayMs: 0 };
-    }
-    const delayMs = Math.min(
-      retry.maxDelayMs,
-      retry.baseDelayMs * 2 ** state.retryAttempt,
-    );
-    state.retryAttempt += 1;
-    publish();
-    timer = setTimer(async () => {
-      timer = null;
-      try {
-        await attempt(state.retryAttempt);
-      } catch (error) {
-        recordError(error);
-        scheduleRetry(attempt);
-      }
-    }, delayMs);
-    return { scheduled: true, delayMs };
   }
 
   return Object.freeze({
@@ -263,8 +197,6 @@ export function createConnectionState(options = {}) {
     removePeer,
     recordError,
     setRelaysConnected,
-    scheduleRetry,
-    cancelRetry,
     subscribe(listener) {
       if (typeof listener !== "function")
         throw new TypeError("listener must be a function");
