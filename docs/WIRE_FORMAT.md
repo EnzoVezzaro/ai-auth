@@ -24,7 +24,18 @@ The signature covers the canonical `body` object. The verifier derives the `agen
 
 ## Permission request
 
-The local demo request is an unsigned request object created by its sample UI. It carries `type: "ai-auth/permission-request"`, `version: 1`, exact `audience`, random `nonce`, millisecond `createdAt` and `expiresAt`, and a sorted unique `capabilities` list. The wallet approval is a signed `connect/consent` envelope whose payload repeats the exact audience and request nonce plus a subset of the requested capabilities.
+The request is an unsigned challenge object. It carries `type: "ai-auth/permission-request"`, `version` 2 (1 is still accepted), exact `audience`, random `nonce`, millisecond `createdAt` and `expiresAt`, and a sorted unique `capabilities` list. `expiresAt` is the **handshake expiry only**: 1–120 seconds, single use. Version 2 adds optional `sessionTtlMs` and `idleTimeoutMs` (hints, each 1 second to 60 minutes) and `renews` (the request nonce of the consent being renewed).
+
+The wallet approval is a signed `connect/consent` envelope with `payload.version: 2`:
+
+- `audience`, `requestNonce`, `room`, `capabilities` (subset of the request).
+- `issuedAt` and `challengeExpiresAt` (must equal the request `expiresAt`; `issuedAt` must not be later than it).
+- `expiresAt`: the session grant end, equal to `issuedAt + sessionTtlMs`.
+- `sessionTtlMs`: at most the request hint (default 30 minutes) and never more than the 60 minute hard cap.
+- `idleTimeoutMs`: at most `sessionTtlMs` and at most the request hint (default 10 minutes).
+- `renewsNonce`: present only on a renewal.
+
+A renewal is a fresh request with `renews` set, answered by a new consent signed by the same wallet for the same audience and room. Its capabilities must be a subset of the consent being renewed. Verifiers consume the request nonce against the challenge expiry, so a replayed consent or stale challenge is rejected. A consent without `version` is the legacy form whose `expiresAt` may not exceed the request `expiresAt`.
 
 An independent website must supply a fresh challenge, bind it to its own origin, and consume the nonce exactly once. The UI-only request helper is not an authenticated website identity protocol.
 

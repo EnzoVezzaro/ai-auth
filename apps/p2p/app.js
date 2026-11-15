@@ -18,6 +18,9 @@ import {
   verifyPermissionRequest,
   verifyPopupPermissionRequest,
   NostrWebRTC,
+  SessionLease,
+  sessionLimits,
+  DEFAULT_SESSION_TTL_MS,
 } from "../../packages/p2p/index.js";
 
 const $ = (selector) => document.querySelector(selector);
@@ -29,6 +32,7 @@ const debugMode = new URLSearchParams(location.search).get("debug") === "1";
 const debug = (stage, details = "") => {
   if (debugMode) console.info("[AI Auth debug]", stage, details);
 };
+const renewalGuard = new NonceGuard();
 const state = {
   wallet: null,
   view: externalConnectMode ? "connect" : "overview",
@@ -42,6 +46,9 @@ const state = {
   externalStatus: "",
   externalRequestReceived: false,
   externalExpiryTimer: null,
+  lease: null,
+  renewal: null,
+  sessionTimer: null,
   messages: [],
   privateMode: true,
   externalRoomReady: false,
@@ -86,6 +93,29 @@ const esc = (value) =>
 const shortId = (value) =>
   value ? `${value.slice(0, 20)}…${value.slice(-9)}` : "Not created";
 const dateText = (value) => new Date(value).toLocaleString();
+function durationText(ms) {
+  const minutes = Math.round(ms / 60_000);
+  if (ms < 60_000) return `${Math.round(ms / 1000)} seconds`;
+  return minutes === 1 ? "1 minute" : `${minutes} minutes`;
+}
+function sessionTtlChoices(request) {
+  const { maxSessionTtlMs } = sessionLimits(request);
+  const choices = new Set(
+    [5, 15, 30, 60]
+      .map((minutes) => minutes * 60_000)
+      .filter((ms) => ms <= maxSessionTtlMs),
+  );
+  choices.add(maxSessionTtlMs);
+  return [...choices].sort((a, b) => a - b);
+}
+function remainingText(expiresAt) {
+  const remaining = Math.max(0, expiresAt - Date.now());
+  const minutes = Math.floor(remaining / 60_000);
+  const seconds = Math.floor((remaining % 60_000) / 1000);
+  return minutes > 0
+    ? `${minutes}m ${String(seconds).padStart(2, "0")}s`
+    : `${seconds}s`;
+}
 
 function toast(message) {
   const element = $("#toast");
@@ -195,16 +225,25 @@ function externalPermissionView() {
       <section class="panel"><p class="mini-label">REQUESTING SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">Requested capabilities: ${request.capabilities.map(esc).join(", ")}</p>${setupFormError()}<button class="button" data-go-wallet>Continue to wallet setup</button></section>`;
   }
   if (state.externalStatus === "sent") {
+    const grant = state.consent?.body?.payload;
+    const renewalPanel = state.renewal
+      ? `<section class="panel" id="renewal-panel"><p class="mini-label">RENEWAL REQUESTED</p><h2>Keep ${esc(displayOrigin)} connected?</h2><p class="panel-copy">The site asks for another ${esc(durationText(Math.min(sessionLimits(state.renewal).maxSessionTtlMs, DEFAULT_SESSION_TTL_MS)))} session with the same capabilities: ${esc(state.renewal.capabilities.join(", "))}. Renewing never adds capabilities.</p><div class="button-row"><button class="button" id="approve-renewal">Renew session</button><button class="button quiet" id="decline-renewal">Decline</button></div></section>`
+      : "";
     return `${pageHead("CONSENT SENT", "Return to the requesting site.", "The signed proof was sent to the site that opened this wallet. You can close this tab.")}
-      <section class="panel"><p class="mini-label">APPROVED SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">Approved capabilities: ${esc(state.consent?.body?.payload?.capabilities?.join(", ") ?? "")}</p></section>`;
+      <section class="panel"><p class="mini-label">APPROVED SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">Approved capabilities: ${esc(grant?.capabilities?.join(", ") ?? "")}</p><div class="metric-line"><span>Session expires</span><strong id="session-expiry">${esc(dateText(grant?.expiresAt))} (<span id="session-countdown">${esc(remainingText(grant?.expiresAt))}</span> left)</strong></div>${grant?.idleTimeoutMs ? `<div class="metric-line"><span>Idle timeout</span><strong>${esc(durationText(grant.idleTimeoutMs))}</strong></div>` : `<p class="help">Legacy short session from a site on an older SDK; it cannot be renewed.</p>`}<div class="button-row top-gap"><button class="button quiet" id="end-session">End session now</button></div></section>${renewalPanel}`;
   }
   if (state.externalStatus === "rejected") {
     return `${pageHead("REQUEST DECLINED", "The site stays disconnected.", "No identity or permission proof was shared.")}
       <section class="panel"><p class="mini-label">REQUESTING SITE</p><h2>${esc(displayOrigin)}</h2></section>`;
   }
+  if (state.externalStatus === "idle") {
+    return `${pageHead("SESSION ENDED", "Return to the requesting site.", "This session ended after a period without activity. Start a new connection from the site.")}
+      <section class="panel"><p class="mini-label">IDLE SESSION</p><h2>${esc(displayOrigin)}</h2></section>`;
+  }
   if (state.externalStatus === "expired") {
-    return `${pageHead("REQUEST EXPIRED", "Return to the requesting site.", "This one-use request has expired. Start a new connection from the site.")}
-      <section class="panel"><p class="mini-label">EXPIRED REQUEST</p><h2>${esc(displayOrigin)}</h2></section>`;
+    const ended = Boolean(state.consent);
+    return `${pageHead(ended ? "SESSION EXPIRED" : "REQUEST EXPIRED", "Return to the requesting site.", ended ? "The approved session reached its expiry. Start a new connection from the site." : "This one-use request has expired. Start a new connection from the site.")}
+      <section class="panel"><p class="mini-label">${ended ? "EXPIRED SESSION" : "EXPIRED REQUEST"}</p><h2>${esc(displayOrigin)}</h2></section>`;
   }
   const scopes = request.capabilities
     .map((capability) => {
@@ -216,7 +255,16 @@ function externalPermissionView() {
     .join("");
   return `${pageHead("EXTERNAL SITE REQUEST", "Review before you sign.", "The wallet will send a public identity and only the capabilities you select. Your private key never leaves this browser.")}
     <div class="grid-main"><section class="panel"><div class="panel-head"><div><p class="mini-label">REQUESTING SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">This request expires at ${esc(dateText(request.expiresAt))}. It is valid only for this exact origin and this one connection attempt.</p></div><span class="status-tag pending">REVIEW REQUIRED</span></div>
-      <form id="external-permission-form"><p class="scope-label">REQUESTED CAPABILITIES</p><div class="scope-list">${scopes}</div>${setupFormError()}<div class="button-row"><button class="button" type="submit">Sign selected capabilities</button><button class="button quiet" type="button" id="reject-external-request">Decline</button></div></form>
+      <form id="external-permission-form"><p class="scope-label">REQUESTED CAPABILITIES</p><div class="scope-list">${scopes}</div>${request.version === 1 ? `<p class="help">This site uses an older AI Auth SDK, so this connection lasts only until ${esc(dateText(request.expiresAt))} (under two minutes). Ask the site to upgrade for longer sessions.</p>` : ""}<div class="field"${request.version === 1 ? " hidden" : ""}><label for="session-ttl">Session lasts</label><select class="control" id="session-ttl" name="session-ttl">${sessionTtlChoices(
+        request,
+      )
+        .map(
+          (ms) =>
+            `<option value="${ms}"${ms === Math.min(sessionLimits(request).maxSessionTtlMs, DEFAULT_SESSION_TTL_MS) ? " selected" : ""}>${esc(durationText(ms))}</option>`,
+        )
+        .join(
+          "",
+        )}</select><small>The session ends at this time or after ${esc(durationText(Math.min(sessionLimits(request).maxIdleTimeoutMs, sessionLimits(request).maxSessionTtlMs)))} without activity. The site must ask you again to renew it.</small></div>${setupFormError()}<div class="button-row"><button class="button" type="submit">Sign selected capabilities</button><button class="button quiet" type="button" id="reject-external-request">Decline</button></div></form>
     </section><aside class="stack"><section class="panel"><div class="panel-head"><div><p class="mini-label">YOUR KEY STAYS HERE</p><h3>Only a signed proof leaves this tab</h3></div></div><p class="panel-copy">The requesting site receives your public key and approved scopes. A signature proves control of this wallet; the site still enforces its own permissions.</p></section></aside></div>`;
 }
 
@@ -410,6 +458,8 @@ async function startRoom() {
         payload?.targetNonce === state.externalRequest?.nonce &&
         payload?.targetSession === state.room?.session;
       if (!targetedRequest || routeMatches) {
+        if (!["peer/hello", "peer/goodbye", "presence/cursor"].includes(type))
+          state.lease?.touch();
         externalHost.postMessage(
           { type: "ai-auth/collaboration-event", envelope },
           state.externalOrigin,
@@ -681,6 +731,14 @@ function bindView() {
         state.wallet,
         state.externalRequest,
         approved,
+        {
+          sessionTtlMs:
+            state.externalRequest.version === 1
+              ? undefined
+              : Number(
+                  event.currentTarget.querySelector("#session-ttl")?.value,
+                ),
+        },
       );
       externalHost.postMessage(
         {
@@ -694,12 +752,10 @@ function bindView() {
         state.externalOrigin,
       );
       state.consent = consent;
+      state.lease = new SessionLease(consent.body.payload);
       state.externalStatus = "sent";
       clearTimeout(state.externalExpiryTimer);
-      state.externalExpiryTimer = setTimeout(
-        expireExternalSession,
-        Math.max(0, consent.body.payload.expiresAt - Date.now()),
-      );
+      scheduleSessionExpiry();
       state.privateMode = false;
       state.externalRoomReady = false;
       void startRoom().catch((error) => {
@@ -717,6 +773,61 @@ function bindView() {
     } catch (error) {
       fail(error);
     }
+  });
+  $("#approve-renewal")?.addEventListener("click", async () => {
+    const renewal = state.renewal;
+    try {
+      if (!renewal || !externalSessionActive())
+        throw new Error("This session is no longer active");
+      const consent = await approvePermissionRequest(
+        state.wallet,
+        renewal,
+        renewal.capabilities,
+        {
+          sessionTtlMs: Math.min(
+            sessionLimits(renewal).maxSessionTtlMs,
+            DEFAULT_SESSION_TTL_MS,
+          ),
+          previousConsent: state.consent,
+        },
+      );
+      if (!state.lease.renew(consent.body.payload))
+        throw new Error("This session is no longer active");
+      externalHost.postMessage(
+        {
+          type: "ai-auth/renew-consent",
+          requestNonce: renewal.nonce,
+          consent,
+        },
+        state.externalOrigin,
+      );
+      state.consent = consent;
+      state.renewal = null;
+      scheduleSessionExpiry();
+      await appendActivity(state.wallet, "connect/external-renewal", {
+        origin: state.externalOrigin,
+        capabilities: consent.body.payload.capabilities,
+        expiresAt: consent.body.payload.expiresAt,
+      });
+      render();
+    } catch (error) {
+      fail(error);
+    }
+  });
+  $("#decline-renewal")?.addEventListener("click", () => {
+    if (state.renewal)
+      externalHost?.postMessage(
+        {
+          type: "ai-auth/renew-rejected",
+          requestNonce: state.renewal.nonce,
+        },
+        state.externalOrigin,
+      );
+    state.renewal = null;
+    render();
+  });
+  $("#end-session")?.addEventListener("click", () => {
+    expireExternalSession("ended");
   });
   $("#reject-external-request")?.addEventListener("click", () => {
     if (externalHost && state.externalSource === externalHost)
@@ -827,17 +938,39 @@ function bindView() {
 }
 
 function externalSessionActive() {
-  return (
-    state.externalStatus === "sent" &&
-    Number.isFinite(state.consent?.body?.payload?.expiresAt) &&
-    state.consent.body.payload.expiresAt > Date.now()
+  return state.externalStatus === "sent" && state.lease?.isActive() === true;
+}
+
+// One timer follows the earlier of grant expiry and idle deadline and
+// re-checks the lease each time, so renewal and activity move it forward.
+function scheduleSessionExpiry() {
+  clearTimeout(state.sessionTimer);
+  if (state.externalStatus !== "sent" || !state.lease) return;
+  if (!state.lease.isActive()) {
+    expireExternalSession(state.lease.status());
+    return;
+  }
+  state.sessionTimer = setTimeout(
+    scheduleSessionExpiry,
+    Math.max(1, state.lease.deadline - Date.now()),
   );
 }
 
-function expireExternalSession() {
+function expireExternalSession(reason = "expired") {
   if (state.externalStatus !== "sent") return;
+  clearTimeout(state.sessionTimer);
+  state.lease?.revoke();
+  state.renewal = null;
+  if (externalHost && state.externalOrigin)
+    externalHost.postMessage(
+      {
+        type: "ai-auth/session-ended",
+        reason: ["idle", "ended"].includes(reason) ? reason : "expired",
+      },
+      state.externalOrigin,
+    );
   roomGeneration++;
-  state.externalStatus = "expired";
+  state.externalStatus = reason === "idle" ? "idle" : "expired";
   state.externalRoomReady = false;
   state.externalPendingEvents.length = 0;
   state.transfers?.close();
@@ -846,6 +979,7 @@ function expireExternalSession() {
   void state.room?.close();
   state.rtc = null;
   state.room = null;
+  render();
 }
 
 async function handleExternalSiteEvent(data) {
@@ -988,6 +1122,14 @@ function rootViewButtons() {
 
 if (externalConnectMode) {
   window.addEventListener("message", async (event) => {
+    // A session that lapsed while no timer could fire (for example a sleeping
+    // tab) is ended before any further message is honored.
+    if (
+      state.externalStatus === "sent" &&
+      state.lease &&
+      !state.lease.isActive()
+    )
+      expireExternalSession(state.lease.status());
     if (
       event.data?.type === "ai-auth/transfer-request" &&
       event.source === state.externalSource &&
@@ -996,6 +1138,7 @@ if (externalConnectMode) {
       state.externalStatus === "sent" &&
       state.consent?.body?.payload?.expiresAt > Date.now()
     ) {
+      state.lease?.touch();
       const { id, method, args } = event.data;
       if (
         typeof id !== "string" ||
@@ -1036,6 +1179,7 @@ if (externalConnectMode) {
       ].includes(event.data?.type)
     ) {
       debug("opener-event-matched", event.data?.type);
+      state.lease?.touch();
       if (!state.externalRoomReady) {
         if (state.externalPendingEvents.length < 32)
           state.externalPendingEvents.push(event.data);
@@ -1046,6 +1190,36 @@ if (externalConnectMode) {
       } catch (error) {
         toast(`Could not sign the site event: ${error.message}`);
       }
+      return;
+    }
+    if (
+      event.data?.type === "ai-auth/renew-request" &&
+      event.source === externalHost &&
+      event.origin === state.externalOrigin &&
+      externalSessionActive()
+    ) {
+      const renewal = event.data.request;
+      const current = state.consent.body.payload;
+      const valid =
+        (await verifyPermissionRequest(renewal, {
+          expectedOrigin: state.externalOrigin,
+          nonceGuard: renewalGuard,
+        })) &&
+        renewal.renews === current.requestNonce &&
+        (renewal.room ?? "default") === (current.room ?? "default") &&
+        renewal.capabilities.every((capability) =>
+          current.capabilities.includes(capability),
+        );
+      if (!valid || !externalSessionActive()) {
+        externalHost.postMessage(
+          { type: "ai-auth/renew-rejected", requestNonce: renewal?.nonce },
+          state.externalOrigin,
+        );
+        return;
+      }
+      state.renewal = renewal;
+      state.view = "connect";
+      render();
       return;
     }
     if (
@@ -1105,3 +1279,9 @@ try {
   state.error = error.message;
   render();
 }
+
+setInterval(() => {
+  const countdown = $("#session-countdown");
+  if (countdown && state.consent?.body?.payload?.expiresAt)
+    countdown.textContent = remainingText(state.consent.body.payload.expiresAt);
+}, 1000);

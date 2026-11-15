@@ -614,9 +614,12 @@ test("verified popup connections close when their signed consent expires", async
     await new Promise((resolve) => setImmediate(resolve));
   await dispatch({ type: "ai-auth/connect-ready" });
   const request = popupMessages[0].message.request;
-  const consent = await approvePermissionRequest(wallet, request, [
-    "presence.read",
-  ]);
+  const consent = await approvePermissionRequest(
+    wallet,
+    request,
+    ["presence.read"],
+    { sessionTtlMs: 1_000 },
+  );
   const expiresAt = consent.body.payload.expiresAt;
   const realNow = Date.now;
   let connection;

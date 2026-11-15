@@ -38,7 +38,7 @@ async function makeWallet(name) {
 async function makeVerifiedConnection(
   capabilities = ["presence.read", "tools.invoke"],
   walletClaim = true,
-  { beforeConsent, roomSession } = {},
+  { beforeConsent, roomSession, approveOptions } = {},
 ) {
   const realNow = Date.now;
   try {
@@ -103,6 +103,7 @@ async function makeVerifiedConnection(
       wallet,
       request,
       capabilities,
+      approveOptions,
     );
     await dispatch({
       type: "ai-auth/connect-consent",
@@ -181,11 +182,7 @@ test("lifecycle rejects a wallet claim whose identity is not the consent issuer"
 
 test("lifecycle fires an expired disconnect when the signed consent expires", async () => {
   const { connection } = await makeVerifiedConnection(["presence.read"], true, {
-    beforeConsent: (request) => {
-      // Shrink the remaining consent lifetime so the connection expiry timer
-      // fires in milliseconds instead of minutes.
-      Date.now = () => request.expiresAt - 1;
-    },
+    approveOptions: { sessionTtlMs: 1_000 },
   });
   const events = [];
   connection.onLifecycle((event) => events.push(event));
@@ -193,7 +190,7 @@ test("lifecycle fires an expired disconnect when the signed consent expires", as
   const realNow = Date.now;
   try {
     Date.now = () => expiresAt + 1;
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
     assert.equal(events.at(-1)?.type, "disconnected");
     assert.equal(events.at(-1)?.reason, "expired");
   } finally {
@@ -384,7 +381,9 @@ test("in-page agent stops an in-flight execution when the connection closes", as
 });
 
 test("in-page agent registrations expire with the verified connection", async () => {
-  const { connection } = await makeVerifiedConnection(["tools.invoke"]);
+  const { connection } = await makeVerifiedConnection(["tools.invoke"], true, {
+    approveOptions: { sessionTtlMs: 60_000, idleTimeoutMs: 60_000 },
+  });
   const registrations = [];
   let executions = 0;
   const expiresAt = connection.consent.body.payload.expiresAt;
@@ -861,4 +860,246 @@ test("agent cancellation is sent after an in-flight request and rejects locally"
     ["tool-request", "tool-cancel"],
     "closing the client also stops an action already running in the page",
   );
+});
+
+async function withClock(startAt, run) {
+  const realNow = Date.now;
+  let offset = 0;
+  const base = startAt ?? realNow();
+  Date.now = () => base + offset;
+  try {
+    await run((ms) => {
+      offset += ms;
+    });
+  } finally {
+    Date.now = realNow;
+    for (const connection of closeAfter.splice(0)) connection.close();
+  }
+}
+
+const closeAfter = [];
+const waitFor = async (check) => {
+  for (let tries = 0; tries < 200; tries += 1) {
+    const value = check();
+    if (value) return value;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  throw new Error("Condition was not met");
+};
+
+test("a connection outlives the 2 minute handshake window and then expires", async () => {
+  const { connection, popupMessages } = await makeVerifiedConnection([
+    "presence.read",
+    "tools.invoke",
+  ]);
+  closeAfter.push(connection);
+  const events = [];
+  connection.onLifecycle((event) => events.push(event));
+  const payload = connection.consent.body.payload;
+  assert.ok(payload.expiresAt - payload.issuedAt >= 15 * 60_000);
+  const sentActions = () =>
+    popupMessages.filter(
+      ({ message }) => message.type === "ai-auth/site-action",
+    );
+  await withClock(payload.issuedAt, async (advance) => {
+    for (let minute = 0; minute < 14; minute += 1) {
+      advance(60_000);
+      connection.publishAction({
+        name: "work.step",
+        state: "progress",
+        summary: `minute ${minute + 1}`,
+      });
+    }
+    assert.equal(sentActions().length, 14);
+    advance(60_000 * 20);
+    assert.throws(
+      () =>
+        connection.publishAction({
+          name: "work.step",
+          state: "progress",
+          summary: "after expiry",
+        }),
+      /connection is closed/u,
+    );
+    assert.equal(sentActions().length, 14);
+    assert.equal(events.at(-1).reason, "expired");
+  });
+});
+
+test("an idle session stops authorizing publishes", async () => {
+  const { connection } = await makeVerifiedConnection(["presence.read"], true, {
+    approveOptions: { sessionTtlMs: 600_000, idleTimeoutMs: 120_000 },
+  });
+  closeAfter.push(connection);
+  const events = [];
+  connection.onLifecycle((event) => events.push(event));
+  const issuedAt = connection.consent.body.payload.issuedAt;
+  await withClock(issuedAt, async (advance) => {
+    advance(100_000);
+    connection.publishCursor({ x: 0.1, y: 0.1 });
+    advance(100_000);
+    connection.publishCursor({ x: 0.2, y: 0.2 });
+    advance(125_000);
+    connection.publishCursor({ x: 0.3, y: 0.3 });
+    assert.deepEqual(events.at(-1), { type: "disconnected", reason: "idle" });
+    await assert.rejects(connection.renew(), /no longer active/u);
+  });
+});
+
+test("expired and ended sessions drop received events and transfers", async () => {
+  const { connection, dispatch, popupMessages } = await makeVerifiedConnection(
+    ["messages.send", "content.share"],
+    true,
+    { approveOptions: { sessionTtlMs: 600_000 } },
+  );
+  closeAfter.push(connection);
+  const issuedAt = connection.consent.body.payload.issuedAt;
+  const transfers = [];
+  connection.transfers.subscribe((transfer) => transfers.push(transfer));
+  await withClock(issuedAt, async (advance) => {
+    await dispatch({
+      type: "ai-auth/transfer-event",
+      transfer: { type: "text", text: "hello" },
+    });
+    assert.equal(transfers.length, 1);
+    advance(600_001);
+    await dispatch({
+      type: "ai-auth/transfer-event",
+      transfer: { type: "text", text: "late" },
+    });
+    assert.equal(transfers.length, 1);
+    await assert.rejects(
+      connection.transfers.sendText("late"),
+      /connection is closed/u,
+    );
+    assert.equal(
+      popupMessages.some(
+        ({ message }) => message.type === "ai-auth/transfer-request",
+      ),
+      false,
+    );
+  });
+});
+
+test("wallet ending the session revokes the connection", async () => {
+  const { connection, dispatch } = await makeVerifiedConnection([
+    "presence.read",
+  ]);
+  closeAfter.push(connection);
+  const events = [];
+  connection.onLifecycle((event) => events.push(event));
+  await dispatch({ type: "ai-auth/session-ended", reason: "ended" });
+  assert.deepEqual(events.at(-1), { type: "disconnected", reason: "revoked" });
+  assert.throws(
+    () =>
+      connection.publishAction({ name: "a.b", state: "started", summary: "x" }),
+    /connection is closed/u,
+  );
+});
+
+test("renewal requires wallet re-consent and extends the same connection", async () => {
+  const { connection, dispatch, popupMessages, wallet } =
+    await makeVerifiedConnection(["presence.read", "tools.invoke"], true, {
+      approveOptions: { sessionTtlMs: 60_000, idleTimeoutMs: 60_000 },
+    });
+  closeAfter.push(connection);
+  const events = [];
+  connection.onLifecycle((event) => events.push(event));
+  const first = connection.consent;
+  const firstExpiry = first.body.payload.expiresAt;
+  await withClock(first.body.payload.issuedAt, async (advance) => {
+    advance(50_000);
+    const renewing = connection.renew();
+    const message = await waitFor(
+      () =>
+        popupMessages.find(
+          ({ message }) => message.type === "ai-auth/renew-request",
+        )?.message,
+    );
+    assert.equal(message.request.renews, first.body.payload.requestNonce);
+    assert.deepEqual(message.request.capabilities, [
+      "presence.read",
+      "tools.invoke",
+    ]);
+    // Nothing changes until the wallet approves.
+    assert.equal(connection.expiresAt, firstExpiry);
+    const renewal = await approvePermissionRequest(
+      wallet,
+      message.request,
+      message.request.capabilities,
+      { previousConsent: first, sessionTtlMs: 60_000 },
+    );
+    await dispatch({
+      type: "ai-auth/renew-consent",
+      requestNonce: message.request.nonce,
+      consent: renewal,
+    });
+    await renewing;
+    assert.ok(connection.expiresAt > firstExpiry);
+    assert.equal(events.at(-1).type, "renewed");
+    advance(30_000);
+    connection.publishAction({
+      name: "work.step",
+      state: "started",
+      summary: "ok",
+    });
+    // Replaying the same renewal consent does nothing.
+    const before = connection.expiresAt;
+    await dispatch({
+      type: "ai-auth/renew-consent",
+      requestNonce: message.request.nonce,
+      consent: renewal,
+    });
+    assert.equal(connection.expiresAt, before);
+  });
+});
+
+test("a renewal that widens scopes or comes from the wrong wallet is refused", async () => {
+  const { connection, dispatch, popupMessages, wallet } =
+    await makeVerifiedConnection(["presence.read"], true, {
+      approveOptions: { sessionTtlMs: 60_000, idleTimeoutMs: 60_000 },
+    });
+  closeAfter.push(connection);
+  const first = connection.consent;
+  const firstExpiry = connection.expiresAt;
+  const renewing = connection.renew();
+  const request = (
+    await waitFor(() =>
+      popupMessages.find(
+        ({ message }) => message.type === "ai-auth/renew-request",
+      ),
+    )
+  ).message.request;
+  const forged = await wallet.sign("connect/consent", {
+    ...first.body.payload,
+    requestNonce: request.nonce,
+    renewsNonce: first.body.payload.requestNonce,
+    challengeExpiresAt: request.expiresAt,
+    issuedAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+    capabilities: ["presence.read", "tools.invoke"],
+  });
+  await dispatch({
+    type: "ai-auth/renew-consent",
+    requestNonce: request.nonce,
+    consent: forged,
+  });
+  await assert.rejects(renewing, /could not be verified/u);
+  assert.equal(connection.expiresAt, firstExpiry);
+  assert.deepEqual([...connection.capabilities], ["presence.read"]);
+
+  const second = connection.renew();
+  await dispatch({
+    type: "ai-auth/renew-rejected",
+    requestNonce: (
+      await waitFor(
+        () =>
+          popupMessages
+            .filter(({ message }) => message.type === "ai-auth/renew-request")
+            .at(1)?.message.request,
+      )
+    ).nonce,
+  });
+  await assert.rejects(second, /declined/u);
+  connection.close();
 });
