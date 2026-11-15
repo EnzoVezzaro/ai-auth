@@ -24,7 +24,10 @@ jobs:
       - name: Install local MCP dependencies
         run: npm ci
         working-directory: packages/mcp
-      - name: Run wallet, runtime, and MCP suites
+      - name: Install headless agent runtime dependencies
+        run: npm ci
+        working-directory: packages/agent
+      - name: Run wallet, runtime, MCP, and agent suites
         run: npm run test:all
       - name: Install Chromium for browser collaboration E2E
         run: npx playwright install --with-deps --only-shell chromium
@@ -45,3 +48,8 @@ jobs:
       - name: Audit MCP production dependencies
         run: npm audit --omit=dev
         working-directory: packages/mcp
+      - name: Audit agent runtime production dependencies
+        run: npm audit --omit=dev
+        working-directory: packages/agent
+      - name: Check types for public declarations
+        run: npm run test:types
