@@ -6,7 +6,8 @@ import {
   signDomain,
   verifyDomain,
 } from "./codec.js";
-import { verifyRevocation } from "./revocation.js";
+import { verifyEpochRecord, verifyRevocation } from "./revocation.js";
+import { verifyLinkRevocation } from "./links.js";
 
 export const MEMBERSHIP_TYPE = "ai-auth-membership";
 export const MEMBERSHIP_VERSION = 1;
@@ -37,6 +38,8 @@ export const DURATION_LIMITS = Object.freeze({
 const DOMAIN = "ai-auth-membership/v1\n";
 const GRANT_DOMAIN = "ai-auth-execution-grant/v1\n";
 const MAX_REVOCATIONS = 4096;
+export const CATCHUP_MAX_RECORDS = 32;
+export const CATCHUP_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_SHORT_TTL_MS = 15 * 60 * 1000;
 const MAX_SCOPES = 32;
 const MAX_MEMBERS = 256;
@@ -498,6 +501,9 @@ export function createParticipationPolicy({
     wallet: new Set(),
   };
   const appliedIds = new Set();
+  // Applied records kept for bounded catch-up of peers that were offline.
+  const log = [];
+  let latestEpochRecord = null;
   let epoch = initialEpoch;
   const live = (walletId) => {
     const m = members.get(walletId);
@@ -617,8 +623,74 @@ export function createParticipationPolicy({
         return refuse("revocation-store-full");
       appliedIds.add(record.id);
       revocations[record.kind].add(record.target);
+      log.push({ at: record.issuedAt, kind: "revocations", record });
       evict(record);
       return Object.freeze({ ok: true, applied: true, kind: record.kind });
+    },
+    /**
+     * Verify and apply a wallet-signed `ai-auth-link-revocation` event so the
+     * site's revoked-link view follows peers. Idempotent by link id.
+     */
+    async applyLinkRevocation(event) {
+      const result = await verifyLinkRevocation(event, {
+        expectedOrigin: origin,
+        now: now(),
+      });
+      if (!result.valid) return refuse(result.reason);
+      const { linkId } = result.revocation;
+      if (revocations.link.has(linkId))
+        return Object.freeze({ ok: true, applied: false, kind: "link" });
+      if (appliedIds.size >= MAX_REVOCATIONS)
+        return refuse("revocation-store-full");
+      appliedIds.add(`link-event:${linkId}`);
+      revocations.link.add(linkId);
+      log.push({
+        at: result.revocation.revokedAt,
+        kind: "linkRevocations",
+        record: event,
+      });
+      return Object.freeze({ ok: true, applied: true, kind: "link" });
+    },
+    /**
+     * Verify and apply a signed `ai-auth-epoch` announcement. The epoch only
+     * moves forward; a stale or equal announcement is a no-op.
+     */
+    async applyEpoch(record) {
+      const result = await verifyEpochRecord(record, {
+        trustPolicy: { issuers },
+        expectedOrigin: origin,
+        expectedRoom: room,
+        now,
+      });
+      if (!result.ok) return result;
+      if (record.epoch > epoch) {
+        raiseEpoch(record.epoch);
+        latestEpochRecord = record;
+        return Object.freeze({ ok: true, applied: true, kind: "epoch" });
+      }
+      if (record.epoch === epoch && !latestEpochRecord)
+        latestEpochRecord = record;
+      return Object.freeze({ ok: true, applied: false, kind: "epoch" });
+    },
+    /**
+     * Bounded, newest-first slice of applied records for catch-up: at most
+     * `limit` records (never above CATCHUP_MAX_RECORDS) no older than
+     * `maxAgeMs`, plus the latest epoch announcement if it is current.
+     */
+    recentRecords({
+      limit = CATCHUP_MAX_RECORDS,
+      maxAgeMs = CATCHUP_MAX_AGE_MS,
+    } = {}) {
+      const t = now();
+      const cap = Math.min(Math.max(0, limit | 0), CATCHUP_MAX_RECORDS);
+      const out = { epoch: null, revocations: [], linkRevocations: [] };
+      if (latestEpochRecord?.epoch === epoch) out.epoch = latestEpochRecord;
+      for (let i = log.length - 1; i >= 0; i--) {
+        const entry = log[i];
+        if (out.revocations.length + out.linkRevocations.length >= cap) break;
+        if (t - entry.at <= maxAgeMs) out[entry.kind].push(entry.record);
+      }
+      return Object.freeze(out);
     },
     isRevoked: (kind, target) => revocations[kind]?.has(target) ?? false,
     /** Read-only view used by `authorizeProtected`. */

@@ -3,6 +3,7 @@ import {
   appendActivity,
   approvePermissionRequest,
   createCapabilityGrant,
+  createInstanceId,
   createWallet,
   createPermissionRequest,
   downloadBackup,
@@ -33,6 +34,19 @@ const debug = (stage, details = "") => {
   if (debugMode) console.info("[AI Auth debug]", stage, details);
 };
 const renewalGuard = new NonceGuard();
+// One instance id per wallet tab. It is only a clone-detection hint, so a
+// blocked sessionStorage just yields a fresh id for this page load.
+const pageInstanceId = (() => {
+  try {
+    const stored = sessionStorage.getItem("ai-auth-instance-id");
+    if (/^inst:[A-Za-z0-9_-]{22}$/u.test(stored ?? "")) return stored;
+    const created = createInstanceId();
+    sessionStorage.setItem("ai-auth-instance-id", created);
+    return created;
+  } catch {
+    return createInstanceId();
+  }
+})();
 const state = {
   wallet: null,
   view: externalConnectMode ? "connect" : "overview",
@@ -732,6 +746,16 @@ function bindView() {
         state.externalRequest,
         approved,
         {
+          // The descriptor fields are self-declared claims, not attestations.
+          ...(state.externalRequest.version === 1
+            ? {}
+            : {
+                agent: {
+                  instanceId: pageInstanceId,
+                  agentType: "ai-auth-wallet",
+                  runtime: { name: "ai-auth-wallet-page" },
+                },
+              }),
           sessionTtlMs:
             state.externalRequest.version === 1
               ? undefined

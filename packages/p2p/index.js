@@ -554,3 +554,14 @@ export {
   MAX_DESCRIPTOR_TTL_MS,
   DEFAULT_DESCRIPTOR_TTL_MS,
 } from "./agent-identity.js";
+
+export { verifyConsentAgent } from "./connect.js";
+export {
+  createEpochRecord,
+  verifyEpochRecord,
+  EPOCH_TYPE,
+  EPOCH_VERSION,
+  REVOCATION_SYNC_REQUEST_EVENT,
+  REVOCATION_SYNC_EVENT,
+} from "./revocation.js";
+export { CATCHUP_MAX_RECORDS, CATCHUP_MAX_AGE_MS } from "./membership.js";

@@ -2,8 +2,10 @@ import {
   NonceGuard,
   SessionLease,
   createPermissionRequest,
+  verifyConsentAgent,
   verifyPermissionConsent,
 } from "./connect.js";
+import { createCloneDetector } from "./agent-identity.js";
 import { verifyEnvelope } from "./index.js";
 import {
   markVerifiedPageConnection,
@@ -144,6 +146,9 @@ export async function connectAIAuthModal({
   let lease;
   let pendingRenewal = null;
   let walletIdentity = null;
+  let participant = null;
+  let cloneDiagnostics = Object.freeze([]);
+  const cloneDetector = createCloneDetector();
   let walletSession = null;
   const roomReadyListeners = new Set();
   let closedReason = "";
@@ -260,6 +265,24 @@ export async function connectAIAuthModal({
         rejectReady(new Error("The wallet consent could not be verified"));
         return;
       }
+      const agent = await verifyConsentAgent(candidate, request, {
+        expectedOrigin: origin,
+        expectedWallet,
+      });
+      if (!agent.ok) {
+        cleanup();
+        rejectReady(new Error("The wallet agent descriptor was invalid"));
+        return;
+      }
+      participant = agent.participant;
+      cloneDiagnostics = participant
+        ? cloneDetector.observe({
+            walletId: participant.identity.id,
+            instanceId: participant.instanceId,
+            sessionId: participant.sessionId,
+            expiresAt: candidate.body.payload.expiresAt,
+          })
+        : Object.freeze([]);
       consent = candidate;
       lease = new SessionLease(consent.body.payload);
       walletIdentity = verifiedWalletIdentity(event.data.wallet, consent);
@@ -465,6 +488,8 @@ export async function connectAIAuthModal({
       type: "connected",
       label: walletIdentity?.name ?? shortIssuerLabel(walletIdentity?.id),
       identity: walletIdentity,
+      participant,
+      diagnostics: cloneDiagnostics,
       capabilities: Object.freeze([...consent.body.payload.capabilities]),
       expiresAt: consent.body.payload.expiresAt,
       idleTimeoutMs: consent.body.payload.idleTimeoutMs ?? null,
@@ -587,6 +612,8 @@ export async function connectAIAuthModal({
         })();
       },
       identity: walletIdentity,
+      /** Verified identity plus the agent's self-declared claims, or null. */
+      participant,
       capabilities: Object.freeze([...consent.body.payload.capabilities]),
       onLifecycle(listener) {
         if (typeof listener !== "function")

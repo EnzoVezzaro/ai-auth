@@ -1,4 +1,8 @@
 import { randomNonce, signEnvelope, verifyEnvelope } from "./index.js";
+import {
+  createAgentDescriptor,
+  verifyAgentDescriptor,
+} from "./agent-identity.js";
 
 const CAPABILITY_PATTERN = /^[a-z][a-z0-9]*(?:[.:/_-][a-z0-9]+)*$/u;
 const MAX_NONCE_LENGTH = 512;
@@ -163,7 +167,13 @@ export async function approvePermissionRequest(
   wallet,
   request,
   approvedCapabilities,
-  { sessionTtlMs, idleTimeoutMs, previousConsent, now = Date.now() } = {},
+  {
+    sessionTtlMs,
+    idleTimeoutMs,
+    previousConsent,
+    agent,
+    now = Date.now(),
+  } = {},
 ) {
   const approved = normalizeCapabilities(approvedCapabilities);
   const requestVerified = await verifyPermissionRequest(request, {
@@ -216,8 +226,24 @@ export async function approvePermissionRequest(
   );
   if (idle > limits.maxIdleTimeoutMs)
     throw new RangeError("Idle timeout exceeds the allowed grant");
+  // Optional signed self-description (`ai-auth-agent-descriptor` v1), bound to
+  // this request's nonce, origin and room. Old verifiers ignore the extra
+  // field; verifiers that know it check it. Legacy v1 consents never carry it.
+  const agentDescriptor = agent
+    ? await createAgentDescriptor(wallet, {
+        ...agent,
+        origin: request.audience,
+        room: validRoom(request.room ?? "default"),
+        sessionId: request.nonce,
+        nonce: request.nonce,
+        capabilities: approved,
+        now,
+        expiresAt: request.expiresAt,
+      })
+    : undefined;
   return signEnvelope(wallet, "connect/consent", {
     version: CONSENT_VERSION,
+    ...(agentDescriptor ? { agentDescriptor } : {}),
     audience: request.audience,
     requestNonce: request.nonce,
     capabilities: approved,
@@ -389,6 +415,14 @@ export async function verifyPermissionConsent(
       // Legacy consent: the signed expiry was the handshake expiry.
       if (payload.expiresAt > request.expiresAt) return false;
     } else return false;
+    if (payload.agentDescriptor !== undefined) {
+      const agent = await verifyConsentAgent(consent, request, {
+        expectedOrigin,
+        expectedWallet,
+        now,
+      });
+      if (!agent.ok) return false;
+    }
     if (
       !Array.isArray(payload.capabilities) ||
       payload.capabilities.some(
@@ -402,6 +436,49 @@ export async function verifyPermissionConsent(
   } catch {
     return false;
   }
+}
+
+/**
+ * Verify the agent descriptor attached to a consent, if any. Pure: it does not
+ * consume the nonce guard. Returns `{ ok: true, participant: null }` when the
+ * consent carries none. `participant.claims` are the agent's own claims, not
+ * attestations; only `identity.id` is verified.
+ */
+export async function verifyConsentAgent(
+  consent,
+  request,
+  { expectedOrigin, expectedWallet, now = Date.now() } = {},
+) {
+  const payload = consent?.body?.payload;
+  const descriptor = payload?.agentDescriptor;
+  if (descriptor === undefined) return { ok: true, participant: null };
+  if (payload.version !== CONSENT_VERSION)
+    return { ok: false, reason: "descriptor-not-allowed" };
+  const verified = await verifyAgentDescriptor(descriptor, {
+    expectedOrigin,
+    expectedRoom: request?.room ?? "default",
+    expectedNonce: request?.nonce,
+    now,
+  });
+  if (!verified.ok) return verified;
+  if (
+    verified.walletId !== expectedWallet ||
+    verified.walletId !== consent.body.issuer ||
+    verified.sessionId !== request.nonce ||
+    !descriptor.capabilities.every((c) => payload.capabilities.includes(c))
+  )
+    return { ok: false, reason: "descriptor-mismatch" };
+  return {
+    ok: true,
+    participant: Object.freeze({
+      identity: Object.freeze({ id: verified.walletId }),
+      instanceId: verified.instanceId,
+      sessionId: verified.sessionId,
+      // Self-declared by the agent. Not attested; never use for authorization.
+      claims: verified.claims,
+      claimsAttested: false,
+    }),
+  };
 }
 
 /**
