@@ -1,6 +1,10 @@
 {
   "name": "@enzovezzaro/ai-auth-wallet",
-  "version": "0.2.0",
+  "version": "0.3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EnzoVezzaro/ai-auth.git"
+  },
   "description": "Browser wallet identity, signed capabilities, and peer connections for AI agents",
   "type": "module",
   "main": "./packages/p2p/index.js",

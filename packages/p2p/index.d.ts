@@ -152,6 +152,8 @@ export class P2PRoom {
       capabilities?: string[] | null;
     },
   );
+  readonly wallet: WalletIdentity;
+  readonly session: string;
   readonly peers: Map<
     string,
     {
@@ -220,17 +222,89 @@ export interface AIAuthPageConnection {
     room?: string;
   }>;
   readonly capabilities: readonly string[];
+  readonly transfers: {
+    sendText(text: string): Promise<void>;
+    sendElement(metadata: Record<string, unknown>): Promise<void>;
+    sendAttachment(
+      blob: Blob,
+      options: { kind: "screenshot" | "recording"; name: string },
+    ): Promise<void>;
+    subscribe(
+      listener: (event: {
+        type: "text" | "element" | "attachment";
+        envelope: SignedEnvelope;
+        text?: string;
+        metadata?: Record<string, unknown>;
+        blob?: Blob;
+        kind?: string;
+        name?: string;
+        mime?: string;
+        size?: number;
+      }) => void,
+    ): () => void;
+    close(): void;
+  };
   onEvent(listener: (event: SignedEnvelope) => void): () => void;
+  readonly walletSession: string | null;
+  onRoomReady(listener: (session: string) => void): () => void;
+  publishAgentEvent(
+    event:
+      | {
+          kind: "tool-catalog";
+          tools: Array<{
+            name: string;
+            description: string;
+            inputSchema: Record<string, unknown>;
+          }>;
+        }
+      | {
+          kind: "tool-response";
+          requestId: string;
+          toWallet: string;
+          toSession: string;
+          result?: unknown;
+          error?: string;
+        },
+  ): void;
   publishAction(action: {
     name: string;
-    state: "started" | "progress" | "completed" | "failed" | "needs-human";
+    state:
+      | "started"
+      | "progress"
+      | "completed"
+      | "failed"
+      | "cancelled"
+      | "needs-human";
     summary: string;
   }): void;
-  publishCursor(cursor: { x: number; y: number; visible?: boolean }): void;
-  close(): void;
+  publishCursor(cursor: {
+    x: number;
+    y: number;
+    visible?: boolean;
+    scroll?: number;
+  }): void;
+  readonly identity: { readonly id: string; readonly name: string | null };
+  onLifecycle(listener: (event: AIAuthLifecycleEvent) => void): () => void;
+  onDisconnect(listener: () => void): () => void;
+  close(reason?: "closed" | "expired"): void;
 }
 
-export function connectAIAuthPopup(options: {
+export interface AIAuthWalletIdentity {
+  readonly id: string;
+  readonly name: string | null;
+}
+
+export type AIAuthLifecycleEvent =
+  | {
+      type: "connected";
+      label: string;
+      identity: AIAuthWalletIdentity;
+      capabilities: readonly string[];
+      expiresAt: number;
+    }
+  | { type: "disconnected"; reason: "closed" | "expired" };
+
+export function connectAIAuthModal(options: {
   walletUrl: string;
   capabilities: string[];
   room?: string;
@@ -238,6 +312,9 @@ export function connectAIAuthPopup(options: {
   timeoutMs?: number;
   windowObject?: Window;
 }): Promise<AIAuthPageConnection>;
+
+/** @deprecated Use connectAIAuthModal. */
+export const connectAIAuthPopup: typeof connectAIAuthModal;
 
 export function mountAIAuthCollaboration(
   connection: AIAuthPageConnection,
@@ -252,15 +329,89 @@ export interface AIAuthPageAction {
   readOnly?: boolean;
   execute(
     input: unknown,
-    context: { signal?: AbortSignal },
+    context: {
+      signal?: AbortSignal;
+      requester?: { id: string };
+      requestId?: string;
+    },
   ): Promise<unknown> | unknown;
 }
 
-export function registerAIAuthPageActions(options: {
-  actions: AIAuthPageAction[];
-  connection: AIAuthPageConnection;
-  modelContext?: { registerTool?: Function };
+export interface AIAuthPageActionContext {
   signal?: AbortSignal;
+  requester?: { id: string };
+  requestId?: string;
+  sharedPublicly?: boolean;
+}
+
+export interface AIAuthWebMCPRegisteredTool {
+  name: string;
+  description: string;
+  inputSchema?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  origin?: string;
+  annotations?: Record<string, unknown>;
+  window?: Window;
+}
+
+export function registerAIAuthPageActions(options: {
+  actions?: AIAuthPageAction[];
+  connection: AIAuthPageConnection;
+  modelContext?: {
+    registerTool?: Function;
+    getTools?: (options?: {
+      fromOrigins?: string[];
+    }) => AIAuthWebMCPRegisteredTool[] | Promise<AIAuthWebMCPRegisteredTool[]>;
+    executeTool?: (
+      tool: AIAuthWebMCPRegisteredTool,
+      input?: unknown,
+      options?: { signal?: AbortSignal },
+    ) => Promise<unknown>;
+  };
+  signal?: AbortSignal;
+  authorize?: (
+    action: AIAuthPageAction,
+    input: unknown,
+    context: AIAuthPageActionContext,
+  ) => Promise<boolean | void> | boolean | void;
+  publishAction?: (event: {
+    name: string;
+    capability: string;
+    state: string;
+    summary: string;
+  }) => Promise<void> | void;
+}): Promise<{
+  webMcpAvailable: boolean;
+  tools: readonly string[];
+  actionsByName: ReadonlyMap<string, AIAuthPageAction>;
+  execute(
+    name: string,
+    input?: unknown,
+    context?: AIAuthPageActionContext,
+  ): Promise<unknown>;
+  close(): void;
+}>;
+
+export function mountAIAuthInPageAgent(options: {
+  actions?: AIAuthPageAction[];
+  connection: AIAuthPageConnection;
+  modelContext?: {
+    registerTool?: Function;
+    getTools?: (options?: {
+      fromOrigins?: string[];
+    }) => AIAuthWebMCPRegisteredTool[] | Promise<AIAuthWebMCPRegisteredTool[]>;
+    executeTool?: (
+      tool: AIAuthWebMCPRegisteredTool,
+      input?: unknown,
+      options?: { signal?: AbortSignal },
+    ) => Promise<unknown>;
+  };
+  signal?: AbortSignal;
+  authorize: (
+    action: AIAuthPageAction,
+    input: unknown,
+    context: AIAuthPageActionContext,
+  ) => Promise<boolean | void> | boolean | void;
   publishAction?: (event: {
     name: string;
     capability: string;
@@ -275,5 +426,51 @@ export function registerAIAuthPageActions(options: {
     input?: unknown,
     context?: { signal?: AbortSignal },
   ): Promise<unknown>;
+  stop(): void;
   close(): void;
 }>;
+
+export interface AIAuthAgentToolCatalog {
+  readonly wallet: string;
+  readonly session: string;
+  readonly requestNonce: string;
+  readonly expiresAt: number;
+  readonly tools: ReadonlyArray<{
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+    outputSchema?: Record<string, unknown>;
+  }>;
+}
+
+export function createAIAuthAgentClient(
+  room: Pick<P2PRoom, "send" | "subscribe" | "wallet" | "session">,
+  options?: { timeoutMs?: number },
+): {
+  readonly catalogs: readonly AIAuthAgentToolCatalog[];
+  onCatalog(listener: (catalog: AIAuthAgentToolCatalog) => void): () => void;
+  publishCursor(cursor: {
+    x: number;
+    y: number;
+    visible?: boolean;
+    scroll?: number;
+  }): Promise<SignedEnvelope>;
+  publishAction(action: {
+    name: string;
+    state:
+      | "started"
+      | "progress"
+      | "completed"
+      | "failed"
+      | "cancelled"
+      | "needs-human";
+    summary: string;
+  }): Promise<SignedEnvelope>;
+  callTool(
+    catalog: AIAuthAgentToolCatalog,
+    name: string,
+    input?: Record<string, unknown>,
+    options?: { signal?: AbortSignal },
+  ): Promise<unknown>;
+  close(): void;
+};

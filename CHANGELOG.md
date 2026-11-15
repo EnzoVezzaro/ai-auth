@@ -1,14 +1,14 @@
 # Changelog
 
-## Unreleased — AI Auth 2.0 migration
+## 0.3.0 - 2026-11-15
 
-- Move the product to a self-custodied wallet with Nostr discovery and direct WebRTC collaboration.
-- Add an embeddable browser popup bridge, capability-filtered action events, and optional WebMCP registration.
-- Bundle a static browser SDK and make the wallet work under a GitHub Pages project path.
-- Remove the Worker, hosted service SDK, Vercel configuration, and server-backed MCP flow. Rework MCP as a local wallet-approved adapter and retain the provider-neutral local runtime.
-- Verify scoped wallet consent, signed action and cursor delivery in a two-browser-context Chrome E2E at `/ai-auth/`.
-- Bind WebMCP registrations to the verified live connection and `tools.invoke` scope; expire them when that connection closes or expires.
-- Keep cross-network reachability and multi-agent scale explicitly unverified; no TURN relay is configured.
+- Connect the wallet from the target site using an in-page modal and expose connection, session, and disconnect lifecycle hooks.
+- Add the bottom-right collaboration action wheel for public room chat, element sharing, screenshots, and screen recordings.
+- Add a signed in-page agent bridge that discovers WebMCP tools, advertises a bounded public catalog, requests human approval, returns results, and propagates abort, timeout, and disconnect cancellation.
+- Bind remote tool cancellation to the requesting wallet identity and P2P session; reject unregistered wallets and wrong-session cancellation.
+- Keep site and agent presence, cursor, scroll, action, and transfer events on direct WebRTC; public Nostr relays provide discovery and signaling only. TURN remains disabled.
+- Clarify that tool catalogs, requests, results, and collaboration transfers are visible to peers in the site's public space; keep secrets and private page data out of that channel.
+- Continue static hosting and local MCP/runtime adapters without an AI Auth backend. The six-participant human scale test remains post-release validation.
 
 ## 0.2.0 - 2026-11-15
 

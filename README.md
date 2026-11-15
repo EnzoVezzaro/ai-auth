@@ -21,12 +21,13 @@ The browser bundle is generated at `dist-p2p/ai-auth.js`. In a site build, bundl
 
 ```js
 import {
-  connectAIAuthPopup,
+  connectAIAuthModal,
   mountAIAuthCollaboration,
-  registerAIAuthPageActions,
+  mountAIAuthInPageAgent,
 } from "@enzovezzaro/ai-auth-wallet";
 
-const connection = await connectAIAuthPopup({
+// Call from a user gesture. The wallet is shown in an in-page modal.
+const connection = await connectAIAuthModal({
   walletUrl: "https://wallet.example/wallet/",
   capabilities: ["presence.read", "tools.invoke"],
   room: "project-room",
@@ -34,7 +35,7 @@ const connection = await connectAIAuthPopup({
 
 const removeCursorOverlay = mountAIAuthCollaboration(connection);
 
-const pageActions = await registerAIAuthPageActions({
+const pageAgent = await mountAIAuthInPageAgent({
   connection,
   actions: [
     {
@@ -46,6 +47,13 @@ const pageActions = await registerAIAuthPageActions({
       execute: async () => ({ summary: "Site-specific result" }),
     },
   ],
+  // This callback must show a human approval UI for every requested action.
+  authorize: async (action, input, context) =>
+    showApprovalDialog({
+      action,
+      input,
+      sharedPublicly: context.sharedPublicly,
+    }),
   publishAction: (event) =>
     connection.publishAction({
       name: event.name,
@@ -60,18 +68,18 @@ connection.onEvent((event) => {
 });
 
 // When the page is done:
-pageActions.close();
+pageAgent.close();
 removeCursorOverlay();
 connection.close();
 ```
 
-The wallet opens from a user gesture, presents the site's requested capabilities, and signs only the selected subset. Use HTTPS outside local development. The popup and relying page must share a live `window.opener` relationship. See [the architecture](docs/ARCHITECTURE.md), [security boundaries](docs/SECURITY.md), [wire format](docs/WIRE_FORMAT.md), and [wallet recovery](docs/RECOVERY.md).
+The wallet modal opens from a user gesture, presents the site's requested capabilities, and signs only the selected subset. Use HTTPS outside local development. See [the architecture](docs/ARCHITECTURE.md), [security boundaries](docs/SECURITY.md), [wire format](docs/WIRE_FORMAT.md), and [wallet recovery](docs/RECOVERY.md).
 
 The default public space is keyed by the exact website origin and the `default` room name, so wallets connecting to the same site discover one another. A site can pass the same explicit `room` key to group agents into another space. This public space is a client-side coordination boundary, not an AI Auth-hosted hub or an authorization boundary; each site must enforce access to its own resources.
 
 ## Optional local integrations
 
-WebMCP is the primary in-page agent tool surface: the site registers its own actions, wallet-approved scopes limit which actions appear, and signed action lifecycle events enter the site's shared space. The SDK feature-detects WebMCP and retains a JavaScript API fallback. WebMCP handles tool invocation; direct WebRTC carries peer collaboration. `@enzovezzaro/ai-auth-mcp` and `@enzovezzaro/ai-auth-runtime` are optional local integrations and are not required for a website or hosted service.
+WebMCP is the primary in-page agent tool surface: the SDK discovers tools exposed by the connected page, advertises a bounded catalog to the shared public room, and accepts a call only after wallet scope checks and the page's explicit human approval. Signed requests, results, cursor, and action status are visible to connected peers; never send secrets or private page data through the shared room. The SDK feature-detects WebMCP and retains a JavaScript API fallback. WebMCP handles tool invocation; direct WebRTC carries peer collaboration. `@enzovezzaro/ai-auth-mcp` and `@enzovezzaro/ai-auth-runtime` are optional local integrations and are not required for a website or hosted service.
 
 ## Network limits
 

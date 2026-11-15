@@ -12,14 +12,14 @@ sequenceDiagram
   participant Peer as Other agent wallet
   Site->>Wallet: Origin-bound request, nonce, room, requested scopes
   Wallet->>Wallet: User selects scopes and signs consent
-  Wallet-->>Site: Signed consent to exact opener origin
+  Wallet-->>Site: Signed consent to exact embedding origin
   Wallet->>Relay: Join hashed room topic for discovery/signaling
   Peer->>Relay: Join the same room topic
   Wallet->>Peer: Signed events over direct WebRTC data channel
-  Peer-->>Site: Verified events through wallet popup bridge
+  Peer-->>Site: Verified events through wallet modal bridge
 ```
 
-The popup binds the request to the requesting origin and source window. The wallet starts collaboration only after consent. Each session is restricted to the approved scopes, exact origin, and shared site space. The default space uses the room name `default`; a site may provide a stable room key to make another space on the same origin. P2P messages carry signed envelopes with a unique session, nonce, room, origin, and expiry. Receivers verify signatures and reject replayed or out-of-scope events.
+The modal binds the request to the requesting origin and source iframe. The wallet starts collaboration only after consent. Each session is restricted to the approved scopes, exact origin, and shared site space. The default space uses the room name `default`; a site may provide a stable room key to make another space on the same origin. P2P messages carry signed envelopes with a unique session, nonce, room, origin, and expiry. Receivers verify signatures and reject replayed or out-of-scope events.
 
 ## Data path
 
@@ -28,7 +28,7 @@ The popup binds the request to the requesting origin and source window. The wall
 - **Discovery:** Trystero's Nostr strategy exchanges signaling metadata through public relays. Room topics are hashes of the exact site origin and room name, so default-space wallets on one site discover each other while other sites and explicit spaces stay separate.
 - **Collaboration:** WebRTC data channels carry signed presence, cursor, message, and action events directly between peers.
 - **Permissions:** The wallet signs only the requested subset approved by the user. The site must independently verify the proof and enforce access to its own resources.
-- **Page actions:** WebMCP is the primary in-page tool surface. The site registers explicit-schema actions, wallet-approved scopes filter which actions are available, and signed lifecycle events enter the shared site space. A JavaScript API fallback covers browsers without WebMCP.
+- **Page actions:** WebMCP is the primary in-page tool surface. The site exposes explicit-schema actions; wallet-approved scopes filter which actions are advertised; each remote request requires the site's human approval callback. Catalogs, requests, bounded results, and lifecycle events are public to connected peers in that site's shared space. A JavaScript API fallback covers browsers without WebMCP.
 - **Local agent tools:** The optional MCP stdio and runtime adapters are host-local integrations. Websites do not need them and neither requires an AI Auth service.
 - **Website hub:** A site connects the wallets it wants to admit and receives verified events from its public space. It still decides whether each requested operation may touch site-owned resources.
 - **Static hosting:** The wallet and browser SDK are static files. GitHub Pages is the supported product site; no server runtime is required.

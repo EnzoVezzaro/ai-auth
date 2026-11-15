@@ -456,5 +456,19 @@ export {
   NostrWebRTC,
   createSharedRoomTopic,
 } from "./p2p.js";
-export { connectAIAuthPopup, mountAIAuthCollaboration } from "./embed.js";
-export { registerAIAuthPageActions } from "./webmcp.js";
+export {
+  connectAIAuthModal,
+  connectAIAuthPopup,
+  mountAIAuthCollaboration,
+} from "./embed.js";
+export {
+  registerAIAuthPageActions,
+  mountAIAuthInPageAgent,
+  createAIAuthAgentClient,
+} from "./webmcp.js";
+
+export { mountCollaborationWheel } from "./collaboration-wheel.js";
+export {
+  CollaborationTransfers,
+  COLLABORATION_LIMITS,
+} from "./collaboration.js";

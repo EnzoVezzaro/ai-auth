@@ -24,6 +24,9 @@ const EVENT_CAPABILITY = new Map([
   ["peer/goodbye", "presence.read"],
   ["presence/cursor", "presence.read"],
   ["message/text", "messages.send"],
+  ["collab/text", "messages.send"],
+  ["collab/element", "content.share"],
+  ["collab/attachment", "content.share"],
   ["agent/action", "tools.invoke"],
   ["agent/task", "tasks.delegate"],
 ]);
@@ -69,12 +72,20 @@ export class P2PRoom {
     this.localInboundSource = {};
     this.listeners = new Set();
     this.channels = new Set();
+    this.directPeerCount = 0;
     this.closed = false;
   }
 
   subscribe(listener) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  hasDirectPeer() {
+    return (
+      this.directPeerCount > 0 ||
+      [...this.channels].some((channel) => channel.readyState === "open")
+    );
   }
 
   notify(message) {
@@ -97,6 +108,7 @@ export class P2PRoom {
     };
     if (!this.capabilities || this.capabilities.has("presence.read")) {
       await this.send("peer/hello", { label: this.wallet.name });
+      if (this.closed) return this;
       this.timer = setInterval(() => {
         void this.send("peer/heartbeat", { label: this.wallet.name });
         this.expire();
@@ -452,6 +464,7 @@ export class NostrWebRTC {
         : import("@trystero-p2p/nostr"),
       createSharedRoomTopic(this.origin, this.roomName),
     ]);
+    if (this.closed) throw new Error("This collaboration room is closed");
     const joinRoom = this.joinRoomOverride ?? trystero.joinRoom;
     this.transport = joinRoom(
       {
@@ -510,6 +523,7 @@ export class NostrWebRTC {
     this.stopPeerJoin = this.transport.onPeerJoin(
       ({ peerId }) => {
         this.directPeers.add(peerId);
+        this.coreRoom.directPeerCount = this.directPeers.size;
         this.onStatus("Connected to agent peers");
         void this.flushOutbox();
         if (
@@ -526,10 +540,12 @@ export class NostrWebRTC {
     );
     this.stopPeerLeave = this.transport.onPeerLeave(({ peerId }) => {
       this.directPeers.delete(peerId);
+      this.coreRoom.directPeerCount = this.directPeers.size;
       if (this.transport && Object.keys(this.transport.getPeers()).length === 0)
         this.onStatus("Waiting for agents on this page");
     });
     await this.coreRoom.start();
+    if (this.closed) throw new Error("This collaboration room is closed");
     return this;
   }
 
@@ -547,6 +563,12 @@ export class NostrWebRTC {
       return;
     }
     if (this.directPeers.size === 0) {
+      if (envelope?.body?.type === "collab/attachment") {
+        this.onStatus(
+          "Attachment transfer stopped: no direct peer is connected",
+        );
+        return;
+      }
       this.outbox = this.outbox.filter(
         ({ expiresAt: expiry }) => expiry > Date.now(),
       );
@@ -573,6 +595,10 @@ export class NostrWebRTC {
         }),
       )
       .catch(() => {
+        if (envelope?.body?.type === "collab/attachment") {
+          this.onStatus("An attachment chunk could not be sent");
+          return;
+        }
         this.outbox.unshift({ envelope, expiresAt });
         this.onStatus(
           "A peer message could not be sent; it is queued for retry",
@@ -619,6 +645,7 @@ export class NostrWebRTC {
     this.stopTransportError?.();
     this.peerSources.clear();
     this.directPeers.clear();
+    this.coreRoom.directPeerCount = 0;
     this.outbox.length = 0;
     await this.transport?.leave();
     this.onStatus("Collaboration is off");

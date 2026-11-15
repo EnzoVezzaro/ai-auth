@@ -8,6 +8,76 @@ function actionCapability(type) {
   throw new TypeError("Page tools require the tools.invoke capability");
 }
 
+const MAX_REMOTE_TOOL_COUNT = 32;
+const MAX_TOOL_JSON_BYTES = 8_192;
+const TOOL_EVENT_KINDS = new Set([
+  "tool-catalog",
+  "tool-request",
+  "tool-cancel",
+  "tool-response",
+]);
+
+function boundedJson(value, maxBytes = MAX_TOOL_JSON_BYTES) {
+  let serialized;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    throw new TypeError("Tool data must be JSON serializable");
+  }
+  if (
+    typeof serialized !== "string" ||
+    new TextEncoder().encode(serialized).byteLength > maxBytes
+  )
+    throw new RangeError("Tool data exceeds the shared-room size limit");
+  return JSON.parse(serialized);
+}
+
+function toolDescriptor(action) {
+  const descriptor = {
+    name: action.name,
+    description: action.description.trim().slice(0, 240),
+    inputSchema: boundedJson(action.inputSchema, 4_096),
+  };
+  if (action.outputSchema)
+    descriptor.outputSchema = boundedJson(action.outputSchema, 4_096);
+  return descriptor;
+}
+
+function validToolRequest(payload, { walletId, requestNonce, walletSession }) {
+  return (
+    payload?.kind === "tool-request" &&
+    payload.targetWallet === walletId &&
+    payload.targetNonce === requestNonce &&
+    payload.targetSession === walletSession &&
+    typeof payload.requestId === "string" &&
+    /^[A-Za-z0-9_-]{8,80}$/u.test(payload.requestId) &&
+    typeof payload.name === "string" &&
+    /^[a-z][a-z0-9._-]{0,63}$/u.test(payload.name) &&
+    payload.input !== null &&
+    typeof payload.input === "object" &&
+    !Array.isArray(payload.input) &&
+    (() => {
+      try {
+        boundedJson(payload.input);
+        return true;
+      } catch {
+        return false;
+      }
+    })()
+  );
+}
+
+function validToolCancel(payload, { walletId, requestNonce, walletSession }) {
+  return (
+    payload?.kind === "tool-cancel" &&
+    payload.targetWallet === walletId &&
+    payload.targetNonce === requestNonce &&
+    payload.targetSession === walletSession &&
+    typeof payload.requestId === "string" &&
+    /^[A-Za-z0-9_-]{8,80}$/u.test(payload.requestId)
+  );
+}
+
 function validateAction(action) {
   if (
     !action ||
@@ -28,24 +98,74 @@ function validateAction(action) {
 }
 
 export async function registerAIAuthPageActions({
-  actions,
+  actions = [],
   connection,
   modelContext = globalThis.document?.modelContext,
   signal,
+  authorize,
   publishAction = async () => {},
 } = {}) {
   if (!Array.isArray(actions))
     throw new TypeError("Page actions must be an array");
+  if (authorize !== undefined && typeof authorize !== "function")
+    throw new TypeError(
+      "The human authorization gate must be an async decision function",
+    );
   const verifiedConnection = readVerifiedPageConnection(connection);
   if (!verifiedConnection)
     throw new TypeError(
       "A verified, active AI Auth wallet connection is required",
     );
   const approved = new Set(verifiedConnection.capabilities);
-  const allowedActions = actions.filter((action) => {
+  const explicitActions = actions.filter((action) => {
     validateAction(action);
     return approved.has(action.requiredCapability);
   });
+  const explicitNames = new Set(explicitActions.map(({ name }) => name));
+  let discoveredTools = [];
+  if (typeof modelContext?.getTools === "function") {
+    try {
+      const available = await modelContext.getTools();
+      if (Array.isArray(available))
+        discoveredTools = available
+          .filter(
+            (tool) =>
+              !explicitNames.has(tool?.name) &&
+              typeof modelContext.executeTool === "function" &&
+              typeof tool?.name === "string" &&
+              typeof tool?.description === "string" &&
+              tool?.inputSchema?.type === "object" &&
+              tool?.inputSchema?.properties &&
+              typeof tool.inputSchema.properties === "object",
+          )
+          .slice(0, MAX_REMOTE_TOOL_COUNT)
+          .map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.inputSchema,
+            outputSchema: tool.outputSchema,
+            requiredCapability: "tools.invoke",
+            readOnly: tool.annotations?.readOnlyHint === true,
+            execute: async (input, context) => {
+              const result = await modelContext.executeTool(tool, input, {
+                signal: context.signal,
+              });
+              if (typeof result !== "string") return result;
+              try {
+                return JSON.parse(result);
+              } catch {
+                return result;
+              }
+            },
+            discoveredWebMCP: true,
+          }));
+    } catch {
+      discoveredTools = [];
+    }
+  }
+  const allowedActions = [...explicitActions, ...discoveredTools]
+    .filter((action) => approved.has(action.requiredCapability))
+    .slice(0, MAX_REMOTE_TOOL_COUNT);
   const handlers = new Map(
     allowedActions.map((action) => [action.name, action]),
   );
@@ -71,7 +191,11 @@ export async function registerAIAuthPageActions({
     controller.abort();
   };
 
-  async function execute(name, input, { signal: executionSignal } = {}) {
+  async function execute(
+    name,
+    input,
+    { signal: executionSignal, requester, requestId } = {},
+  ) {
     const action = handlers.get(name);
     const activeConnection = readVerifiedPageConnection(connection);
     if (
@@ -81,6 +205,74 @@ export async function registerAIAuthPageActions({
       !activeConnection?.capabilities.includes(action.requiredCapability)
     )
       return { error: "This action is not approved for this page" };
+    // In-flight executions are tied to this controller so a page close,
+    // capability expiry, or caller abort also stops the running action.
+    const executionController = new AbortController();
+    const abortFollowers = [];
+    const follow = (source) => {
+      if (!source) return;
+      const abort = () => executionController.abort(source.reason);
+      if (source.aborted) abort();
+      else {
+        source.addEventListener("abort", abort, { once: true });
+        abortFollowers.push([source, abort]);
+      }
+    };
+    follow(executionSignal);
+    follow(registrationSignal);
+    const executionContext = {
+      signal: executionController.signal,
+      requester,
+      requestId,
+      sharedPublicly: Boolean(requester),
+    };
+    // Actions start only after an explicit human decision. The site supplies
+    // this gate; without a positive decision nothing is announced or run.
+    if (authorize) {
+      let approved = false;
+      let removeAbortListener = () => {};
+      try {
+        const approval = Promise.resolve().then(() =>
+          authorize(action, input, executionContext),
+        );
+        const aborted = new Promise((_, reject) => {
+          const onAbort = () =>
+            reject(
+              new DOMException("The site action was stopped", "AbortError"),
+            );
+          if (executionController.signal.aborted) onAbort();
+          else {
+            executionController.signal.addEventListener("abort", onAbort, {
+              once: true,
+            });
+            removeAbortListener = () =>
+              executionController.signal.removeEventListener("abort", onAbort);
+          }
+        });
+        approved = Boolean(await Promise.race([approval, aborted]));
+      } catch {
+        approved = false;
+      } finally {
+        removeAbortListener();
+      }
+      if (executionController.signal.aborted)
+        return { error: "This action was stopped before it began" };
+      if (!approved) {
+        try {
+          await publishAction({
+            name: action.name,
+            capability: action.requiredCapability,
+            state: "needs-human",
+            summary: `Human approval required for ${action.name}`,
+          });
+        } catch {
+          // A failed announcement must not leak authorization details.
+        }
+        return { error: "This action needs explicit human approval" };
+      }
+    }
+    if (executionController.signal.aborted || registrationSignal.aborted)
+      return { error: "This action was stopped before it began" };
     const event = {
       name: action.name,
       capability: action.requiredCapability,
@@ -93,12 +285,19 @@ export async function registerAIAuthPageActions({
       if (
         closed ||
         registrationSignal.aborted ||
+        executionController.signal.aborted ||
         !stillAuthorized?.capabilities.includes(action.requiredCapability)
       )
         return { error: "This action is not approved for this page" };
-      const result = await action.execute(input ?? {}, {
-        signal: executionSignal,
-      });
+      const result = await action.execute(input ?? {}, executionContext);
+      if (executionController.signal.aborted) {
+        await publishAction({
+          ...event,
+          state: "cancelled",
+          summary: `Stopped ${action.name}`,
+        });
+        return { error: "The site action was stopped" };
+      }
       await publishAction({
         ...event,
         state: "completed",
@@ -109,23 +308,32 @@ export async function registerAIAuthPageActions({
       try {
         await publishAction({
           ...event,
-          state: "failed",
-          summary: `Could not complete ${action.name}`,
+          state: executionController.signal.aborted ? "cancelled" : "failed",
+          summary: executionController.signal.aborted
+            ? `Stopped ${action.name}`
+            : `Could not complete ${action.name}`,
         });
       } catch {
         // Page event transport errors may contain secrets; keep them out of tool results.
       }
       return {
-        error: "This page action failed. Check the site for details.",
+        error: executionController.signal.aborted
+          ? "The site action was stopped"
+          : "This page action failed. Check the site for details.",
       };
+    } finally {
+      for (const [source, abort] of abortFollowers)
+        source.removeEventListener("abort", abort);
     }
   }
 
-  const webMcpAvailable = Boolean(modelContext?.registerTool);
-  if (webMcpAvailable) {
+  const webMcpAvailable = Boolean(
+    modelContext?.registerTool || discoveredTools.length,
+  );
+  if (modelContext?.registerTool) {
     try {
       await Promise.all(
-        allowedActions.map((action) =>
+        explicitActions.map((action) =>
           modelContext.registerTool(
             {
               name: action.name,
@@ -150,7 +358,407 @@ export async function registerAIAuthPageActions({
   return Object.freeze({
     webMcpAvailable,
     tools: Object.freeze(allowedActions.map(({ name }) => name)),
+    actionsByName: handlers,
     execute,
     close,
+  });
+}
+
+/**
+ * Mounts the AI Auth in-page agent bridge for a connected website tab. The
+ * agent stays alive inside the page, discovers the page's WebMCP tool surface
+ * (with the plain JavaScript execution fallback when WebMCP is unsupported),
+ * and can only run actions that carry both a wallet-granted capability and an
+ * explicit human authorization decision. Every run is announced to the shared
+ * session and can be stopped through the returned stop()/close() or an abort
+ * signal.
+ */
+export async function mountAIAuthInPageAgent({
+  actions,
+  connection,
+  modelContext = globalThis.document?.modelContext,
+  signal,
+  authorize,
+  publishAction,
+} = {}) {
+  if (typeof authorize !== "function")
+    throw new TypeError(
+      "An in-page agent needs an explicit human authorization gate",
+    );
+  const api = await registerAIAuthPageActions({
+    actions,
+    connection,
+    modelContext,
+    signal,
+    authorize,
+    publishAction:
+      publishAction ??
+      (async (event) => {
+        // Default announcements travel the signed path: the wallet signs the
+        // action event and shares it with every peer in the room.
+        connection.publishAction({
+          name: event.name,
+          state: event.state,
+          summary: event.summary,
+        });
+      }),
+  });
+  const processedRequestIds = new Map();
+  const runningRequests = new Map();
+  const stopEvents = connection.onEvent((envelope) => {
+    const payload = envelope?.body?.payload;
+    if (
+      envelope?.body?.type === "agent/action" &&
+      validToolCancel(payload, {
+        walletId: connection.identity.id,
+        requestNonce: connection.request.nonce,
+        walletSession: connection.walletSession,
+      })
+    ) {
+      const running = runningRequests.get(payload.requestId);
+      if (
+        running?.issuer === envelope.body.issuer &&
+        running.session === payload.session
+      )
+        running.controller.abort();
+      return;
+    }
+    if (
+      envelope?.body?.type !== "agent/action" ||
+      !validToolRequest(payload, {
+        walletId: connection.identity.id,
+        requestNonce: connection.request.nonce,
+        walletSession: connection.walletSession,
+      })
+    )
+      return;
+    if (!api.tools.includes(payload.name)) return;
+    for (const [requestId, expiresAt] of processedRequestIds)
+      if (expiresAt <= Date.now()) processedRequestIds.delete(requestId);
+    if (processedRequestIds.has(payload.requestId)) return;
+    if (processedRequestIds.size >= 256) return;
+    processedRequestIds.set(payload.requestId, payload.expiresAt);
+    const controller = new AbortController();
+    runningRequests.set(payload.requestId, {
+      controller,
+      issuer: envelope.body.issuer,
+      session: payload.session,
+    });
+    void api
+      .execute(payload.name, payload.input, {
+        signal: controller.signal,
+        requester: Object.freeze({ id: envelope.body.issuer }),
+        requestId: payload.requestId,
+      })
+      .then((result) =>
+        connection.publishAgentEvent({
+          kind: "tool-response",
+          requestId: payload.requestId,
+          toWallet: envelope.body.issuer,
+          toSession: envelope.body.payload.session,
+          result: boundedJson(result),
+        }),
+      )
+      .catch(() =>
+        connection.publishAgentEvent({
+          kind: "tool-response",
+          requestId: payload.requestId,
+          toWallet: envelope.body.issuer,
+          toSession: envelope.body.payload.session,
+          error: "The site tool could not complete",
+        }),
+      )
+      .finally(() => runningRequests.delete(payload.requestId));
+  });
+  const publishCatalog = () => {
+    if (
+      !connection.walletSession ||
+      !connection.capabilities.includes("tools.invoke")
+    )
+      return;
+    connection.publishAgentEvent({
+      kind: "tool-catalog",
+      tools: api.tools.map((name) =>
+        toolDescriptor(allowedActionByName(api, name)),
+      ),
+    });
+  };
+  const stopRoomReady = connection.onRoomReady(publishCatalog);
+  const stopPeerDiscovery = connection.onEvent((envelope) => {
+    if (envelope?.body?.type === "peer/hello") publishCatalog();
+  });
+  return Object.freeze({
+    webMcpAvailable: api.webMcpAvailable,
+    tools: api.tools,
+    execute: api.execute,
+    stop: () => {
+      stopEvents();
+      stopRoomReady();
+      stopPeerDiscovery();
+      api.close();
+    },
+    close: () => {
+      stopEvents();
+      stopRoomReady();
+      stopPeerDiscovery();
+      api.close();
+    },
+  });
+}
+
+function allowedActionByName(api, name) {
+  return api.actionsByName?.get(name);
+}
+
+/**
+ * Creates the agent-side half of the signed shared-room WebMCP protocol.
+ * Catalogs, requests, and results are broadcast to the public room; do not
+ * send private page data through this API.
+ */
+export function createAIAuthAgentClient(room, { timeoutMs = 30_000 } = {}) {
+  if (
+    !room ||
+    typeof room.send !== "function" ||
+    typeof room.subscribe !== "function" ||
+    typeof room.wallet?.id !== "string" ||
+    typeof room.session !== "string"
+  )
+    throw new TypeError("An authenticated AI Auth P2P room is required");
+  const catalogs = new Map();
+  const pending = new Map();
+  const listeners = new Set();
+  let closed = false;
+  const unsubscribe = room.subscribe(({ direction, envelope }) => {
+    if (closed || direction !== "in" || envelope?.body?.type !== "agent/action")
+      return;
+    const payload = envelope.body.payload;
+    if (payload?.kind === "tool-catalog") {
+      if (
+        payload.targetWallet !== envelope.body.issuer ||
+        payload.targetSession !== payload.session ||
+        typeof payload.targetNonce !== "string" ||
+        payload.targetNonce.length < 20 ||
+        !Number.isFinite(payload.expiresAt) ||
+        payload.expiresAt <= Date.now() ||
+        !Array.isArray(payload.tools) ||
+        payload.tools.length > MAX_REMOTE_TOOL_COUNT
+      )
+        return;
+      const key = [
+        envelope.body.issuer,
+        payload.session,
+        payload.targetNonce,
+      ].join(":");
+      for (const [catalogKey, existing] of catalogs)
+        if (existing.expiresAt <= Date.now()) catalogs.delete(catalogKey);
+      if (catalogs.size >= 128 && !catalogs.has(key))
+        catalogs.delete(catalogs.keys().next().value);
+      const catalog = Object.freeze({
+        wallet: envelope.body.issuer,
+        session: payload.session,
+        requestNonce: payload.targetNonce,
+        expiresAt: payload.expiresAt,
+        tools: Object.freeze(
+          payload.tools.map((tool) => boundedJson(tool, 4_096)),
+        ),
+      });
+      catalogs.set(key, catalog);
+      for (const listener of listeners) {
+        try {
+          listener(catalog);
+        } catch {}
+      }
+      return;
+    }
+    if (
+      payload?.kind !== "tool-response" ||
+      payload.toWallet !== room.wallet.id ||
+      payload.toSession !== room.session
+    )
+      return;
+    const request = pending.get(payload.requestId);
+    if (!request) return;
+    if (
+      envelope.body.issuer !== request.catalog.wallet ||
+      payload.targetWallet !== request.catalog.wallet ||
+      payload.targetSession !== request.catalog.session ||
+      payload.targetNonce !== request.catalog.requestNonce
+    )
+      return;
+    pending.delete(payload.requestId);
+    clearTimeout(request.timer);
+    request.signal?.removeEventListener("abort", request.abortHandler);
+    if (typeof payload.error === "string")
+      request.reject(new Error(String(payload.error).slice(0, 240)));
+    else {
+      try {
+        request.resolve(boundedJson(payload.result));
+      } catch {
+        request.reject(
+          new Error("The site tool returned an invalid or oversized result"),
+        );
+      }
+    }
+  });
+
+  return Object.freeze({
+    get catalogs() {
+      return Object.freeze([...catalogs.values()]);
+    },
+    onCatalog(listener) {
+      if (typeof listener !== "function")
+        throw new TypeError("A catalog listener is required");
+      listeners.add(listener);
+      for (const catalog of catalogs.values()) listener(catalog);
+      return () => listeners.delete(listener);
+    },
+    publishCursor({ x, y, visible = true, scroll } = {}) {
+      if (closed) throw new Error("The AI Auth agent client is closed");
+      if (
+        !Number.isFinite(x) ||
+        !Number.isFinite(y) ||
+        x < 0 ||
+        x > 1 ||
+        y < 0 ||
+        y > 1 ||
+        typeof visible !== "boolean" ||
+        (scroll !== undefined &&
+          (!Number.isFinite(scroll) || scroll < 0 || scroll > 1))
+      )
+        throw new TypeError(
+          "Agent cursor coordinates must be normalized to the page",
+        );
+      return room.send("presence/cursor", {
+        x,
+        y,
+        visible,
+        label: "Agent " + room.wallet.id.slice(6, 26),
+        ...(scroll === undefined ? {} : { scroll }),
+      });
+    },
+    publishAction({ name, state, summary } = {}) {
+      if (closed) throw new Error("The AI Auth agent client is closed");
+      if (
+        typeof name !== "string" ||
+        !/^[a-z][a-z0-9._-]{0,63}$/u.test(name) ||
+        ![
+          "started",
+          "progress",
+          "completed",
+          "failed",
+          "cancelled",
+          "needs-human",
+        ].includes(state) ||
+        typeof summary !== "string" ||
+        summary.length > 240
+      )
+        throw new TypeError(
+          "Agent activity needs a valid name, state, and short summary",
+        );
+      return room.send("agent/action", { name, state, summary });
+    },
+    async callTool(catalog, name, input = {}, { signal } = {}) {
+      if (closed) throw new Error("The AI Auth agent client is closed");
+      if (
+        !catalogs.has(
+          [catalog?.wallet, catalog?.session, catalog?.requestNonce].join(":"),
+        )
+      )
+        throw new TypeError("The target site tool catalog is not active");
+      if (!catalog.tools.some((tool) => tool.name === name))
+        throw new TypeError("The tool is not advertised by this site");
+      if (catalog.expiresAt <= Date.now())
+        throw new TypeError("The target site tool catalog has expired");
+      if (signal?.aborted)
+        throw new DOMException("The tool request was cancelled", "AbortError");
+      const safeInput = boundedJson(input);
+      const requestId = crypto.randomUUID().replaceAll("-", "");
+      const result = new Promise((resolve, reject) => {
+        const request = {
+          resolve,
+          reject,
+          catalog,
+          signal,
+          sent: false,
+          cancelled: false,
+          timer: null,
+          abortHandler: null,
+          cancelRemote: null,
+        };
+        const cleanup = () => {
+          clearTimeout(request.timer);
+          signal?.removeEventListener("abort", request.abortHandler);
+          pending.delete(requestId);
+        };
+        request.cancelRemote = async () => {
+          request.cancelled = true;
+          if (!request.sent || request.cancelSent) return;
+          request.cancelSent = true;
+          try {
+            await room.send("agent/action", {
+              kind: "tool-cancel",
+              requestId,
+              targetWallet: catalog.wallet,
+              targetSession: catalog.session,
+              targetNonce: catalog.requestNonce,
+            });
+          } catch {
+            // The cancellation has already rejected the local call. If the
+            // peer is unreachable, its page connection expiry still stops it.
+          }
+        };
+        request.timer = setTimeout(() => {
+          cleanup();
+          void request.cancelRemote();
+          reject(new Error("The site tool request timed out"));
+        }, timeoutMs);
+        request.abortHandler = () => {
+          if (!pending.has(requestId)) return;
+          request.cancelled = true;
+          cleanup();
+          void request.cancelRemote();
+          reject(
+            new DOMException("The tool request was cancelled", "AbortError"),
+          );
+        };
+        pending.set(requestId, request);
+        signal?.addEventListener("abort", request.abortHandler, { once: true });
+        void room
+          .send("agent/action", {
+            kind: "tool-request",
+            requestId,
+            name,
+            input: safeInput,
+            targetWallet: catalog.wallet,
+            targetSession: catalog.session,
+            targetNonce: catalog.requestNonce,
+          })
+          .then(() => {
+            request.sent = true;
+            if (request.cancelled) void request.cancelRemote();
+          })
+          .catch((error) => {
+            if (pending.has(requestId)) {
+              cleanup();
+              reject(error);
+            }
+          });
+      });
+      return result;
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      unsubscribe();
+      catalogs.clear();
+      listeners.clear();
+      for (const request of pending.values()) {
+        clearTimeout(request.timer);
+        request.signal?.removeEventListener("abort", request.abortHandler);
+        void request.cancelRemote();
+        request.reject(new Error("The AI Auth agent client is closed"));
+      }
+      pending.clear();
+    },
   });
 }

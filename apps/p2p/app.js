@@ -1,3 +1,4 @@
+import { CollaborationTransfers } from "../../packages/p2p/collaboration.js";
 import {
   appendActivity,
   approvePermissionRequest,
@@ -22,6 +23,8 @@ import {
 const $ = (selector) => document.querySelector(selector);
 const externalConnectMode =
   new URLSearchParams(location.search).get("connect") === "1";
+const externalHost =
+  window.opener || (window.parent !== window ? window.parent : null);
 const debugMode = new URLSearchParams(location.search).get("debug") === "1";
 const debug = (stage, details = "") => {
   if (debugMode) console.info("[AI Auth debug]", stage, details);
@@ -55,6 +58,11 @@ const capabilityOptions = [
     "messages.send",
     "Exchange messages",
     "Allow message exchange in this site's shared space.",
+  ],
+  [
+    "content.share",
+    "Share selected content",
+    "Allow manually selected elements, screenshots, and recordings to be shared with peers.",
   ],
   [
     "tools.invoke",
@@ -321,9 +329,22 @@ function downloadJson(filename, text) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+let roomGeneration = 0;
 async function startRoom() {
-  await state.rtc?.close();
-  await state.room?.close();
+  const generation = ++roomGeneration;
+  const oldRtc = state.rtc;
+  const oldRoom = state.room;
+  state.rtc = null;
+  state.room = null;
+  state.transfers?.close();
+  state.transfers = null;
+  await oldRtc?.close();
+  await oldRoom?.close();
+  if (
+    generation !== roomGeneration ||
+    (externalConnectMode && state.consent && !externalSessionActive())
+  )
+    return;
   if (state.privateMode) {
     state.rtc = null;
     state.room = null;
@@ -375,16 +396,46 @@ async function startRoom() {
     if (
       externalConnectMode &&
       direction === "in" &&
-      state.externalSource === window.opener &&
+      !type?.startsWith("collab/") &&
+      externalSessionActive() &&
+      state.externalSource === externalHost &&
       state.externalOrigin === state.externalRequest?.audience
     ) {
-      window.opener.postMessage(
-        { type: "ai-auth/collaboration-event", envelope },
-        state.externalOrigin,
-      );
-      debug("event-forwarded-to-site", type);
+      const payload = envelope.body.payload;
+      const targetedRequest =
+        type === "agent/action" &&
+        ["tool-request", "tool-cancel"].includes(payload?.kind);
+      const routeMatches =
+        payload?.targetWallet === state.wallet?.id &&
+        payload?.targetNonce === state.externalRequest?.nonce &&
+        payload?.targetSession === state.room?.session;
+      if (!targetedRequest || routeMatches) {
+        externalHost.postMessage(
+          { type: "ai-auth/collaboration-event", envelope },
+          state.externalOrigin,
+        );
+        debug(
+          targetedRequest
+            ? `${payload.kind}-forwarded-to-target-site`
+            : "event-forwarded-to-site",
+          type,
+        );
+      }
     }
-    if (direction === "in" && type) {
+    if (
+      direction === "in" &&
+      type &&
+      type !== "collab/attachment" &&
+      !(
+        type === "agent/action" &&
+        [
+          "tool-request",
+          "tool-cancel",
+          "tool-response",
+          "tool-catalog",
+        ].includes(envelope.body.payload?.kind)
+      )
+    ) {
       void appendActivity(
         state.wallet,
         `peer/received-${type.split("/").at(-1)}`,
@@ -403,6 +454,28 @@ async function startRoom() {
       void render();
     }
   });
+  if (external) {
+    // Collaboration transfers stay fail-closed to the issuer that was actually
+    // approved: the authorization gate keeps verifying that the active signed
+    // consent still belongs to the same verified wallet identity.
+    const approvedIssuer = state.consent.body.issuer;
+    state.transfers = new CollaborationTransfers(state.room, {
+      authorize: () =>
+        externalSessionActive() &&
+        typeof state.consent?.body?.issuer === "string" &&
+        state.consent.body.issuer === approvedIssuer,
+    });
+    state.transfers.subscribe((transfer) => {
+      if (
+        state.externalStatus === "sent" &&
+        state.consent?.body?.payload?.expiresAt > Date.now()
+      )
+        state.externalSource.postMessage(
+          { type: "ai-auth/transfer-event", transfer },
+          state.externalOrigin,
+        );
+    });
+  }
   if (externalConnectMode) {
     state.rtc = new NostrWebRTC(state.room, {
       origin: roomOrigin,
@@ -425,9 +498,26 @@ async function startRoom() {
       },
     });
   }
-  await state.rtc.start();
+  const rtc = state.rtc;
+  const room = state.room;
+  await rtc.start();
+  if (generation !== roomGeneration || (external && !externalSessionActive())) {
+    await rtc.close();
+    await room.close();
+    return;
+  }
   if (externalConnectMode) {
     state.externalRoomReady = true;
+    if (externalHost && externalSessionActive())
+      externalHost.postMessage(
+        {
+          type: "ai-auth/room-ready",
+          requestNonce: state.externalRequest.nonce,
+          walletId: state.wallet.id,
+          session: state.room.session,
+        },
+        state.externalOrigin,
+      );
     for (const message of state.externalPendingEvents.splice(0))
       await handleExternalSiteEvent(message);
   }
@@ -456,6 +546,13 @@ function bindView() {
       });
       if (!externalConnectMode) await startRoom();
       state.view = state.externalRequest ? "connect" : "wallet";
+      if (externalConnectMode && state.externalRequest) {
+        state.externalRequestReceived = false;
+        externalHost.postMessage(
+          { type: "ai-auth/connect-ready" },
+          state.externalOrigin,
+        );
+      }
       render();
       toast("Wallet created. Save the encrypted recovery file.");
     } catch (error) {
@@ -474,6 +571,13 @@ function bindView() {
       );
       if (!externalConnectMode) await startRoom();
       state.view = state.externalRequest ? "connect" : "wallet";
+      if (externalConnectMode && state.externalRequest) {
+        state.externalRequestReceived = false;
+        externalHost.postMessage(
+          { type: "ai-auth/connect-ready" },
+          state.externalOrigin,
+        );
+      }
       render();
       toast("Wallet restored in this browser.");
     } catch (error) {
@@ -558,9 +662,11 @@ function bindView() {
     event.preventDefault();
     state.error = "";
     try {
+      if (!state.wallet)
+        throw new Error("Create or restore a wallet before connecting");
       if (state.externalStatus || !state.externalRequest)
         throw new Error("This wallet request is no longer active");
-      if (!window.opener || state.externalSource !== window.opener)
+      if (!externalHost || state.externalSource !== externalHost)
         throw new Error("The requesting site tab is no longer available");
       const approved = [
         ...event.currentTarget.querySelectorAll(
@@ -576,19 +682,26 @@ function bindView() {
         state.externalRequest,
         approved,
       );
-      window.opener.postMessage(
+      externalHost.postMessage(
         {
           type: "ai-auth/connect-consent",
           requestNonce: state.externalRequest.nonce,
           consent,
+          // The identity id must match the signed consent issuer; the site
+          // verifies it. The name is display-only peer labeling.
+          wallet: { id: state.wallet.id, name: state.wallet.name },
         },
         state.externalOrigin,
       );
       state.consent = consent;
       state.externalStatus = "sent";
+      clearTimeout(state.externalExpiryTimer);
+      state.externalExpiryTimer = setTimeout(
+        expireExternalSession,
+        Math.max(0, consent.body.payload.expiresAt - Date.now()),
+      );
       state.privateMode = false;
       state.externalRoomReady = false;
-      clearTimeout(state.externalExpiryTimer);
       void startRoom().catch((error) => {
         state.externalRoomReady = false;
         toast(
@@ -606,8 +719,8 @@ function bindView() {
     }
   });
   $("#reject-external-request")?.addEventListener("click", () => {
-    if (window.opener && state.externalSource === window.opener)
-      window.opener.postMessage(
+    if (externalHost && state.externalSource === externalHost)
+      externalHost.postMessage(
         {
           type: "ai-auth/connect-rejected",
           requestNonce: state.externalRequest?.nonce,
@@ -713,12 +826,34 @@ function bindView() {
   });
 }
 
+function externalSessionActive() {
+  return (
+    state.externalStatus === "sent" &&
+    Number.isFinite(state.consent?.body?.payload?.expiresAt) &&
+    state.consent.body.payload.expiresAt > Date.now()
+  );
+}
+
+function expireExternalSession() {
+  if (state.externalStatus !== "sent") return;
+  roomGeneration++;
+  state.externalStatus = "expired";
+  state.externalRoomReady = false;
+  state.externalPendingEvents.length = 0;
+  state.transfers?.close();
+  state.transfers = null;
+  void state.rtc?.close();
+  void state.room?.close();
+  state.rtc = null;
+  state.room = null;
+}
+
 async function handleExternalSiteEvent(data) {
   debug("site-event-received", data?.type);
   if (
     !state.externalRequest ||
     !state.consent ||
-    state.externalStatus !== "sent" ||
+    !externalSessionActive() ||
     !state.room ||
     !data
   )
@@ -726,7 +861,7 @@ async function handleExternalSiteEvent(data) {
   const capabilities = state.consent.body.payload.capabilities;
   if (data.type === "ai-auth/site-cursor") {
     if (!capabilities.includes("presence.read")) return;
-    const { x, y, visible = true } = data.cursor ?? {};
+    const { x, y, visible = true, scroll } = data.cursor ?? {};
     if (
       !Number.isFinite(x) ||
       !Number.isFinite(y) ||
@@ -737,12 +872,15 @@ async function handleExternalSiteEvent(data) {
       typeof visible !== "boolean"
     )
       return;
-    await state.room.send("presence/cursor", {
-      x,
-      y,
-      visible,
-      label: state.wallet.name,
-    });
+    // Only normalized coordinates and an optional scroll fraction are signed
+    // and shared. Keystrokes, form values, passwords, and hidden page data are
+    // never part of this event path.
+    const payload = { x, y, visible, label: state.wallet.name };
+    if (scroll !== undefined) {
+      if (!Number.isFinite(scroll) || scroll < 0 || scroll > 1) return;
+      payload.scroll = scroll;
+    }
+    await state.room.send("presence/cursor", payload);
     debug("wallet-signed-site-cursor");
     return;
   }
@@ -753,9 +891,14 @@ async function handleExternalSiteEvent(data) {
       !action ||
       typeof action.name !== "string" ||
       !/^[a-z][a-z0-9._-]{0,63}$/u.test(action.name) ||
-      !["started", "progress", "completed", "failed", "needs-human"].includes(
-        action.state,
-      ) ||
+      ![
+        "started",
+        "progress",
+        "completed",
+        "failed",
+        "cancelled",
+        "needs-human",
+      ].includes(action.state) ||
       typeof action.summary !== "string" ||
       action.summary.length > 240
     )
@@ -767,6 +910,69 @@ async function handleExternalSiteEvent(data) {
       label: state.wallet.name,
     });
     debug("wallet-signed-site-action", action.name);
+    return;
+  }
+  if (data.type === "ai-auth/site-agent-event") {
+    if (!capabilities.includes("tools.invoke")) return;
+    const agentEvent = data.event;
+    let wire;
+    try {
+      wire = JSON.stringify(agentEvent);
+    } catch {
+      return;
+    }
+    if (!wire || new TextEncoder().encode(wire).byteLength > 8_192) return;
+    if (agentEvent?.kind === "tool-catalog") {
+      if (!Array.isArray(agentEvent.tools) || agentEvent.tools.length > 32)
+        return;
+      for (const tool of agentEvent.tools) {
+        if (
+          typeof tool?.name !== "string" ||
+          !/^[a-z][a-z0-9._-]{0,63}$/u.test(tool.name) ||
+          typeof tool.description !== "string" ||
+          tool.description.length > 240 ||
+          tool.inputSchema?.type !== "object" ||
+          !tool.inputSchema.properties ||
+          typeof tool.inputSchema.properties !== "object"
+        )
+          return;
+      }
+      await state.room.send("agent/action", {
+        kind: "tool-catalog",
+        tools: agentEvent.tools,
+        targetWallet: state.wallet.id,
+        targetNonce: state.externalRequest.nonce,
+        targetSession: state.room.session,
+      });
+      debug("wallet-signed-tool-catalog", agentEvent.tools.length);
+      return;
+    }
+    if (agentEvent?.kind === "tool-response") {
+      if (
+        typeof agentEvent.requestId !== "string" ||
+        !/^[A-Za-z0-9_-]{8,80}$/u.test(agentEvent.requestId) ||
+        typeof agentEvent.toWallet !== "string" ||
+        typeof agentEvent.toSession !== "string" ||
+        agentEvent.toSession.length > 100
+      )
+        return;
+      await state.room.send("agent/action", {
+        kind: "tool-response",
+        requestId: agentEvent.requestId,
+        toWallet: agentEvent.toWallet,
+        toSession: agentEvent.toSession,
+        ...(Object.hasOwn(agentEvent, "result")
+          ? { result: agentEvent.result }
+          : {}),
+        ...(typeof agentEvent.error === "string"
+          ? { error: agentEvent.error.slice(0, 240) }
+          : {}),
+        targetWallet: state.wallet.id,
+        targetNonce: state.externalRequest.nonce,
+        targetSession: state.room.session,
+      });
+      debug("wallet-signed-tool-response", agentEvent.requestId);
+    }
   }
 }
 
@@ -783,10 +989,51 @@ function rootViewButtons() {
 if (externalConnectMode) {
   window.addEventListener("message", async (event) => {
     if (
-      event.source === window.opener &&
+      event.data?.type === "ai-auth/transfer-request" &&
+      event.source === state.externalSource &&
       event.origin === state.externalOrigin &&
       event.origin === state.externalRequest?.audience &&
-      ["ai-auth/site-cursor", "ai-auth/site-action"].includes(event.data?.type)
+      state.externalStatus === "sent" &&
+      state.consent?.body?.payload?.expiresAt > Date.now()
+    ) {
+      const { id, method, args } = event.data;
+      if (
+        typeof id !== "string" ||
+        id.length > 100 ||
+        !Array.isArray(args) ||
+        !["sendText", "sendElement", "sendAttachment"].includes(method)
+      )
+        return;
+      try {
+        if (!state.externalRoomReady || !state.transfers)
+          throw new Error("Wallet peer connection is not ready");
+        await state.transfers[method](...args);
+        event.source.postMessage(
+          { type: "ai-auth/transfer-result", id },
+          event.origin,
+        );
+      } catch (error) {
+        event.source.postMessage(
+          {
+            type: "ai-auth/transfer-result",
+            id,
+            error: String(error.message || "Transfer failed"),
+          },
+          event.origin,
+        );
+      }
+      return;
+    }
+    if (
+      event.source === externalHost &&
+      event.origin === state.externalOrigin &&
+      event.origin === state.externalRequest?.audience &&
+      externalSessionActive() &&
+      [
+        "ai-auth/site-cursor",
+        "ai-auth/site-action",
+        "ai-auth/site-agent-event",
+      ].includes(event.data?.type)
     ) {
       debug("opener-event-matched", event.data?.type);
       if (!state.externalRoomReady) {
@@ -803,17 +1050,19 @@ if (externalConnectMode) {
     }
     if (
       event.data?.type !== "ai-auth/connect-request" ||
-      event.source !== window.opener ||
+      event.source !== externalHost ||
       state.externalRequestReceived
     )
       return;
-    if (!(await verifyPopupPermissionRequest(event, window.opener))) {
+    if (!(await verifyPopupPermissionRequest(event, externalHost))) {
       state.error =
         "The requesting site or its permission request could not be verified";
       render();
       return;
     }
     state.externalRequestReceived = true;
+    if (!state.wallet)
+      externalHost.postMessage({ type: "ai-auth/wallet-setup" }, event.origin);
     clearTimeout(state.externalExpiryTimer);
     state.request = event.data.request;
     state.externalRequest = event.data.request;
@@ -850,8 +1099,8 @@ try {
     if (!state.privateMode) await startRoom();
   }
   render();
-  if (externalConnectMode && window.opener)
-    window.opener.postMessage({ type: "ai-auth/connect-ready" }, "*");
+  if (externalConnectMode && externalHost)
+    externalHost.postMessage({ type: "ai-auth/connect-ready" }, "*");
 } catch (error) {
   state.error = error.message;
   render();

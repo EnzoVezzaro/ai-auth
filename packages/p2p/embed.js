@@ -17,12 +17,46 @@ const CAPABILITY_FOR_EVENT = {
   "message/text": "messages.send",
   "agent/action": "tools.invoke",
 };
+const TOOL_EVENT_KINDS = new Set([
+  "tool-catalog",
+  "tool-request",
+  "tool-cancel",
+  "tool-response",
+]);
 const debug = (stage, details = "") => {
   if (
     new URLSearchParams(globalThis.location?.search ?? "").get("debug") === "1"
   )
     console.info("[AI Auth debug]", stage, details);
 };
+
+function verifiedWalletIdentity(claim, consent) {
+  const issuer = consent?.body?.issuer;
+  // Fail closed: the exposed identity is always the issuer verified against
+  // the signed consent. A claim naming a different identity is ignored, and
+  // its display name is only honored when the claim matches that issuer.
+  const id = claim?.id === issuer ? claim.id : issuer;
+  const name =
+    claim?.id === issuer && typeof claim?.name === "string"
+      ? claim.name
+          .replaceAll(/[\u0000-\u001f\u007f]/gu, "")
+          .trim()
+          .slice(0, 60)
+      : "";
+  return Object.freeze({
+    id,
+    // The identity id is verified against the signed consent issuer. The
+    // display name is site-controlled wallet data and must never be trusted
+    // for authorization decisions.
+    name: name || null,
+  });
+}
+
+function shortIssuerLabel(id) {
+  return typeof id === "string" && id.length > 26
+    ? `Agent ${id.slice(6, 26)}…`
+    : "Connected agent";
+}
 
 function walletPageUrl(value) {
   const url = new URL(value);
@@ -40,7 +74,7 @@ function walletPageUrl(value) {
   return url;
 }
 
-export async function connectAIAuthPopup({
+export async function connectAIAuthModal({
   walletUrl,
   capabilities,
   room = "default",
@@ -48,8 +82,8 @@ export async function connectAIAuthPopup({
   timeoutMs = 120_000,
   windowObject = globalThis.window,
 } = {}) {
-  if (!windowObject || typeof windowObject.open !== "function")
-    throw new Error("AI Auth popup connections require a browser window");
+  if (!windowObject?.document?.body)
+    throw new Error("AI Auth modal connections require a browser document");
   if (typeof origin !== "string")
     throw new TypeError("A site origin is required");
   const target = new URL(origin);
@@ -59,18 +93,44 @@ export async function connectAIAuthPopup({
   )
     throw new TypeError("Site origin must be an exact HTTP origin");
   const walletPage = walletPageUrl(walletUrl);
-  const popup = windowObject.open(
-    "about:blank",
-    "ai-auth-wallet",
-    "popup,width=440,height=720",
-  );
-  if (!popup) throw new Error("Allow the AI Auth wallet popup to continue");
+  let request = await createPermissionRequest(origin, capabilities, {
+    room,
+    expiresInMs: 120_000,
+  });
+  const document = windowObject.document;
+  const dialog = document.createElement("dialog");
+  dialog.setAttribute("aria-label", "Connect AI Auth wallet");
+  dialog.style.cssText =
+    "padding:0;border:0;border-radius:12px;width:min(96vw,720px);height:min(90vh,800px);max-width:none;overflow:hidden";
+  const frame = document.createElement("iframe");
+  frame.title = "AI Auth wallet";
+  frame.style.cssText = "border:0;width:100%;height:100%";
+  frame.allow = "clipboard-write";
+  const cancelButton = document.createElement("button");
+  cancelButton.type = "button";
+  cancelButton.textContent = "Cancel";
+  cancelButton.setAttribute("aria-label", "Cancel wallet connection");
+  cancelButton.style.cssText = "position:absolute;right:12px;top:8px;z-index:1";
+  dialog.append(cancelButton, frame);
+  document.body.append(dialog);
+  const popup = frame.contentWindow;
+  if (!popup) {
+    dialog.remove();
+    throw new Error("Could not open the AI Auth wallet");
+  }
 
-  const request = await createPermissionRequest(origin, capabilities, { room });
   const consentGuard = new NonceGuard();
   const seen = new Map();
   const listeners = new Set();
+  const disconnectListeners = new Set();
+  const transferListeners = new Set();
+  const pendingTransfers = new Map();
+  let transferSequence = 0;
   let consent;
+  let walletIdentity = null;
+  let walletSession = null;
+  const roomReadyListeners = new Set();
+  let closedReason = "";
   let resolveReady;
   let rejectReady;
   let timeout;
@@ -85,25 +145,66 @@ export async function connectAIAuthPopup({
     clearTimeout(timeout);
     clearTimeout(expiryTimer);
     windowObject.removeEventListener("message", onMessage);
+    dialog.removeEventListener("cancel", onCancel);
+    dialog.remove();
+  };
+
+  const onCancel = (event) => {
+    event.preventDefault();
+    if (activeConnection) activeConnection.close();
+    else {
+      cleanup();
+      rejectReady(new Error("AI Auth wallet connection cancelled"));
+    }
   };
 
   const onMessage = async (event) => {
     if (event.source !== popup || event.origin !== walletPage.origin) return;
     if (consent?.body?.payload?.expiresAt <= Date.now()) {
-      activeConnection?.close();
+      activeConnection?.close("expired");
       return;
     }
     debug("wallet-message", event.data?.type);
+    if (event.data?.type === "ai-auth/wallet-setup") {
+      clearTimeout(timeout);
+      return;
+    }
     if (event.data?.type === "ai-auth/connect-ready") {
+      if (consent) return;
+      request = await createPermissionRequest(origin, capabilities, {
+        room,
+        expiresInMs: 120_000,
+      });
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        cleanup();
+        rejectReady(new Error("AI Auth wallet consent timed out"));
+      }, timeoutMs);
       popup.postMessage(
         { type: "ai-auth/connect-request", request },
         walletPage.origin,
       );
       return;
     }
+    if (
+      event.data?.type === "ai-auth/room-ready" &&
+      consent &&
+      event.data.requestNonce === request.nonce &&
+      event.data.walletId === walletIdentity?.id &&
+      typeof event.data.session === "string" &&
+      event.data.session.length >= 8
+    ) {
+      walletSession = event.data.session;
+      for (const listener of roomReadyListeners) {
+        try {
+          listener(walletSession);
+        } catch {}
+      }
+      roomReadyListeners.clear();
+      return;
+    }
     if (event.data?.type === "ai-auth/connect-rejected") {
       cleanup();
-      popup.close();
       rejectReady(new Error("The wallet declined this site request"));
       return;
     }
@@ -121,9 +222,39 @@ export async function connectAIAuthPopup({
         return;
       }
       consent = candidate;
+      walletIdentity = verifiedWalletIdentity(event.data.wallet, consent);
+      dialog.close();
+      dialog.style.display = "none";
       clearTimeout(timeout);
       timeout = undefined;
       resolveReady(createConnection());
+      return;
+    }
+    if (consent && event.data?.type === "ai-auth/transfer-result") {
+      const pending = pendingTransfers.get(event.data.id);
+      if (pending) {
+        pendingTransfers.delete(event.data.id);
+        clearTimeout(pending.timer);
+        if (event.data.error)
+          pending.reject(new Error(String(event.data.error)));
+        else pending.resolve();
+      }
+      return;
+    }
+    if (consent && event.data?.type === "ai-auth/transfer-event") {
+      const transfer = event.data.transfer;
+      const capability =
+        transfer?.type === "text" ? "messages.send" : "content.share";
+      if (
+        !["text", "element", "attachment"].includes(transfer?.type) ||
+        !consent.body.payload.capabilities.includes(capability)
+      )
+        return;
+      for (const listener of transferListeners) {
+        try {
+          listener(transfer);
+        } catch {}
+      }
       return;
     }
     if (event.data?.type !== "ai-auth/collaboration-event" || !consent) return;
@@ -157,7 +288,12 @@ export async function connectAIAuthPopup({
         payload.x > 1 ||
         payload.y < 0 ||
         payload.y > 1 ||
-        (payload.visible !== undefined && typeof payload.visible !== "boolean"))
+        (payload.visible !== undefined &&
+          typeof payload.visible !== "boolean") ||
+        (payload.scroll !== undefined &&
+          (!Number.isFinite(payload.scroll) ||
+            payload.scroll < 0 ||
+            payload.scroll > 1)))
     )
       return;
     if (
@@ -167,11 +303,43 @@ export async function connectAIAuthPopup({
       return;
     if (
       envelope.body.type === "agent/action" &&
+      ["tool-request", "tool-cancel"].includes(payload?.kind) &&
+      (payload.targetWallet !== walletIdentity?.id ||
+        payload.targetNonce !== request.nonce ||
+        payload.targetSession !== walletSession ||
+        typeof payload.requestId !== "string" ||
+        !/^[A-Za-z0-9_-]{8,80}$/u.test(payload.requestId) ||
+        (payload.kind === "tool-request" &&
+          (typeof payload.name !== "string" ||
+            !/^[a-z][a-z0-9._-]{0,63}$/u.test(payload.name) ||
+            payload.input === null ||
+            typeof payload.input !== "object" ||
+            Array.isArray(payload.input) ||
+            (() => {
+              try {
+                return (
+                  new TextEncoder().encode(JSON.stringify(payload.input))
+                    .byteLength > 8_192
+                );
+              } catch {
+                return true;
+              }
+            })())))
+    )
+      return;
+    if (
+      envelope.body.type === "agent/action" &&
+      !TOOL_EVENT_KINDS.has(payload?.kind) &&
       (typeof payload.name !== "string" ||
         !/^[a-z][a-z0-9._-]{0,63}$/u.test(payload.name) ||
-        !["started", "progress", "completed", "failed", "needs-human"].includes(
-          payload.state,
-        ) ||
+        ![
+          "started",
+          "progress",
+          "completed",
+          "failed",
+          "cancelled",
+          "needs-human",
+        ].includes(payload.state) ||
         typeof payload.summary !== "string" ||
         payload.summary.length > 240)
     )
@@ -197,10 +365,90 @@ export async function connectAIAuthPopup({
 
   function createConnection() {
     let closed = false;
+    const lifecycleListeners = new Set();
+    const connectedEvent = () => ({
+      type: "connected",
+      label: walletIdentity?.name ?? shortIssuerLabel(walletIdentity?.id),
+      identity: walletIdentity,
+      capabilities: Object.freeze([...consent.body.payload.capabilities]),
+      expiresAt: consent.body.payload.expiresAt,
+    });
+    const notifyLifecycle = (event) => {
+      for (const listener of lifecycleListeners) {
+        try {
+          listener(event);
+        } catch {}
+      }
+    };
+    function sendTransfer(method, args, capability) {
+      if (closed || consent.body.payload.expiresAt <= Date.now())
+        return Promise.reject(new Error("The AI Auth connection is closed"));
+      if (!consent.body.payload.capabilities.includes(capability))
+        return Promise.reject(
+          new Error("This wallet did not approve this capability"),
+        );
+      const id = String(++transferSequence);
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          pendingTransfers.delete(id);
+          reject(new Error("Wallet transfer timed out"));
+        }, 180_000);
+        pendingTransfers.set(id, { resolve, reject, timer });
+        popup.postMessage(
+          { type: "ai-auth/transfer-request", id, method, args },
+          walletPage.origin,
+        );
+      });
+    }
+    const transfers = Object.freeze({
+      sendText: (text) => sendTransfer("sendText", [text], "messages.send"),
+      sendElement: (metadata) =>
+        sendTransfer("sendElement", [metadata], "content.share"),
+      sendAttachment: (blob, options) =>
+        sendTransfer("sendAttachment", [blob, options], "content.share"),
+      subscribe(listener) {
+        if (typeof listener !== "function")
+          throw new TypeError("A transfer listener function is required");
+        if (closed) return () => {};
+        transferListeners.add(listener);
+        return () => transferListeners.delete(listener);
+      },
+      close() {
+        transferListeners.clear();
+      },
+    });
     const connection = Object.freeze({
+      transfers,
       request,
       consent,
+      identity: walletIdentity,
       capabilities: Object.freeze([...consent.body.payload.capabilities]),
+      onLifecycle(listener) {
+        if (typeof listener !== "function")
+          throw new TypeError("A lifecycle listener function is required");
+        if (closed) {
+          listener({
+            type: "disconnected",
+            reason: closedReason === "expired" ? "expired" : "closed",
+          });
+          return () => {};
+        }
+        lifecycleListeners.add(listener);
+        // A verified page connection only exists after signed consent, so the
+        // connected lifecycle event fires immediately on subscription.
+        listener(connectedEvent());
+        return () => lifecycleListeners.delete(listener);
+      },
+      onDisconnect(listener) {
+        if (typeof listener !== "function")
+          throw new TypeError("A disconnect listener function is required");
+        if (closed) {
+          listener();
+          return () => {};
+        }
+        disconnectListeners.add(listener);
+        return () => disconnectListeners.delete(listener);
+      },
       onEvent(listener) {
         if (typeof listener !== "function")
           throw new TypeError("An event listener function is required");
@@ -210,6 +458,38 @@ export async function connectAIAuthPopup({
         }
         listeners.add(listener);
         return () => listeners.delete(listener);
+      },
+      get walletSession() {
+        return walletSession;
+      },
+      onRoomReady(listener) {
+        if (typeof listener !== "function")
+          throw new TypeError("A room-ready listener function is required");
+        if (walletSession) {
+          listener(walletSession);
+          return () => {};
+        }
+        if (closed) return () => {};
+        roomReadyListeners.add(listener);
+        return () => roomReadyListeners.delete(listener);
+      },
+      publishAgentEvent(agentEvent) {
+        if (consent.body.payload.expiresAt <= Date.now())
+          connection.close("expired");
+        if (closed) throw new Error("The AI Auth connection is closed");
+        if (!consent.body.payload.capabilities.includes("tools.invoke"))
+          throw new Error("This wallet did not approve tool invocation");
+        if (
+          !agentEvent ||
+          !TOOL_EVENT_KINDS.has(agentEvent.kind) ||
+          new TextEncoder().encode(JSON.stringify(agentEvent)).byteLength >
+            8_192
+        )
+          throw new TypeError("The shared agent event is invalid or too large");
+        popup.postMessage(
+          { type: "ai-auth/site-agent-event", event: agentEvent },
+          walletPage.origin,
+        );
       },
       publishAction({ name, state, summary }) {
         if (consent.body.payload.expiresAt <= Date.now()) connection.close();
@@ -224,6 +504,7 @@ export async function connectAIAuthPopup({
             "progress",
             "completed",
             "failed",
+            "cancelled",
             "needs-human",
           ].includes(state) ||
           typeof summary !== "string" ||
@@ -237,7 +518,7 @@ export async function connectAIAuthPopup({
           walletPage.origin,
         );
       },
-      publishCursor({ x, y, visible = true }) {
+      publishCursor({ x, y, visible = true, scroll }) {
         if (consent.body.payload.expiresAt <= Date.now()) connection.close();
         if (closed) return;
         if (!consent.body.payload.capabilities.includes("presence.read"))
@@ -251,23 +532,51 @@ export async function connectAIAuthPopup({
           y > 1
         )
           return;
+        if (
+          scroll !== undefined &&
+          (!Number.isFinite(scroll) || scroll < 0 || scroll > 1)
+        )
+          return;
         popup.postMessage(
-          { type: "ai-auth/site-cursor", cursor: { x, y, visible } },
+          {
+            type: "ai-auth/site-cursor",
+            cursor: {
+              x,
+              y,
+              visible,
+              ...(scroll === undefined ? {} : { scroll }),
+            },
+          },
           walletPage.origin,
         );
       },
-      close() {
+      close(reason = "closed") {
         if (closed) return;
         closed = true;
+        closedReason = reason === "expired" ? "expired" : "closed";
         revokeVerifiedPageConnection(connection);
         cleanup();
-        popup.close();
         listeners.clear();
+        roomReadyListeners.clear();
+        transferListeners.clear();
+        for (const pending of pendingTransfers.values()) {
+          clearTimeout(pending.timer);
+          pending.reject(new Error("The AI Auth connection is closed"));
+        }
+        pendingTransfers.clear();
+        for (const listener of disconnectListeners) {
+          try {
+            listener();
+          } catch {}
+        }
+        disconnectListeners.clear();
+        notifyLifecycle({ type: "disconnected", reason: closedReason });
+        lifecycleListeners.clear();
       },
     });
     activeConnection = connection;
     expiryTimer = setTimeout(
-      () => connection.close(),
+      () => connection.close("expired"),
       Math.max(0, consent.body.payload.expiresAt - Date.now()),
     );
     markVerifiedPageConnection(connection, consent);
@@ -275,14 +584,19 @@ export async function connectAIAuthPopup({
   }
 
   windowObject.addEventListener("message", onMessage);
+  dialog.addEventListener("cancel", onCancel);
+  cancelButton.addEventListener("click", onCancel);
+  dialog.showModal();
   timeout = setTimeout(() => {
     cleanup();
-    popup.close();
     rejectReady(new Error("AI Auth wallet consent timed out"));
   }, timeoutMs);
-  popup.location.href = walletPage.href;
+  frame.src = walletPage.href;
   return ready;
 }
+
+// Kept as an API alias for existing integrations; this now opens a modal.
+export const connectAIAuthPopup = connectAIAuthModal;
 
 export function mountAIAuthCollaboration(
   connection,
@@ -351,35 +665,65 @@ export function mountAIAuthCollaboration(
   }
 
   let lastSentAt = 0;
-  const publish = (event) => {
+  let lastX = 0;
+  let lastY = 0;
+  // Scroll and pointer share one throttle so page activity produces at most
+  // one signed presence event per interval. Only normalized coordinates and a
+  // scroll fraction leave the page; never text, form values, or element data.
+  const scrollFraction = () => {
+    const documentElement = document.documentElement;
+    const max = Math.max(
+      1,
+      (documentElement?.scrollHeight ?? 0) -
+        (documentElement?.clientHeight ?? 0),
+    );
+    const position = globalThis.scrollY ?? documentElement?.scrollTop ?? 0;
+    return Math.max(0, Math.min(1, position / max));
+  };
+  const publishPresence = (x, y, visible, scroll) => {
     const now = Date.now();
     if (now - lastSentAt < 450) return;
     lastSentAt = now;
-    connection.publishCursor({
-      x: Math.max(
-        0,
-        Math.min(
-          1,
-          event.clientX / Math.max(1, document.documentElement.clientWidth),
-        ),
-      ),
-      y: Math.max(
-        0,
-        Math.min(
-          1,
-          event.clientY / Math.max(1, document.documentElement.clientHeight),
-        ),
-      ),
-    });
+    connection.publishCursor({ x, y, visible, scroll });
   };
-  const leave = () => connection.publishCursor({ x: 0, y: 0, visible: false });
+  const publish = (event) => {
+    lastX = Math.max(
+      0,
+      Math.min(
+        1,
+        event.clientX / Math.max(1, document.documentElement.clientWidth),
+      ),
+    );
+    lastY = Math.max(
+      0,
+      Math.min(
+        1,
+        event.clientY / Math.max(1, document.documentElement.clientHeight),
+      ),
+    );
+    publishPresence(lastX, lastY, true, scrollFraction());
+  };
+  const publishScroll = () =>
+    publishPresence(lastX, lastY, true, scrollFraction());
+  const leave = () =>
+    connection.publishCursor({
+      x: lastX,
+      y: lastY,
+      visible: false,
+      scroll: scrollFraction(),
+    });
   target.addEventListener("pointermove", publish, { passive: true });
   target.addEventListener("pointerleave", leave);
+  target.addEventListener("scroll", publishScroll, {
+    passive: true,
+    capture: true,
+  });
 
   return () => {
     unsubscribe();
     target.removeEventListener("pointermove", publish);
     target.removeEventListener("pointerleave", leave);
+    target.removeEventListener("scroll", publishScroll, { capture: true });
     host.remove();
   };
 }

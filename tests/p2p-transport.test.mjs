@@ -70,8 +70,26 @@ async function makeVerifiedConnection(capabilities = ["tools.invoke"]) {
       this.closed = true;
     },
   };
+  const dialog = {
+    style: {},
+    setAttribute() {},
+    append() {},
+    addEventListener() {},
+    removeEventListener() {},
+    showModal() {},
+    close() {},
+    remove() {
+      popup.closed = true;
+    },
+  };
+  const frame = { style: {}, contentWindow: popup };
+  const button = { style: {}, setAttribute() {}, addEventListener() {} };
   const windowObject = {
-    open: () => popup,
+    document: {
+      body: { append() {} },
+      createElement: (tag) =>
+        tag === "dialog" ? dialog : tag === "iframe" ? frame : button,
+    },
     addEventListener: (_type, listener) => listeners.add(listener),
     removeEventListener: (_type, listener) => listeners.delete(listener),
   };
@@ -480,8 +498,26 @@ test("popup connection timeout is cleared after signed consent", async () => {
       this.closed = true;
     },
   };
+  const dialog = {
+    style: {},
+    setAttribute() {},
+    append() {},
+    addEventListener() {},
+    removeEventListener() {},
+    showModal() {},
+    close() {},
+    remove() {
+      popup.closed = true;
+    },
+  };
+  const frame = { style: {}, contentWindow: popup };
+  const button = { style: {}, setAttribute() {}, addEventListener() {} };
   const windowObject = {
-    open: () => popup,
+    document: {
+      body: { append() {} },
+      createElement: (tag) =>
+        tag === "dialog" ? dialog : tag === "iframe" ? frame : button,
+    },
     addEventListener: (_type, listener) => listeners.add(listener),
     removeEventListener: (_type, listener) => listeners.delete(listener),
   };
@@ -517,7 +553,11 @@ test("popup connection timeout is cleared after signed consent", async () => {
     1,
     "collaboration events remain subscribed after approval",
   );
+  let disconnects = 0;
+  connection.onDisconnect(() => disconnects++);
   connection.close();
+  connection.close();
+  assert.equal(disconnects, 1);
   assert.equal(popup.closed, true);
   assert.equal(listeners.size, 0);
 });
@@ -536,8 +576,26 @@ test("verified popup connections close when their signed consent expires", async
       this.closed = true;
     },
   };
+  const dialog = {
+    style: {},
+    setAttribute() {},
+    append() {},
+    addEventListener() {},
+    removeEventListener() {},
+    showModal() {},
+    close() {},
+    remove() {
+      popup.closed = true;
+    },
+  };
+  const frame = { style: {}, contentWindow: popup };
+  const button = { style: {}, setAttribute() {}, addEventListener() {} };
   const windowObject = {
-    open: () => popup,
+    document: {
+      body: { append() {} },
+      createElement: (tag) =>
+        tag === "dialog" ? dialog : tag === "iframe" ? frame : button,
+    },
     addEventListener: (_type, listener) => listeners.add(listener),
     removeEventListener: (_type, listener) => listeners.delete(listener),
   };

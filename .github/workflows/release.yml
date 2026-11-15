@@ -27,6 +27,8 @@ jobs:
           node-version: 22
           cache: npm
           registry-url: https://registry.npmjs.org
+      - name: Install npm with GitHub trusted-publishing support
+        run: npm install --global npm@11.5.1
       - name: Require a main-branch commit
         run: |
           git fetch origin main
@@ -54,6 +56,14 @@ jobs:
       - name: Audit MCP production dependencies
         run: npm audit --omit=dev
         working-directory: packages/mcp
+      - name: Publish the wallet SDK to npm
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if npm view "@enzovezzaro/ai-auth-wallet@${version}" version >/dev/null 2>&1; then
+            echo "@enzovezzaro/ai-auth-wallet@${version} is already published"
+          else
+            npm publish --access public
+          fi
       - name: Package the static site for the GitHub release
         run: tar -czf "ai-auth-static-site-${GITHUB_REF_NAME}.tar.gz" -C dist-p2p .
       - name: Verify npm packages were published

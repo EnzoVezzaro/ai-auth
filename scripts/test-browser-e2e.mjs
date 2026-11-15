@@ -46,10 +46,47 @@ const siteServer = createHttpServer((request, response) => {
     response.end(sdkBundle);
     return;
   }
+  if (request.url === "/agent") {
+    response.writeHead(200, {
+      "Cache-Control": "no-store",
+      "Content-Security-Policy": `default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' https: wss:; style-src 'unsafe-inline';`,
+      "Content-Type": "text/html; charset=utf-8",
+      "X-Content-Type-Options": "nosniff",
+    });
+    response.end(`<!doctype html>
+      <html lang="en"><head><meta charset="utf-8"><title>AI Auth agent client</title></head>
+      <body>
+        <button id="connect-agent">Register and connect agent</button>
+        <output id="agent-status">Agent is not connected</output>
+        <script type="module">
+          import { createWallet, P2PRoom, NostrWebRTC, createAIAuthAgentClient } from "/ai-auth.js";
+          document.querySelector("#connect-agent").addEventListener("click", async () => {
+            try {
+              const wallet = await createWallet({ name: "Browser E2E agent", passphrase: "Temporary E2E agent passphrase" });
+              const room = new P2PRoom(wallet, "default", {
+                origin: location.origin,
+                capabilities: ["presence.read", "tools.invoke"],
+              });
+              const transport = new NostrWebRTC(room, { origin: location.origin, room: "default" });
+              const client = createAIAuthAgentClient(room);
+              window.__agentCatalogs = [];
+              client.onCatalog((catalog) => window.__agentCatalogs.push(catalog));
+              await transport.start();
+              window.__agent = { wallet, room, transport, client };
+              document.querySelector("#agent-status").textContent = "Agent registered and connected";
+              window.__agentConnected = true;
+            } catch (error) {
+              document.querySelector("#agent-status").textContent = error.message;
+              window.__agentError = error.message;
+            }
+          });
+        </script>
+      </body></html>`);
+    return;
+  }
   response.writeHead(200, {
     "Cache-Control": "no-store",
-    "Content-Security-Policy":
-      "default-src 'self'; base-uri 'none'; object-src 'none'; script-src 'self' 'unsafe-inline'",
+    "Content-Security-Policy": `default-src 'self'; base-uri 'none'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; frame-src http://127.0.0.1:${walletPort}`,
     "Content-Type": "text/html; charset=utf-8",
     "X-Content-Type-Options": "nosniff",
   });
@@ -59,22 +96,72 @@ const siteServer = createHttpServer((request, response) => {
       <button id="connect">Connect AI Auth wallet</button>
       <button id="invoke-tool" disabled>Invoke page tool</button>
       <button id="publish-cursor" disabled>Publish cursor</button>
+      <button id="approve-action" hidden>Approve agent action</button>
+      <section id="share-target">Public workspace section for collaboration</section>
       <output id="status">Waiting for approval</output>
       <ol id="events"></ol>
+      <script>
+        const fakeScreen = document.createElement("canvas");
+        fakeScreen.width = 640;
+        fakeScreen.height = 360;
+        const fakeContext = fakeScreen.getContext("2d");
+        fakeContext.fillStyle = "#17634d";
+        fakeContext.fillRect(0, 0, fakeScreen.width, fakeScreen.height);
+        let fakeFrame = false;
+        window.__fakeScreenTimer = setInterval(() => {
+          fakeFrame = !fakeFrame;
+          fakeContext.fillStyle = fakeFrame ? "#17634d" : "#1c6e54";
+          fakeContext.fillRect(0, 0, fakeScreen.width, fakeScreen.height);
+        }, 100);
+        fakeScreen.style.cssText = "position:fixed;left:-10000px;top:0";
+        document.body.append(fakeScreen);
+        window.__fakeScreenCaptureCalls = 0;
+        HTMLMediaElement.prototype.play = async () => {};
+        Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", {
+          configurable: true,
+          get: () => 640,
+        });
+        Object.defineProperty(HTMLVideoElement.prototype, "videoHeight", {
+          configurable: true,
+          get: () => 360,
+        });
+        const drawImage = CanvasRenderingContext2D.prototype.drawImage;
+        CanvasRenderingContext2D.prototype.drawImage = function (source, ...args) {
+          if (source instanceof HTMLVideoElement) {
+            this.fillStyle = "#17634d";
+            this.fillRect(0, 0, this.canvas.width, this.canvas.height);
+            return;
+          }
+          return drawImage.call(this, source, ...args);
+        };
+        Object.defineProperty(navigator.mediaDevices, "getDisplayMedia", {
+          configurable: true,
+          value: async () => {
+            window.__fakeScreenCaptureCalls++;
+            return fakeScreen.captureStream(2);
+          },
+        });
+      </script>
       <script type="module">
         import {
-          connectAIAuthPopup,
-          registerAIAuthPageActions,
+          connectAIAuthModal,
+          mountCollaborationWheel,
+          mountAIAuthInPageAgent,
         } from "/ai-auth.js";
         const walletUrl = ${JSON.stringify(walletUrl)};
         document.querySelector("#connect").addEventListener("click", async () => {
           try {
-            const connection = await connectAIAuthPopup({
+            const connection = await connectAIAuthModal({
               walletUrl,
-              capabilities: ["presence.read", "tools.invoke"],
+              capabilities: ["presence.read", "tools.invoke", "messages.send", "content.share"],
             });
             window.__connection = connection;
-            window.__pageActions = await registerAIAuthPageActions({
+            window.__removeWheel = mountCollaborationWheel(connection.transfers, { capabilities: connection.capabilities });
+            window.__transfers = [];
+            connection.transfers.subscribe((event) => window.__transfers.push(event));
+            connection.onDisconnect(() => { window.__connected = false; window.__disconnected = true; window.__removeWheel(); });
+            window.__pendingActionApproval = null;
+            window.__pageActions = await mountAIAuthInPageAgent({
               connection,
               actions: [{
                 name: "page.review",
@@ -85,8 +172,18 @@ const siteServer = createHttpServer((request, response) => {
                   required: ["text"],
                 },
                 requiredCapability: "tools.invoke",
-                execute: async ({ text }) => ({ reviewed: text }),
+                execute: async ({ text }, { signal }) => {
+                  if (text.includes("wait for remote cancellation"))
+                    await new Promise((resolve) =>
+                      signal.addEventListener("abort", resolve, { once: true }),
+                    );
+                  return { reviewed: text };
+                },
               }],
+              authorize: (action, input, context) => new Promise((resolve) => {
+                window.__pendingActionApproval = { action, input, context, resolve };
+                document.querySelector("#approve-action").hidden = false;
+              }),
               publishAction: (event) => connection.publishAction({
                 name: event.name,
                 state: event.state,
@@ -137,6 +234,13 @@ const siteServer = createHttpServer((request, response) => {
         document.querySelector("#publish-cursor").addEventListener("click", () => {
           window.__connection.publishCursor({ x: 0.25, y: 0.75 });
         });
+        document.querySelector("#approve-action").addEventListener("click", () => {
+          const pending = window.__pendingActionApproval;
+          if (!pending) return;
+          window.__pendingActionApproval = null;
+          document.querySelector("#approve-action").hidden = true;
+          pending.resolve(true);
+        });
       </script>
     </body></html>`);
 });
@@ -144,7 +248,7 @@ await new Promise((resolve, reject) => {
   siteServer.once("error", reject);
   siteServer.listen(0, "127.0.0.1", resolve);
 });
-const integrationSiteUrl = `http://127.0.0.1:${siteServer.address().port}/?debug=1`;
+const integrationSiteUrl = `http://localhost:${siteServer.address().port}/?debug=1`;
 let browser;
 const contexts = [];
 
@@ -230,19 +334,21 @@ async function approveWallet(context, name, passphrase) {
       siteDiagnostics.push(message.text());
   });
   await site.goto(integrationSiteUrl);
-  const popupPromise = site.waitForEvent("popup");
   await site.locator("#connect").click();
-  const popup = await popupPromise;
   const popupErrors = [];
-  popup.on("pageerror", (error) => popupErrors.push(error.message));
-  popup.on("console", (message) => {
+  site.on("pageerror", (error) => popupErrors.push(error.message));
+  site.on("console", (message) => {
     if (
       message.type() === "error" ||
       message.text().includes("[AI Auth debug]")
     )
       popupErrors.push(message.text());
   });
-  await popup.waitForLoadState("domcontentloaded");
+  await site.locator('dialog iframe[title="AI Auth wallet"]').waitFor();
+  const popup = await (
+    await site.locator('dialog iframe[title="AI Auth wallet"]').elementHandle()
+  ).contentFrame();
+  assert.ok(popup, "wallet iframe exists");
   await popup.waitForFunction(
     () =>
       document
@@ -256,7 +362,8 @@ async function approveWallet(context, name, passphrase) {
     await popup.locator("#wallet-name").fill(name);
     await popup.locator("#wallet-passphrase").fill(passphrase);
     await popup.locator("#wallet-passphrase-confirm").fill(passphrase);
-    const download = popup.waitForEvent("download");
+    assert.notEqual(await site.evaluate(() => window.__connected), true);
+    const download = site.waitForEvent("download");
     await popup.locator('#create-wallet-form button[type="submit"]').click();
     await download;
   }
@@ -276,6 +383,13 @@ async function approveWallet(context, name, passphrase) {
   await popup
     .locator('input[name="external-capability"][value="tools.invoke"]')
     .check();
+  await popup
+    .locator('input[name="external-capability"][value="messages.send"]')
+    .check();
+  await popup
+    .locator('input[name="external-capability"][value="content.share"]')
+    .check();
+  assert.notEqual(await site.evaluate(() => window.__connected), true);
   await popup
     .locator('#external-permission-form button[type="submit"]')
     .click();
@@ -302,6 +416,9 @@ try {
 
   browser = await chromium.launch({
     headless: true,
+    args: process.env.AI_AUTH_BLOCK_THIRD_PARTY
+      ? ["--test-third-party-cookie-phaseout"]
+      : [],
     ...(process.env.AI_AUTH_CHROMIUM_PATH
       ? { executablePath: process.env.AI_AUTH_CHROMIUM_PATH }
       : {}),
@@ -331,12 +448,15 @@ try {
   );
 
   await siteA.locator("#invoke-tool").click();
+  await siteA.locator("#approve-action").waitFor({ state: "visible" });
+  await siteA.locator("#approve-action").click();
   try {
     await siteB.waitForFunction(
       () =>
         [...document.querySelectorAll("#events li")].some(
           (item) =>
             item.dataset.type === "agent/action" &&
+            JSON.parse(item.textContent).name === "page.review" &&
             JSON.parse(item.textContent).state === "completed",
         ),
       undefined,
@@ -348,20 +468,145 @@ try {
       { cause: error },
     );
   }
-  const action = await siteB
+  const completedPageAction = await siteB
     .locator('#events li[data-type="agent/action"]')
-    .last()
-    .innerText();
-  assert.match(action, /Completed page\.review/u);
+    .evaluateAll((items) =>
+      items
+        .map((item) => JSON.parse(item.textContent))
+        .findLast(
+          (event) =>
+            event.name === "page.review" && event.state === "completed",
+        ),
+    );
+  assert.equal(completedPageAction.summary, "Completed page.review");
   const actionStates = await siteB
     .locator('#events li[data-type="agent/action"]')
     .evaluateAll((items) =>
-      items.map((item) => JSON.parse(item.textContent).state),
+      items
+        .map((item) => JSON.parse(item.textContent))
+        .filter((event) => event.name === "page.review")
+        .map((event) => event.state),
     );
   assert.deepEqual(actionStates.slice(-2), ["started", "completed"]);
   assert.match(
     await siteA.evaluate(() => document.querySelector("#status").textContent),
     /Tool invoked via (webmcp|javascript-fallback)/u,
+  );
+
+  const agentPage = await contextA.newPage();
+  await agentPage.goto(`${integrationSiteUrl.replace("/?debug=1", "/agent")}`);
+  await agentPage.locator("#connect-agent").click();
+  await agentPage.waitForFunction(
+    () => window.__agentConnected === true,
+    undefined,
+    {
+      timeout: 30_000,
+    },
+  );
+  await agentPage.waitForFunction(
+    () => window.__agentCatalogs?.length > 0,
+    undefined,
+    {
+      timeout: 60_000,
+    },
+  );
+  const targetSiteWallet = await siteA.evaluate(
+    () => window.__connection.identity.id,
+  );
+  const agentCatalog = await agentPage.evaluate(
+    (walletId) =>
+      window.__agentCatalogs.find((catalog) => catalog.wallet === walletId),
+    targetSiteWallet,
+  );
+  assert.ok(agentCatalog, "the agent discovered site A's wallet catalog");
+  assert.ok(agentCatalog.tools.some((tool) => tool.name === "page.review"));
+  const agentCall = agentPage.evaluate(
+    (catalog) =>
+      window.__agent.client.callTool(catalog, "page.review", {
+        text: "Reviewed by a separately connected agent wallet",
+      }),
+    agentCatalog,
+  );
+  await siteA
+    .locator("#approve-action")
+    .waitFor({ state: "visible", timeout: 60_000 });
+  const agentLifecycleBeforeApproval = await siteA
+    .locator('#events li[data-type="agent/action"]')
+    .count();
+  await siteA.locator("#approve-action").click();
+  assert.deepEqual(await agentCall, {
+    reviewed: "Reviewed by a separately connected agent wallet",
+  });
+  await siteB.waitForFunction(
+    (previousCount) =>
+      [...document.querySelectorAll('#events li[data-type="agent/action"]')]
+        .slice(previousCount)
+        .some(
+          (item) =>
+            JSON.parse(item.textContent).summary === "Completed page.review",
+        ),
+    agentLifecycleBeforeApproval,
+    { timeout: 30_000 },
+  );
+  const startedActionsBeforeCancel = await siteB
+    .locator('#events li[data-type="agent/action"]')
+    .evaluateAll(
+      (items) =>
+        items.filter((item) => JSON.parse(item.textContent).state === "started")
+          .length,
+    );
+  await agentPage.evaluate((catalog) => {
+    const controller = new AbortController();
+    window.__agentCancelController = controller;
+    window.__agentCancelResult = window.__agent.client
+      .callTool(
+        catalog,
+        "page.review",
+        { text: "wait for remote cancellation" },
+        { signal: controller.signal },
+      )
+      .then(
+        () => ({ name: "unexpected-success" }),
+        (error) => ({ name: error.name, message: error.message }),
+      );
+  }, agentCatalog);
+  await siteA.locator("#approve-action").waitFor({
+    state: "visible",
+    timeout: 60_000,
+  });
+  await siteA.locator("#approve-action").click();
+  await siteB.waitForFunction(
+    (previousCount) =>
+      [
+        ...document.querySelectorAll('#events li[data-type="agent/action"]'),
+      ].filter((item) => JSON.parse(item.textContent).state === "started")
+        .length > previousCount,
+    startedActionsBeforeCancel,
+    { timeout: 30_000 },
+  );
+  await agentPage.evaluate(() => window.__agentCancelController.abort());
+  assert.equal(
+    (await agentPage.evaluate(() => window.__agentCancelResult)).name,
+    "AbortError",
+  );
+  await siteB.waitForFunction(
+    () =>
+      [
+        ...document.querySelectorAll('#events li[data-type="agent/action"]'),
+      ].some((item) => JSON.parse(item.textContent).state === "cancelled"),
+    undefined,
+    { timeout: 30_000 },
+  );
+  await agentPage.evaluate(() =>
+    window.__agent.client.publishCursor({ x: 0.61, y: 0.28, scroll: 0.4 }),
+  );
+  await siteB.waitForFunction(
+    () =>
+      [
+        ...document.querySelectorAll('#events li[data-type="presence/cursor"]'),
+      ].some((item) => JSON.parse(item.textContent).label.startsWith("Agent ")),
+    undefined,
+    { timeout: 30_000 },
   );
 
   await siteA.locator("#publish-cursor").click();
@@ -381,8 +626,266 @@ try {
     /0\.25.*0\.75/s,
   );
 
+  await siteA
+    .locator(
+      '[data-ai-auth-collaboration-wheel] button[aria-label="Open collaboration"]',
+    )
+    .click();
+  await siteA
+    .getByRole("textbox", { name: "Message" })
+    .fill("Wheel chat message");
+  await siteA.getByRole("button", { name: "Send", exact: true }).click();
+  await siteB.waitForFunction(
+    () =>
+      window.__transfers.some(
+        (event) => event.type === "text" && event.text === "Wheel chat message",
+      ),
+    undefined,
+    { timeout: 30000 },
+  );
+  assert.equal(
+    await siteB.evaluate(
+      () =>
+        window.__transfers.find((event) => event.type === "text").envelope.body
+          .type,
+    ),
+    "collab/text",
+  );
+  await siteA.getByRole("button", { name: "Share element" }).click();
+  await siteA.locator("#share-target").click();
+  await siteB.waitForFunction(
+    () =>
+      window.__transfers.some(
+        (event) =>
+          event.type === "element" &&
+          event.metadata?.text === "Public workspace section for collaboration",
+      ),
+    undefined,
+    { timeout: 30_000 },
+  );
+  await siteA.getByRole("button", { name: "Screenshot" }).click();
+  try {
+    await siteB.waitForFunction(
+      () =>
+        window.__transfers.some(
+          (event) =>
+            event.type === "attachment" &&
+            event.name === "screenshot.jpg" &&
+            event.kind === "screenshot",
+        ),
+      undefined,
+      { timeout: 30_000 },
+    );
+  } catch (error) {
+    const status = await siteA
+      .locator("[data-ai-auth-collaboration-wheel]")
+      .evaluate((host) => ({
+        status: host.shadowRoot.querySelector(".status").textContent,
+        captureCalls: host.ownerDocument.defaultView.__fakeScreenCaptureCalls,
+        screenshotDisabled: host.shadowRoot.querySelector(
+          '[data-action="screenshot"]',
+        ).disabled,
+      }));
+    throw new Error(
+      `Screenshot was not shared. Wheel diagnostics: ${JSON.stringify(status)}`,
+      {
+        cause: error,
+      },
+    );
+  }
+  await siteA.getByRole("button", { name: "Record screen" }).click();
+  await siteA.getByRole("button", { name: "Stop recording" }).waitFor({
+    timeout: 10_000,
+  });
+  await delay(1_000);
+  await siteA.getByRole("button", { name: "Stop recording" }).click();
+  try {
+    await siteB.waitForFunction(
+      () =>
+        window.__transfers.some(
+          (event) =>
+            event.type === "attachment" &&
+            event.name === "recording.webm" &&
+            event.kind === "recording",
+        ),
+      undefined,
+      { timeout: 30_000 },
+    );
+  } catch (error) {
+    const diagnostics = await siteA
+      .locator("[data-ai-auth-collaboration-wheel]")
+      .evaluate((host) => ({
+        status: host.shadowRoot.querySelector(".status").textContent,
+        button: host.shadowRoot.querySelector('[data-action="record"]')
+          .textContent,
+        captureCalls: host.ownerDocument.defaultView.__fakeScreenCaptureCalls,
+      }));
+    throw new Error(
+      `Recording was not shared. Wheel diagnostics: ${JSON.stringify(diagnostics)}`,
+      {
+        cause: error,
+      },
+    );
+  }
+  await siteA.evaluate(() =>
+    window.__connection.transfers.sendAttachment(
+      new Blob(["sensitive-image-payload"], { type: "image/png" }),
+      { kind: "screenshot", name: "test.png" },
+    ),
+  );
+  await siteB.waitForFunction(
+    () =>
+      window.__transfers.some(
+        (event) => event.type === "attachment" && event.name === "test.png",
+      ),
+    undefined,
+    { timeout: 30000 },
+  );
+  const persisted = await popupB.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("ai-auth-wallet-v2");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const records = await new Promise((resolve, reject) => {
+      const request = db
+        .transaction("activity")
+        .objectStore("activity")
+        .getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    db.close();
+    return JSON.stringify(records);
+  });
+  assert.doesNotMatch(
+    persisted,
+    /c2Vuc2l0aXZlLWltYWdlLXBheWxvYWQ=/u,
+    "attachment bytes never enter activity history",
+  );
+  await popupA.evaluate(() => {
+    window.__realNow = Date.now;
+    window.__realSign = crypto.subtle.sign.bind(crypto.subtle);
+    window.__signCount = 0;
+    crypto.subtle.sign = (...args) => {
+      window.__signCount++;
+      return window.__realSign(...args);
+    };
+    Date.now = () => window.__realNow() + 180000;
+  });
+  const before = await siteB
+    .locator('#events li[data-type="agent/action"]')
+    .count();
+  await siteA.evaluate(
+    (targetOrigin) =>
+      document.querySelector("dialog iframe").contentWindow.postMessage(
+        {
+          type: "ai-auth/site-action",
+          action: {
+            name: "expired.test",
+            state: "completed",
+            summary: "must not sign",
+          },
+        },
+        targetOrigin,
+      ),
+    new URL(walletUrl).origin,
+  );
+  await delay(1000);
+  assert.equal(
+    await siteB.locator('#events li[data-type="agent/action"]').count(),
+    before,
+    "expired wallet did not sign direct host messages",
+  );
+  assert.equal(
+    await popupA.evaluate(() => window.__signCount),
+    0,
+    "expired direct message did not trigger a signature",
+  );
+  await popupA.evaluate(() => {
+    Date.now = window.__realNow;
+    crypto.subtle.sign = window.__realSign;
+  });
+  await siteA.evaluate(() => window.__connection.close());
+  assert.equal(await siteA.evaluate(() => window.__disconnected), true);
+  assert.equal(await siteA.evaluate(() => window.__connected), false);
+  assert.equal(await siteA.locator("dialog iframe").count(), 0);
+
+  if (process.env.AI_AUTH_CHECK_TOP_LEVEL_WALLET) {
+    const contextC = await browser.newContext({ acceptDownloads: true });
+    contexts.push(contextC);
+    await contextC.addCookies([
+      {
+        name: "third_party_probe",
+        value: "allowed",
+        url: walletBaseUrl,
+        sameSite: "None",
+        secure: true,
+      },
+    ]);
+    const top = await contextC.newPage();
+    await top.goto(walletBaseUrl);
+    await top.locator("[data-go-wallet]").click();
+    await top.locator("#wallet-name").fill("Existing wallet");
+    await top.locator("#wallet-passphrase").fill("Existing wallet passphrase");
+    await top
+      .locator("#wallet-passphrase-confirm")
+      .fill("Existing wallet passphrase");
+    const downloaded = top.waitForEvent("download");
+    await top.locator('#create-wallet-form button[type="submit"]').click();
+    await downloaded;
+    await top.locator(".key-id").first().waitFor();
+    const topIdentity = await top.locator(".key-id").first().innerText();
+    const host = await contextC.newPage();
+    await host.goto(integrationSiteUrl);
+    await host.locator("#connect").click();
+    await host.locator('dialog iframe[title="AI Auth wallet"]').waitFor();
+    const embedded = await (
+      await host
+        .locator('dialog iframe[title="AI Auth wallet"]')
+        .elementHandle()
+    ).contentFrame();
+    await embedded
+      .locator("#view")
+      .getByText(/Create or restore your wallet|Review before you sign/)
+      .waitFor({ timeout: 10000 });
+    const cookieVisible = await embedded.evaluate(() =>
+      document.cookie.includes("third_party_probe=allowed"),
+    );
+    console.log(
+      `Cross-site cookie probe: ${cookieVisible ? "visible" : "blocked"}`,
+    );
+    const requiresSetup = await embedded.locator("[data-go-wallet]").count();
+    console.log(
+      `Cross-site existing wallet: ${requiresSetup ? "NOT visible (storage partitioned or blocked)" : "visible"}; top-level identity ${topIdentity.slice(0, 20)}...`,
+    );
+    if (requiresSetup)
+      throw new Error(
+        "Third-party wallet storage is partitioned or blocked: existing top-level identity is unavailable in the embedded wallet",
+      );
+    await embedded
+      .locator('input[name="external-capability"][value="presence.read"]')
+      .check();
+    await embedded
+      .locator('#external-permission-form button[type="submit"]')
+      .click();
+    await host.waitForFunction(() => window.__connected === true, undefined, {
+      timeout: 30000,
+    });
+    const embeddedIdentity = await host.evaluate(
+      () => window.__connection.consent.body.issuer,
+    );
+    assert.equal(
+      embeddedIdentity,
+      topIdentity,
+      "embedded consent must use the existing top-level identity",
+    );
+    console.log(
+      "Cross-site signed consent matches the top-level wallet identity.",
+    );
+  }
   console.log(
-    "Browser E2E passed on /ai-auth/: landing, wallet and docs routes resolve; the page registered and invoked a scope-approved WebMCP tool or JS fallback, and a separate wallet received its signed started/completed action and cursor events over direct WebRTC.",
+    "Browser E2E passed: two new wallets required consent; signed action, cursor, text and attachment crossed direct WebRTC; expired direct messages were rejected, attachment bytes were not persisted, and disconnect removed the modal.",
   );
 } finally {
   await Promise.all(contexts.map((context) => context.close().catch(() => {})));
