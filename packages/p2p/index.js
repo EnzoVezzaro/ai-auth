@@ -1,3 +1,5 @@
+import { clearLinkRecords } from "./links.js";
+
 const encoder = new TextEncoder();
 const STORAGE_NAME = "ai-auth-wallet-v2";
 const STORAGE_VERSION = 1;
@@ -323,6 +325,7 @@ export async function forgetWallet() {
   } finally {
     db.close();
   }
+  await clearLinkRecords();
 }
 
 export function downloadBackup(wallet) {
@@ -485,3 +488,33 @@ export {
   createAIAuthConnectController,
   mountAIAuthConnectPanel,
 } from "./agent-connect.js";
+export {
+  createConnectionState,
+  canTransition,
+  CONNECTION_STATUSES,
+  CONNECTION_TRANSITIONS,
+} from "./connection-state.js";
+export {
+  LINK_POLICY,
+  approveLink,
+  createLinkChallenge,
+  createLinkNonceStore,
+  createRevokedLinkSet,
+  deriveLinkId,
+  listLinks,
+  unlink,
+  verifyLink,
+  verifyLinkRevocation,
+} from "./links.js";
+
+export {
+  issueMembership,
+  verifyMembership,
+  createParticipationPolicy,
+  MEMBERSHIP_TYPE,
+  MEMBERSHIP_VERSION,
+  MAX_MEMBERSHIP_TTL_MS,
+  ROOM_MODES,
+  ROLES,
+  OPEN_ROOM_DISCLOSURE,
+} from "./membership.js";

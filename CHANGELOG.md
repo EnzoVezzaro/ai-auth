@@ -74,3 +74,9 @@ Versions below record the previous preview line. The server client and Worker we
 - Document the optional Worker/MCP architecture and the current limits of the local shared-state service.
 
 This release adds a source client for the local Worker prototype. It does not imply that the shared-state service is deployed or production-ready.
+
+## Unreleased
+
+- Add the site/agent link lifecycle: `createLinkChallenge`, `approveLink`, `verifyLink`, `listLinks`, `unlink`, `verifyLinkRevocation`, plus in-memory `createLinkNonceStore` and `createRevokedLinkSet`. Document the wire formats and the absence of global revocation.
+
+- Add participation modes: `open` rooms with an explicit disclosure and `restricted` rooms that require a site-issued `ai-auth-membership` proof. New exports: `issueMembership`, `verifyMembership`, `createParticipationPolicy`, and related constants. `P2PRoom` accepts an optional `participation` option and `send(..., { to })`; restricted rooms drop events from non-members and never deliver non-presence events to them.
