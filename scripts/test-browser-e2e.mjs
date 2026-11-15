@@ -643,18 +643,27 @@ try {
   await siteA.locator("#publish-cursor").click();
   await siteB.waitForFunction(
     () =>
-      [...document.querySelectorAll("#events li")].some(
-        (item) => item.dataset.type === "presence/cursor",
-      ),
+      [...document.querySelectorAll('#events li[data-type="presence/cursor"]')]
+        .map((item) => JSON.parse(item.textContent))
+        .some((event) => event.x === 0.25 && event.y === 0.75),
     undefined,
     { timeout: 60_000 },
   );
-  assert.match(
-    await siteB
-      .locator('#events li[data-type="presence/cursor"]')
-      .last()
-      .innerText(),
-    /0\.25.*0\.75/s,
+  const humanCursor = await siteB
+    .locator('#events li[data-type="presence/cursor"]')
+    .evaluateAll((items) =>
+      items
+        .map((item) => JSON.parse(item.textContent))
+        .findLast((event) => event.x === 0.25 && event.y === 0.75),
+    );
+  assert.deepEqual(
+    {
+      x: humanCursor.x,
+      y: humanCursor.y,
+      visible: humanCursor.visible,
+      label: humanCursor.label,
+    },
+    { x: 0.25, y: 0.75, visible: true, label: "First agent" },
   );
 
   await siteA
