@@ -200,3 +200,7 @@ No adapter code is added by protocol version 1; existing adapters (`agent-connec
 - Membership proofs without `epoch` and `durationKind` stay valid byte for byte and count as epoch 0, so an epoch bump invalidates them. Proofs that carry the new optional fields are rejected as `malformed` by verifiers older than 0.5.0 (this release line); issue them only to 0.5.0+ verifiers.
 - To adopt: keep open rooms as they are; for restricted rooms issue memberships (preferably with `duration` and `epoch`), add `createRevocationGossip(room)`, and gate protected operations with `authorizeProtected` plus execution grants.
 - Unknown `v` values must be rejected, not downgraded. A change to signed semantics needs a new `v`.
+
+## Presence tracker and discovery (implemented in `presence.js`, `discovery.js`)
+
+`createPresenceTracker` keeps one entry per verified wallet and session. Cursors follow section 8: `pageKey` plus document coordinates (finite, 0 to 1,000,000), a per-peer monotonic `seq`, and an optional label claim. A peer is `online` while its lease is fresh, `offline` after 16 seconds without a heartbeat, and removed together with its cursor after 24 seconds or on `peer/goodbye`. Stale or repeated `seq` values and invalid fields are dropped without changing state. The tracker consumes events the room has already verified; it does not verify signatures itself. The optional discovery file is described in `DISCOVERY.md`.

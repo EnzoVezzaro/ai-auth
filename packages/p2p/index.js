@@ -569,3 +569,19 @@ export {
   isSensitiveElement,
   extractSafeText,
 } from "./wheel-redaction.js";
+
+export {
+  CURSOR_TYPE,
+  CURSOR_VERSION,
+  createPresenceTracker,
+  buildCursorPayload,
+  parseCursorPayload,
+  validateCursor,
+} from "./presence.js";
+export {
+  DISCOVERY_PATH,
+  DISCOVERY_TYPE,
+  DISCOVERY_VERSION,
+  fetchDiscovery,
+  validateDiscovery,
+} from "./discovery.js";
