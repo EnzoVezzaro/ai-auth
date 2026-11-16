@@ -1100,6 +1100,11 @@ test("a renewal that widens scopes or comes from the wrong wallet is refused", a
       )
     ).nonce,
   });
-  await assert.rejects(second, /declined/u);
+  await assert.rejects(second, (error) => {
+    // An explicit refusal says so, and says the current session still runs.
+    assert.match(error.message, /declined/u);
+    assert.match(error.message, /Your session is still active until /u);
+    return true;
+  });
   connection.close();
 });

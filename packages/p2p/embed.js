@@ -6,6 +6,11 @@ import {
   verifyPermissionConsent,
 } from "./connect.js";
 import { createCloneDetector } from "./agent-identity.js";
+import {
+  CANCELLED_MESSAGE,
+  approvalTimeoutMessage,
+  renewalKeptText,
+} from "./copy.js";
 import { verifyEnvelope } from "./index.js";
 import { authorizeProtected } from "./membership.js";
 import { isMessageId, isWalletId } from "./receipts.js";
@@ -120,6 +125,15 @@ function boundedReceipt(receipt, senderId) {
   );
 }
 
+// A renewal that did not happen. The current session stays active until its
+// expiry, and the message says so. `code` lets the connect panel tell a
+// declined or timed-out renewal apart from a failed one.
+function keptSessionError(code, expiresAt, prefix = "") {
+  const error = new Error(`${prefix}${renewalKeptText(expiresAt)}`);
+  error.code = code;
+  return error;
+}
+
 function shortIssuerLabel(id) {
   return typeof id === "string" && id.length > 26
     ? `Agent ${id.slice(6, 26)}…`
@@ -230,6 +244,12 @@ export async function connectAIAuthModal({
   });
 
   let onRenewed = () => {};
+  // The element that had focus before the wallet window opened. Closing the
+  // window returns focus there, so a keyboard user is not dropped on the body.
+  const opener = document.activeElement;
+  const restoreFocus = () => {
+    if (typeof opener?.focus === "function") opener.focus();
+  };
   const hideDialog = () => {
     dialog.close();
     dialog.style.display = "none";
@@ -256,16 +276,26 @@ export async function connectAIAuthModal({
     clearTimeout(pendingRenewal?.timer);
     windowObject.removeEventListener("message", onMessage);
     dialog.removeEventListener("cancel", onCancel);
+    dialog.removeEventListener("close", onDialogClose);
     dialog.remove();
+    restoreFocus();
   };
 
+  // Closing the window before a connection exists cancels that request at once,
+  // so the site never waits for an approval the user has already refused.
+  const cancelPending = () => {
+    cleanup();
+    rejectReady(new Error(CANCELLED_MESSAGE));
+  };
   const onCancel = (event) => {
     event.preventDefault();
     if (activeConnection) activeConnection.close();
-    else {
-      cleanup();
-      rejectReady(new Error("AI Auth wallet connection cancelled"));
-    }
+    else cancelPending();
+  };
+  // Any other way the window closes (for example the browser closing it) must
+  // cancel the same way. After consent the close is expected and changes nothing.
+  const onDialogClose = () => {
+    if (!consent && !activeConnection) cancelPending();
   };
 
   const onMessage = async (event) => {
@@ -289,7 +319,7 @@ export async function connectAIAuthModal({
       clearTimeout(timeout);
       timeout = setTimeout(() => {
         cleanup();
-        rejectReady(new Error("AI Auth wallet consent timed out"));
+        rejectReady(new Error(approvalTimeoutMessage(timeoutMs)));
       }, timeoutMs);
       popup.postMessage(
         { type: "ai-auth/connect-request", request },
@@ -381,7 +411,13 @@ export async function connectAIAuthModal({
       pendingRenewal = null;
       clearTimeout(renewal.timer);
       hideDialog();
-      renewal.reject(new Error("The wallet declined to renew this session"));
+      renewal.reject(
+        keptSessionError(
+          "renewal-declined",
+          consent.body.payload.expiresAt,
+          "The wallet declined to extend. ",
+        ),
+      );
       return;
     }
     if (
@@ -726,7 +762,13 @@ export async function connectAIAuthModal({
             if (pendingRenewal !== renewal) return;
             pendingRenewal = null;
             hideDialog();
-            renewal.reject(new Error("The wallet renewal timed out"));
+            renewal.reject(
+              keptSessionError(
+                "renewal-timed-out",
+                consent.body.payload.expiresAt,
+                "The approval window closed. ",
+              ),
+            );
           }, timeoutMs);
           pendingRenewal = renewal;
           dialog.style.display = "";
@@ -916,11 +958,12 @@ export async function connectAIAuthModal({
 
   windowObject.addEventListener("message", onMessage);
   dialog.addEventListener("cancel", onCancel);
+  dialog.addEventListener("close", onDialogClose);
   cancelButton.addEventListener("click", onCancel);
   dialog.showModal();
   timeout = setTimeout(() => {
     cleanup();
-    rejectReady(new Error("AI Auth wallet consent timed out"));
+    rejectReady(new Error(approvalTimeoutMessage(timeoutMs)));
   }, timeoutMs);
   frame.src = walletPage.href;
   return ready;
