@@ -870,8 +870,8 @@ try {
     path: resolve(screenshots, "generic-site-verified-events.png"),
     fullPage: true,
   });
-  await popupA.screenshot({
-    path: resolve(screenshots, "ai-auth-wallet-connected.png"),
+  await agentPage.screenshot({
+    path: resolve(screenshots, "generic-agent-client-connected.png"),
     fullPage: true,
   });
   console.log("Saved verified browser screenshots under test-results/screenshots/");
