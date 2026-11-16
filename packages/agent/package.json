@@ -21,7 +21,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "test:network": "node --test test/network.integration.mjs",
+    "test:network": "node --test test/network.integration.mjs test/network-tools.integration.mjs",
     "prepack": "node ../../scripts/pin-local-deps.mjs pin",
     "postpack": "node ../../scripts/pin-local-deps.mjs restore"
   },
