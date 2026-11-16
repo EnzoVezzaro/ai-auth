@@ -687,7 +687,7 @@ test("an epoch announcement gossips and invalidates older proofs at every peer",
     now: w.clock.t,
   });
   assert.equal((await g.gossips[0].publishEpoch(rec)).ok, true);
-  await settle();
+  await until(() => g.policies.every((p) => p.epoch === 1));
   for (const p of g.policies) {
     assert.equal(p.epoch, 1);
     assert.equal(p.isMember(w.alice.id), false);
