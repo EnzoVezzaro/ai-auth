@@ -27,9 +27,16 @@ for (const name of workflows) {
   const content = await readFile(resolve(root, path), "utf8");
   if (/\bvercel\b/iu.test(content)) found.push(`${path} (Vercel integration)`);
 }
-assert.deepEqual(found, [], `Unexpected Vercel deployment configuration: ${found.join(", ")}`);
+assert.deepEqual(
+  found,
+  [],
+  `Unexpected Vercel deployment configuration: ${found.join(", ")}`,
+);
 
-const pages = await readFile(resolve(root, ".github/workflows/pages.yml"), "utf8");
+const pages = await readFile(
+  resolve(root, ".github/workflows/pages.yml"),
+  "utf8",
+);
 for (const required of [
   "branches: [main]",
   "actions/configure-pages@",
@@ -37,6 +44,12 @@ for (const required of [
   "actions/deploy-pages@",
   "path: dist-p2p",
   "name: github-pages",
-]) assert.ok(pages.includes(required), `GitHub Pages contract missing: ${required}`);
+])
+  assert.ok(
+    pages.includes(required),
+    `GitHub Pages contract missing: ${required}`,
+  );
 
-console.log("Hosting verified: only GitHub Pages deployment is configured in this repository.");
+console.log(
+  "Hosting verified: only GitHub Pages deployment is configured in this repository.",
+);
