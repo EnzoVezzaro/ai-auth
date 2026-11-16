@@ -11,6 +11,7 @@ const VALUE_FLAGS = new Set([
   "approve",
   "name",
   "http",
+  "provide",
 ]);
 const BOOL_FLAGS = new Set([
   "auto-join",
@@ -53,6 +54,7 @@ export function parseArgs(argv) {
       else if (flag === "approve")
         out.approve = [...(out.approve ?? []), ...list(value)];
       else if (flag === "caps") out.caps = list(value);
+      else if (flag === "provide") out.provide = list(value);
       else out[flag] = value;
     } else throw new Error(`Unknown option --${flag}`);
   }
@@ -65,6 +67,9 @@ export const USAGE = `ai-auth-mcp [serve|init|whoami|preview|unlink] [options]
   --origin URL --room NAME --caps a,b   explicit alternative to --connect
   --approve a,b        exact scopes to grant without a TTY (never more than the site requested)
   --auto-join | --resume   join the room at startup / restore the last room
+  --provide room       publish the built-in read-only room tools (agent.ping,
+                       agent.self) so peers can call this agent with no page open;
+                       needs tools.invoke and is off unless you opt in
   --no-manifest        do not fetch /.well-known/ai-auth.json for a URL
   --yes                confirm unlink without a prompt
   --http PORT          serve MCP over Streamable HTTP on 127.0.0.1:PORT (0 picks a free port) instead of stdio;

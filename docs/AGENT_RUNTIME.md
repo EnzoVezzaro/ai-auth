@@ -56,3 +56,39 @@ network (home NAT, both processes on the same host and LAN). It does **not**
 show behavior across symmetric NATs or networks that block UDP; in those cases
 the runtime stays in `waiting-for-peers` and `connectionState.diagnostics`
 records the ICE error, by design (no TURN).
+
+## Tools without a browser
+
+A runtime owns its connection, so it can also own tools. `runtime.provideTools({ tools, authorize })` publishes a signed `tool-catalog` for handlers the runtime executes itself:
+
+```js
+const provider = runtime.provideTools({
+  tools: [
+    {
+      name: "notes.ping",
+      description: "Answer from this agent's own process",
+      inputSchema: { type: "object", properties: {} },
+      handler: async (input, { requester }) => ({ pong: true, requester }),
+    },
+  ],
+  // Required. Return true only for peers the owner has allowed.
+  authorize: (requesterId, name, input) => allowedPeers.has(requesterId),
+});
+
+await runtime.join();
+```
+
+Peers discover it with the same agent client a page uses
+(`createAIAuthAgentClient(room).catalogs` / `.callTool(...)`), and `ai-auth-mcp`
+exposes it as `ai_auth_list_tools` / `ai_auth_invoke`. `packages/mcp` ships two
+read-only room tools (`agent.ping`, `agent.self`) that an operator can enable
+with `--provide room`. Calls are bounded (32 tools, 8 KB input, 8 KB result,
+15 s timeout, 8 concurrent) and a failed handler returns an error string, never
+a result.
+
+The catalog is bound to the live room session and is re-announced after a
+reconnect. Closing the runtime (or `provider.close()`) withdraws it immediately;
+otherwise it expires with the signed event in about two minutes. This is the
+category that keeps working when no visitor is on the site. A page tool is
+different: it exists only while the page is open, and callers get an explicit
+"unavailable" answer when no provider is online.

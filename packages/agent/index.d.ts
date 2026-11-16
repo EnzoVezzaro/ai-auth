@@ -95,6 +95,8 @@ export interface AgentRuntime {
   };
   readonly capabilities: readonly string[];
   readonly origin: string;
+  /** Publishes tools this runtime executes itself. Requires tools.invoke. */
+  provideTools(options: AgentToolProviderOptions): AgentToolProvider;
   onConnectionState(
     listener: (snapshot: ConnectionSnapshot) => void,
   ): () => void;
@@ -123,6 +125,43 @@ export interface AgentRuntime {
 export declare function createAgentRuntime(
   options: AgentRuntimeOptions,
 ): AgentRuntime;
+
+export interface AgentToolDefinition {
+  /** Lowercase name such as `notes.search`. */
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+  handler(
+    input: Record<string, unknown>,
+    context: { signal: AbortSignal; requester: string },
+  ): unknown | Promise<unknown>;
+}
+
+export interface AgentToolProviderOptions {
+  tools: AgentToolDefinition[];
+  /** Required: return true only for peers the owner has explicitly allowed. */
+  authorize(
+    requesterId: string,
+    name: string,
+    input: Record<string, unknown>,
+  ): boolean | Promise<boolean>;
+  refreshMs?: number;
+  timeoutMs?: number;
+}
+
+export interface AgentToolProvider {
+  readonly tools: string[];
+  /** Publishes the catalog again, for example after a reconnect. */
+  announce(): void;
+  /** Withdraws every tool from the room. */
+  close(): void;
+}
+
+export declare function createToolProvider(
+  options: {
+    room: AgentRuntime["agentRoom"];
+  } & AgentToolProviderOptions,
+): AgentToolProvider;
 export declare class NodeRTCPeerConnection {
   constructor(configuration?: unknown);
 }

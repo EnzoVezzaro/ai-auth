@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.3 - 2026-11-16
+
+- Add `--provide room`: the agent publishes two read-only tools from its own runtime (`agent.ping`, `agent.self`), so peers can call them while every browser is closed. Opt-in, needs `tools.invoke`.
+- `ai_auth_list_tools` and `ai_auth_invoke` now cover tools advertised by any connected participant, not only the site page. A tool with no online provider answers with an explicit "unavailable" reason.
+- `ai_auth_status` reports the tools this agent provides.
+
 ## Unreleased
 
 ## 0.3.2 - 2026-11-16

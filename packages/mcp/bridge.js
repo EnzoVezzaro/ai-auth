@@ -21,6 +21,7 @@ export function createAgentBridge({
   runtime,
   maxEvents = MAX_EVENTS,
   clientFactory = (room) => createAIAuthAgentClient(room),
+  providedTools = [],
 }) {
   const ring = [];
   let seq = 0;
@@ -66,6 +67,7 @@ export function createAgentBridge({
         peers: runtime
           .peers()
           .map(({ id, name, stale }) => ({ id, name, stale })),
+        provides: [...providedTools],
         diagnostics: state.diagnostics ?? {},
         note: "Presence lasts only while this MCP process runs.",
       };
@@ -118,8 +120,10 @@ export function createAgentBridge({
     listTools() {
       return {
         untrusted: true,
+        note: "Catalogs come from connected participants. A page's tools need that page open; agent-provided tools need the providing agent online.",
         sites: catalogs().map((c) => ({
           wallet: c.wallet,
+          session: c.session,
           expiresAt: c.expiresAt,
           tools: c.tools.map((t) => ({
             name: t.name,
@@ -139,13 +143,14 @@ export function createAgentBridge({
         return {
           ok: false,
           rejected: false,
-          reason: `No site tool "${name}" is advertised (is the site connected and the tool approved?)`,
+          reason: `No participant advertises "${name}" right now. A page tool needs the site's page open; an agent tool needs the providing agent online.`,
         };
       if (matching.length > 1)
         return {
           ok: false,
           rejected: false,
-          reason: "Ambiguous: several sites advertise this tool; pass wallet",
+          reason:
+            "Ambiguous: several participants advertise this tool; pass wallet",
         };
       try {
         return {
@@ -248,7 +253,7 @@ const SPECS = [
     "ai_auth_list_tools",
     "tools.invoke",
     true,
-    "List WebMCP tools the connected site advertises.",
+    "List WebMCP tools advertised by connected participants: the site page and other agents.",
     empty,
     (b) => b.listTools(),
   ],
@@ -256,7 +261,7 @@ const SPECS = [
     "ai_auth_invoke",
     "tools.invoke",
     false,
-    "Call a site WebMCP tool; the site owner approves. Returns a rejection if denied.",
+    "Call a tool advertised by a connected participant. Page tools require the site's page open; agent tools run in the providing agent's runtime. The provider approves each call.",
     {
       name: z.string().min(1).max(64),
       input: z.record(z.string(), z.unknown()).optional(),
@@ -289,4 +294,54 @@ export function buildAgentActions({ getBridge, siteCapabilities }) {
       },
     }),
   );
+}
+
+/** Built-in, read-only tools an MCP agent can provide to the room itself. */
+export const ROOM_TOOL_NAMES = Object.freeze(["agent.ping", "agent.self"]);
+
+/**
+ * Publishes the built-in room tools from this runtime. They expose only public
+ * data (identity, room, capabilities, time) and never touch a page or browser,
+ * so peers can call them with no visitor present. The tools are announced only
+ * when the agent's owner opts in; every room peer is then allowed to call them.
+ */
+export function createRoomToolProvider(runtime) {
+  if (!runtime || typeof runtime.provideTools !== "function")
+    throw new TypeError("createRoomToolProvider needs an agent runtime");
+  return runtime.provideTools({
+    tools: [
+      {
+        name: "agent.ping",
+        description:
+          "Liveness check answered by this agent's own runtime. No page or browser is involved.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+          additionalProperties: false,
+        },
+        handler: () => ({
+          pong: true,
+          agent: runtime.identity?.id ?? null,
+          at: new Date().toISOString(),
+        }),
+      },
+      {
+        name: "agent.self",
+        description:
+          "This agent's public identity, room, and granted capabilities, answered by its runtime.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+          additionalProperties: false,
+        },
+        handler: () => ({
+          id: runtime.identity?.id ?? null,
+          name: runtime.descriptor?.name ?? null,
+          room: runtime.room,
+          capabilities: [...runtime.capabilities],
+        }),
+      },
+    ],
+    authorize: () => true,
+  });
 }

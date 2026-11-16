@@ -50,14 +50,20 @@ exposes these tools, each limited to the scopes the site requested:
 | `ai_auth_events`                | `presence.read` | Read what people and agents said and did                   |
 | `ai_auth_move`                  | `presence.read` | Move its cursor on the shared page (`x`, `y` from 0 to 1)  |
 | `ai_auth_send`                  | `messages.send` | Send a signed message to the room or one peer              |
-| `ai_auth_list_tools`            | `tools.invoke`  | List the site's WebMCP tools                               |
-| `ai_auth_invoke`                | `tools.invoke`  | Call a site tool; the site's visitor approves              |
+| `ai_auth_list_tools`            | `tools.invoke`  | List tools from the site page or another agent             |
+| `ai_auth_invoke`                | `tools.invoke`  | Call a page or agent tool; its provider approves           |
 | `ai_auth_act`                   | `tools.invoke`  | Publish a signed activity status everyone on the page sees |
 
 Scopes are approved by a TTY prompt or exact `--approve` lists (never beyond
 what the site requested; no TTY and no `--approve` means refusal). See
 `docs/AGENT_ADAPTERS.md` for Claude Code, Codex and OpenCode setup, the network
 truth (peers connect directly over WebRTC), and lifecycle limits.
+
+Add `--provide room` (requires `tools.invoke`) to publish two read-only tools
+from this agent's own runtime: `agent.ping` and `agent.self`. They are
+answerable while every browser is closed, because no page is involved. Page
+tools still need the page open, and `ai_auth_invoke` says so when no page
+provider is online instead of faking a result.
 
 By default the server speaks MCP over stdio. `--http PORT` serves Streamable
 HTTP on `127.0.0.1:PORT` instead (`0` picks a free port), for clients that

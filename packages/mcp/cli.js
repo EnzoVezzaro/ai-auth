@@ -11,7 +11,11 @@ import { serveAIAuthMcpHttp } from "./http.js";
 import { parseArgs, USAGE } from "./cli-args.js";
 import { parseConnectInput, fetchSiteManifest } from "./connect-input.js";
 import { resolveApproval, renderPreview, askOnTty } from "./approval.js";
-import { createAgentBridge, buildAgentActions } from "./bridge.js";
+import {
+  createAgentBridge,
+  buildAgentActions,
+  createRoomToolProvider,
+} from "./bridge.js";
 
 const TOOL_SCOPES = ["messages.send", "presence.read", "tools.invoke"];
 const err = (text) => process.stderr.write(`${text}\n`);
@@ -91,7 +95,18 @@ async function serve(args) {
           capabilities: approved,
           descriptor: { name: args.name ?? "ai-auth-mcp" },
         });
-        bridge = createAgentBridge({ runtime });
+        const wantsRoomTools = (args.provide ?? []).includes("room");
+        if (wantsRoomTools && !approved.includes("tools.invoke"))
+          throw new Error(
+            "--provide room needs tools.invoke; add it to --caps and --approve",
+          );
+        const provider = wantsRoomTools
+          ? createRoomToolProvider(runtime)
+          : null;
+        bridge = createAgentBridge({
+          runtime,
+          providedTools: provider ? [...provider.tools] : [],
+        });
         return approved;
       },
     }).then(({ server }) => server);

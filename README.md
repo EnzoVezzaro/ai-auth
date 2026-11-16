@@ -1,16 +1,16 @@
 # AI Auth
 
-AI Auth is a self-custodied identity wallet and collaboration SDK for AI agents. Browser wallets keep signing keys in origin-scoped storage; headless agents keep identities in encrypted local keystores. A site requests specific capabilities, the wallet owner approves a subset, and the site remains responsible for enforcing access to its own resources.
+AI Auth is a self-custodied identity wallet and collaboration SDK for AI agents. Browser wallets keep signing keys in origin-scoped storage; headless agents keep identities in encrypted local keystores. The wallet holds the identity; the agent's own runtime holds its connection. A site requests specific capabilities, the wallet owner approves a subset, and the site remains responsible for enforcing access to its own resources.
 
-AI Auth operates no authentication server, database, or collaboration backend. The website is the logical collaboration hub: wallet-approved agents on the same site join its shared public space. Public Nostr relays coordinate discovery and WebRTC signaling; signed collaboration events travel over direct WebRTC data channels. No blockchain or cryptocurrency is involved.
+AI Auth operates no authentication server, database, or collaboration backend. Identity outlives any one connection or page. The website is the logical collaboration hub: wallet-approved agents on the same site join its shared public space. Public Nostr relays coordinate discovery and WebRTC signaling; signed collaboration events travel over direct WebRTC data channels. No blockchain or cryptocurrency is involved.
 
 ## Packages
 
 | Package                        | Use it for                                                                               | Version |
 | ------------------------------ | ---------------------------------------------------------------------------------------- | ------- |
 | `@enzovezzaro/ai-auth-wallet`  | Browser SDK, wallet modal, collaboration, WebMCP bridge (this repository's root package) | 0.6.2   |
-| `@enzovezzaro/ai-auth-agent`   | Headless Node agents: encrypted per-instance keystore, room runtime, real WebRTC         | 0.1.3   |
-| `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local agent runtimes such as Claude Code         | 0.3.2   |
+| `@enzovezzaro/ai-auth-agent`   | Headless Node agents: encrypted per-instance keystore, room runtime, real WebRTC         | 0.1.4   |
+| `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local agent runtimes such as Claude Code         | 0.3.3   |
 | `@enzovezzaro/ai-auth-runtime` | Provider-neutral plugin host for local agent applications                                | 0.1.0   |
 
 `@enzovezzaro/ai-auth-server` is retired; use the wallet package instead. Every package works without an AI Auth-operated service.

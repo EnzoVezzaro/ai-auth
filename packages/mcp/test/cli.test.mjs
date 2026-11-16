@@ -127,6 +127,47 @@ test("serve with an exact subset exposes only the approved tools over stdio MCP"
   assert.equal(status.structuredContent.room, null);
 });
 
+test("--provide room publishes the built-in tools only with tools.invoke", async (t) => {
+  const dir = await scratch(t);
+  run(["init", "--keystore-dir", dir]);
+  const denied = run([
+    "serve",
+    ...baseArgs(dir),
+    "--approve",
+    "presence.read",
+    "--provide",
+    "room",
+  ]);
+  assert.notEqual(denied.status, 0);
+  assert.match(denied.stderr, /--provide room needs tools\.invoke/u);
+
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [
+      cli,
+      "serve",
+      ...baseArgs(dir),
+      "--approve",
+      "presence.read,messages.send,tools.invoke",
+      "--provide",
+      "room",
+    ],
+    env,
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "t", version: "1" });
+  t.after(() => client.close());
+  await client.connect(transport);
+  const status = await client.callTool({
+    name: "ai_auth_status",
+    arguments: {},
+  });
+  assert.deepEqual(status.structuredContent.provides, [
+    "agent.ping",
+    "agent.self",
+  ]);
+});
+
 test("unlink refuses without --yes in non-TTY and removes the keystore with it", async (t) => {
   const dir = await scratch(t);
   run(["init", "--keystore-dir", dir]);

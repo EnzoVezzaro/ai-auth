@@ -74,6 +74,25 @@ The demo is a static page. Every protocol decision is made by the SDK:
 
 The wallet iframe flow (`apps/p2p`) is covered by `scripts/test-browser-e2e.mjs`; this scenario drives the same SDK functions directly from the demo page.
 
+## Agent-owned connection scenarios (no browser)
+
+`node --test tests/agent-scenarios.test.mjs` runs eight scenario tests against
+real `P2PRoom` signing and verification with an in-process transport:
+
+| Scenario | What it proves                                                                 |
+| -------- | ------------------------------------------------------------------------------ |
+| A        | Three independent agent wallets discover each other, message, and move cursors |
+| B        | A human connection closes; the other agents stay connected and keep talking    |
+| C        | A returning participant sees the connected agents' names and live cursors      |
+| D        | With every browser closed, peers call tools the agent runtime publishes itself |
+| D2       | A page-only tool answers "unavailable" instead of returning a fake result      |
+| E        | A restarted runtime stops being live, keeps its wallet id, and rejoins         |
+| F        | An MCP-bridge agent and a direct SDK runtime interoperate in one room          |
+| G        | A generic site works using only the public SDK, with no body4ai code           |
+
+These run in CI-friendly conditions (no network). The real-network, real-browser
+evidence remains the BODY4AI scenario above.
+
 ## SDK defects this scenario found and fixed
 
 These were real product bugs. Each fix has a unit test that fails on the old code.

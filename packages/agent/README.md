@@ -65,7 +65,7 @@ ECDSA P-256 envelopes that the browser package's `verifyEnvelope` accepts.
   room if it was saved for the same origin).
 - `connectionState` / `onConnectionState(fn)`: the SDK's
   `connection-state.js` lifecycle (`signaling`, `waiting-for-peers`,
-  `direct-peer-connected`, `disconnected`; `degraded` is defined in the transition table but no code path enters it yet). `direct-peer-connected`
+  `direct-peer-connected`, `degraded`, `disconnected`). `direct-peer-connected`
   appears only after a data channel is open.
 - Leases: `peers()` lists `{ id, name, seenAt, leaseExpiresAt, stale }` from
   signed heartbeats; `onPeerStale` fires once per lapsed lease.
@@ -74,6 +74,36 @@ ECDSA P-256 envelopes that the browser package's `verifyEnvelope` accepts.
   reports `onError` and ends `disconnected`. A transport with no direct peers
   for `rejoinAfterMs` (default 120 s) is rebuilt.
 - The last room is stored in `<dir>/runtime.json` (0600). It holds no secrets.
+
+## Agent-provided tools
+
+`provideTools({ tools, authorize })` publishes a signed tool catalog for
+handlers this runtime runs itself. It requires the `tools.invoke` capability.
+Peers discover and call these tools through the normal agent client
+(`createAIAuthAgentClient`), so they work while every browser is closed:
+
+```js
+const provider = runtime.provideTools({
+  tools: [
+    {
+      name: "build.status",
+      description: "Current build status",
+      inputSchema: { type: "object", properties: {} },
+      handler: async () => ({ ok: true }),
+    },
+  ],
+  // Required: allow only peers the owner chose.
+  authorize: (requesterId, name, input) => allowlist.has(requesterId),
+});
+await runtime.join(); // the catalog is announced once the room is live
+// provider.close() withdraws it; runtime.close() does the same.
+```
+
+Limits: 32 tools, 8 KB input, 8 KB result, 15 s timeout, 8 concurrent calls.
+A failing handler returns an error, never a result. The catalog is bound to the
+live room session and re-announced after a reconnect; otherwise it expires with
+the signed event in about two minutes. This is different from a page tool, which
+only exists while the site's page is open.
 
 ## Node WebRTC
 

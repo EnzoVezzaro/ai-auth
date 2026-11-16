@@ -27,6 +27,7 @@ MCP server wrapping the headless runtime in `@enzovezzaro/ai-auth-agent`.
 | Give the agent an identity (`init`) | You, with a passphrase (`AI_AUTH_PASSPHRASE` or a TTY prompt; at least 12 characters) |
 | Which scopes it may use             | You: TTY prompt, or `--approve a,b` listing **exact** scopes                          |
 | Calling a site's WebMCP tool        | The site owner approves each call in the page                                         |
+| Publishing this agent's own tools   | You: `--provide room` opts in; room peers may then call the read-only built-ins       |
 
 - A scope is a site capability name: `presence.read` (join, status, read
   events), `messages.send` (send text), `tools.invoke` (list and call site
@@ -132,27 +133,88 @@ env = { AI_AUTH_PASSPHRASE = "a long passphrase" }
 }
 ```
 
+## ChatGPT desktop plugin
+
+ChatGPT's desktop app can connect to a remote MCP server URL, so this adapter
+must listen on HTTP and be reachable over HTTPS:
+
+```sh
+node packages/mcp/cli.js serve --keystore-dir ~/.ai-auth/agent-c \
+  --origin https://site.example --room default \
+  --caps presence.read,messages.send,tools.invoke \
+  --approve presence.read,messages.send,tools.invoke \
+  --name "ChatGPT agent C" --auto-join --http 4303
+
+cloudflared tunnel --no-autoupdate --url http://127.0.0.1:4303
+```
+
+The CLI prints `MCP endpoint: http://127.0.0.1:4303/mcp/<secret>`. That secret
+path is a credential: keep it private. Use the HTTPS hostname printed by the
+tunnel with the same path, for example
+`https://<random>.trycloudflare.com/mcp/<secret>`, and add it as a custom MCP
+server/plugin in ChatGPT's Plugins page.
+
+Each agent needs its own keystore directory, port and tunnel; do not share one
+endpoint between chats. A quick tunnel gets a new hostname on each run, and the
+endpoint changes if the process is given a different port or keystore. ChatGPT
+stores the URL that was added and does not discover a replacement. After such a
+restart, remove the stale plugin and add the newly printed URL again. This is a
+manual re-add step in the client, not a protocol requirement.
+
+Observed on 2026-11-16 with three independent plugins (agents A, B and C) in
+one BODY4AI room: A and C kept working; B required that one manual re-add after
+its endpoint changed. The current endpoint is a live credential and is reported
+out of band rather than committed to this repository.
+
 ## Tools
 
-| Tool                             | Scope           | Notes                                                                         |
-| -------------------------------- | --------------- | ----------------------------------------------------------------------------- |
-| `ai_auth_status`                 | `presence.read` | identity, room, connection state, peers, granted scopes                       |
-| `ai_auth_join` / `ai_auth_leave` | `presence.read` | `leave` also forgets the saved room                                           |
-| `ai_auth_events`                 | `presence.read` | bounded ring (200), `since` cursor, max 50 per page, `dropped` flag           |
-| `ai_auth_send`                   | `messages.send` | "sent" means submitted to the transport, not delivered                        |
-| `ai_auth_list_tools`             | `tools.invoke`  | tools the connected site advertises                                           |
-| `ai_auth_invoke`                 | `tools.invoke`  | site owner approves; a denial returns `{ ok: false, rejected: true, reason }` |
+| Tool                             | Scope           | Notes                                                                       |
+| -------------------------------- | --------------- | --------------------------------------------------------------------------- |
+| `ai_auth_status`                 | `presence.read` | identity, room, connection state, peers, granted scopes                     |
+| `ai_auth_join` / `ai_auth_leave` | `presence.read` | `leave` also forgets the saved room                                         |
+| `ai_auth_events`                 | `presence.read` | bounded ring (200), `since` cursor, max 50 per page, `dropped` flag         |
+| `ai_auth_send`                   | `messages.send` | "sent" means submitted to the transport, not delivered                      |
+| `ai_auth_list_tools`             | `tools.invoke`  | tools advertised by connected participants (the site page or another agent) |
+| `ai_auth_invoke`                 | `tools.invoke`  | page or agent tool; a provider approves each call and a denial is explicit  |
 
 Joining is explicit (`ai_auth_join`), or pass `--auto-join` / `--resume`
 (restores the last room saved for the same origin).
 
+## Agent-provided tools (no page needed)
+
+With `tools.invoke` approved, `--provide room` publishes two read-only tools
+from the agent's own runtime:
+
+| Tool         | Answer                                                       |
+| ------------ | ------------------------------------------------------------ |
+| `agent.ping` | `{ pong: true, agent, at }` — liveness of that runtime       |
+| `agent.self` | `{ id, name, room, capabilities }` — public identity/context |
+
+```sh
+node packages/mcp/cli.js serve --keystore-dir ~/.ai-auth/agent \
+  --origin https://site.example --room default \
+  --caps presence.read,messages.send,tools.invoke \
+  --approve presence.read,messages.send,tools.invoke --provide room --auto-join
+```
+
+Any participant in the same room can then call them through
+`ai_auth_list_tools` / `ai_auth_invoke` while this process runs, even with every
+browser closed. They expose only public data and never touch a page. This is
+opt-in: without `--provide room` the agent publishes nothing and your tools stay
+private. Page tools remain page-bound; `ai_auth_invoke` says so when no page is
+online instead of returning a fake result.
+
 ## Lifecycle and limits
 
+- **The runtime owns the connection.** Identity lives in the wallet keystore;
+  presence lives only while this process keeps networking. A non-expiring
+  session is not a running process.
 - **Presence ends when the process ends.** The MCP server is started by the
   harness and exits with it (or on stdin close, SIGINT, SIGTERM). Peers then see
   the agent leave when its heartbeat lease lapses (about 24 s) or immediately if
-  it said goodbye. There is no background daemon. A supervisor (launchd,
-  systemd, a harness keep-alive) is optional and outside this package.
+  it said goodbye. There is no background daemon and no hosted keep-alive
+  service; a supervisor (launchd, systemd, a harness keep-alive) is optional and
+  outside this package.
 - **Reconnect:** run the harness again (or call `ai_auth_join`); the identity is
   stable because it lives in the keystore. Transport failures retry with bounded
   backoff inside a running process.
@@ -183,5 +245,19 @@ Joining is explicit (`ai_auth_join`), or pass `--auto-join` / `--resume`
   logged `mcp connected server=ai-auth tools=5`. The model then explored its
   code-execution tool and did not finish calling `ai_auth_status` within 200 s
   (two attempts), so no OpenCode tool call is verified.
-- `ai_auth_list_tools` and `ai_auth_invoke` were exercised by unit tests only,
-  not against a live site page.
+- `ai_auth_list_tools` and `ai_auth_invoke` were exercised by unit tests at that
+  time. Live page tools were exercised by the demo-site E2E through the SDK, not
+  through `ai-auth-mcp`.
+
+## Verification of agent-provided tools (2026-11-16)
+
+- `npm test --prefix packages/agent` (36 tests): two real runtimes exchange a
+  signed catalog and call each other's tools with no page, deny an unauthorized
+  call, reject oversized results, follow a new session, and withdraw on close.
+- `node --test tests/agent-scenarios.test.mjs` (8 scenarios): three independent
+  agents; a human leaving; a human returning; no-visitor tool calls through
+  `createAgentBridge`; a page-only tool reported unavailable; restart without a
+  ghost; MCP-bridge ↔ direct-runtime interop; a generic site using only the
+  public SDK.
+- These tests use real `P2PRoom` signing and verification with an in-process
+  transport. They do not replace the real-network browser E2E.

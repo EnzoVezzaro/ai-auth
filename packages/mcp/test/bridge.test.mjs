@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createAgentBridge, buildAgentActions } from "../bridge.js";
+import {
+  createAgentBridge,
+  buildAgentActions,
+  createRoomToolProvider,
+} from "../bridge.js";
 
 function fakeRuntime() {
   const listeners = new Set();
@@ -120,7 +124,7 @@ test("invoke returns a rejection (not a throw) when the site denies", async () =
   });
   const unknown = await bridge.invoke({ name: "missing" });
   assert.equal(unknown.ok, false);
-  assert.match(unknown.reason, /not advertised|no site tool/i);
+  assert.match(unknown.reason, /No participant advertises|not advertised/i);
 });
 
 test("invoke with several catalogs requires an explicit wallet", async () => {
@@ -237,4 +241,51 @@ test("move publishes the agent cursor and act publishes a signed activity status
   ]);
   await bridge.move({ x: 0.1, y: 0.1, visible: false });
   assert.equal(published.at(-1)[1].visible, false);
+});
+
+test("room tools are executed by the agent runtime with no page involved", async () => {
+  const rt = fakeRuntime();
+  let registered = null;
+  rt.provideTools = (options) => {
+    registered = options;
+    return {
+      tools: options.tools.map((tool) => tool.name),
+      announce() {},
+      close() {},
+    };
+  };
+  const provider = createRoomToolProvider(rt);
+  assert.deepEqual(provider.tools, ["agent.ping", "agent.self"]);
+  const ping = registered.tools.find((tool) => tool.name === "agent.ping");
+  const pong = await ping.handler({});
+  assert.equal(pong.pong, true);
+  assert.equal(pong.agent, "agent:me");
+  const self = registered.tools.find((tool) => tool.name === "agent.self");
+  assert.deepEqual(await self.handler({}), {
+    id: "agent:me",
+    name: null,
+    room: null,
+    capabilities: ["messages.send", "presence.read", "tools.invoke"],
+  });
+  assert.equal(registered.authorize("agent:stranger", "agent.ping", {}), true);
+});
+
+test("a missing tool says why it may be unavailable instead of calling it", async () => {
+  const bridge = createAgentBridge({
+    runtime: fakeRuntime(),
+    clientFactory: () => ({ catalogs: [] }),
+  });
+  const out = await bridge.invoke({ name: "catalog.search" });
+  assert.equal(out.ok, false);
+  assert.match(out.reason, /page/);
+  assert.match(out.reason, /agent/);
+});
+
+test("status reports tools this agent provides", () => {
+  const bridge = createAgentBridge({
+    runtime: fakeRuntime(),
+    clientFactory: () => ({}),
+    providedTools: ["agent.ping"],
+  });
+  assert.deepEqual(bridge.status().provides, ["agent.ping"]);
 });

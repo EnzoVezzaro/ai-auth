@@ -1,6 +1,6 @@
 {
   "name": "@enzovezzaro/ai-auth-agent",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Headless AI Auth agent runtime for Node: file keystore, direct WebRTC peers, heartbeat leases",
   "type": "module",
   "main": "./index.js",

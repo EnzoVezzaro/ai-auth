@@ -87,9 +87,9 @@ export function createToolProvider({
   )
     throw new TypeError("provideTools needs a joined agent room");
   const byName = validateTools(tools);
-  const walletId = room.wallet?.id;
-  if (typeof walletId !== "string")
-    throw new TypeError("provideTools needs a wallet");
+  // The wallet and session exist once the runtime has joined. A provider may be
+  // registered before that; it publishes as soon as the room is live.
+  const ownId = () => room.wallet?.id;
   const nonce = randomToken(24);
   const seen = new Map();
   let running = 0;
@@ -99,7 +99,13 @@ export function createToolProvider({
     [...byName.values()].map((entry) => entry.descriptor);
 
   const publish = (list) => {
-    if (closed || typeof room.session !== "string") return Promise.resolve();
+    const walletId = ownId();
+    if (
+      closed ||
+      typeof walletId !== "string" ||
+      typeof room.session !== "string"
+    )
+      return Promise.resolve();
     return room
       .send("agent/action", {
         kind: "tool-catalog",
@@ -112,8 +118,11 @@ export function createToolProvider({
   };
   const announce = () => publish(catalogTools());
 
-  const respond = (requester, body) =>
-    room
+  const respond = (requester, body) => {
+    const walletId = ownId();
+    if (typeof walletId !== "string" || typeof room.session !== "string")
+      return Promise.resolve();
+    return room
       .send(
         "agent/action",
         {
@@ -128,6 +137,7 @@ export function createToolProvider({
         { to: requester.wallet },
       )
       .catch(() => {});
+  };
 
   async function execute(requester, request) {
     const entry = byName.get(request.name);
@@ -172,7 +182,7 @@ export function createToolProvider({
   function validRequest(payload) {
     return (
       payload?.kind === "tool-request" &&
-      payload.targetWallet === walletId &&
+      payload.targetWallet === ownId() &&
       payload.targetSession === room.session &&
       payload.targetNonce === nonce &&
       typeof payload.requestId === "string" &&
@@ -189,15 +199,11 @@ export function createToolProvider({
   const unsubscribe = room.subscribe(({ direction, envelope }) => {
     if (closed || direction !== "in" || !envelope?.body) return;
     const { type, issuer, payload } = envelope.body;
-    if (type === "peer/hello" && issuer !== walletId) {
+    if (type === "peer/hello" && issuer !== ownId()) {
       announce();
       return;
     }
-    if (
-      type !== "agent/action" ||
-      !validRequest(payload) ||
-      issuer === walletId
-    )
+    if (type !== "agent/action" || !validRequest(payload) || issuer === ownId())
       return;
     const now = Date.now();
     for (const [id, until] of seen) if (until <= now) seen.delete(id);
@@ -222,14 +228,18 @@ export function createToolProvider({
     get tools() {
       return catalogTools().map((tool) => tool.name);
     },
+    // Publishes the catalog again now. The runtime calls this after a reconnect
+    // because a catalog is bound to one live room session.
+    announce: () => announce(),
     // Withdraws the tools at once (an empty catalog replaces the last one);
     // the catalog would otherwise expire on its own within two minutes.
     close() {
       if (closed) return;
-      closed = true;
       clearInterval(refresh);
       unsubscribe();
-      publish([]);
+      const withdrawal = publish([]);
+      closed = true;
+      return withdrawal;
     },
   });
 }

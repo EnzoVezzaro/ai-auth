@@ -9,6 +9,7 @@ import {
 } from "@enzovezzaro/ai-auth-wallet";
 import { signingIdentityFor } from "./keystore.js";
 import { withNodeRtc } from "./rtc.js";
+import { createToolProvider } from "./tool-provider.js";
 
 const ROOM_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,99}$/u;
 const CAPABILITY_PATTERN = /^[a-z][a-z0-9]*(?:[.:/_-][a-z0-9]+)*$/u;
@@ -107,6 +108,7 @@ export function createAgentRuntime(options = {}) {
   const state = createConnectionState({ now });
   const listeners = { event: new Set(), error: new Set(), stale: new Set() };
   const registry = new Map();
+  const providers = new Set();
   let wallet = null;
   let core = null;
   let net = null;
@@ -259,6 +261,9 @@ export function createAgentRuntime(options = {}) {
       currentRoom = room;
       await connect(room);
       await persist(room);
+      // A provider's catalog is bound to the live room session, so a new
+      // session (first join or reconnect) must be announced again.
+      for (const provider of providers) provider.announce();
       timer ??= setInterval(
         () => void api.checkLeases().catch(() => {}),
         Math.max(1_000, Math.min(leaseMs / 3, 5_000)),
@@ -274,6 +279,8 @@ export function createAgentRuntime(options = {}) {
   async function stop({ forget, final }) {
     clearInterval(timer);
     timer = null;
+    for (const provider of providers) provider.close();
+    providers.clear();
     await teardown({ goodbye: true });
     state.tryTransition("disconnected");
     if (forget && stateFile) await rm(stateFile, { force: true });
@@ -306,6 +313,35 @@ export function createAgentRuntime(options = {}) {
     }
   }
 
+  /**
+   * Stable room facade for createAIAuthAgentClient() and tool providers. It
+   * follows reconnects: `session` always reflects the current P2PRoom session.
+   */
+  const agentRoom = Object.freeze({
+    get wallet() {
+      return wallet
+        ? Object.freeze({
+            id: wallet.id,
+            ...(meta.name ? { name: meta.name } : {}),
+          })
+        : undefined;
+    },
+    get session() {
+      return core?.session;
+    },
+    send: (type, payload, sendOptions) => api.send(type, payload, sendOptions),
+    subscribe: (fn) => api.onEvent(fn),
+    // Live room presence, so a client can tell when a peer has left.
+    get peers() {
+      return {
+        values: () =>
+          [...registry.values()].filter(
+            (peer) => now() <= peer.seenAt + leaseMs,
+          ),
+      };
+    },
+  });
+
   const api = {
     get connectionState() {
       return state.snapshot;
@@ -316,35 +352,7 @@ export function createAgentRuntime(options = {}) {
     get room() {
       return currentRoom;
     },
-    /**
-     * Stable room facade for createAIAuthAgentClient(). It follows reconnects:
-     * `session` always reflects the current P2PRoom session.
-     */
-    agentRoom: Object.freeze({
-      get wallet() {
-        return wallet
-          ? Object.freeze({
-              id: wallet.id,
-              ...(meta.name ? { name: meta.name } : {}),
-            })
-          : undefined;
-      },
-      get session() {
-        return core?.session;
-      },
-      send: (type, payload, sendOptions) =>
-        api.send(type, payload, sendOptions),
-      subscribe: (fn) => api.onEvent(fn),
-      // Live room presence, so the client can tell when a site has left.
-      get peers() {
-        return {
-          values: () =>
-            [...registry.values()].filter(
-              (peer) => now() <= peer.seenAt + leaseMs,
-            ),
-        };
-      },
-    }),
+    agentRoom,
     capabilities: caps,
     descriptor: meta,
     origin: site,
@@ -386,6 +394,33 @@ export function createAgentRuntime(options = {}) {
     async send(type, payload = {}, sendOptions = {}) {
       if (!core || core.closed) throw new Error("Join a room before sending");
       return core.send(type, payload, sendOptions);
+    },
+    /**
+     * Publishes tools this runtime executes itself. Peers (and the site's
+     * agent client) discover them through a signed tool catalog and call them
+     * with no browser or visitor present. The provider is tied to this
+     * runtime: closing or leaving the runtime withdraws the catalog.
+     */
+    provideTools(options = {}) {
+      if (closed) throw new Error("The agent runtime is closed");
+      if (!caps.includes("tools.invoke"))
+        throw new Error(
+          "provideTools needs the tools.invoke capability on this runtime",
+        );
+      if (providers.size >= 4)
+        throw new Error("A runtime can publish at most 4 tool providers");
+      const provider = createToolProvider({ room: agentRoom, ...options });
+      providers.add(provider);
+      return Object.freeze({
+        get tools() {
+          return provider.tools;
+        },
+        announce: () => provider.announce(),
+        close: () => {
+          providers.delete(provider);
+          provider.close();
+        },
+      });
     },
     checkLeases,
     leave: () => stop({ forget: true, final: false }),
