@@ -87,8 +87,9 @@ export function approvePermissionRequest(
   request: PermissionRequest,
   approvedCapabilities: string[],
   options?: {
-    sessionTtlMs?: number;
-    idleTimeoutMs?: number;
+    /** Milliseconds, or null for Never (no fixed end, no idle end). */
+    sessionTtlMs?: number | null;
+    idleTimeoutMs?: number | null;
     previousConsent?: SignedEnvelope;
     /** Attach a signed agent descriptor (v2 requests only). Claims, not attestations. */
     agent?: {
@@ -105,7 +106,8 @@ export function approvePermissionRequest(
     audience: string;
     requestNonce: string;
     capabilities: string[];
-    expiresAt: number;
+    /** null when the grant is Never. */
+    expiresAt: number | null;
     room?: string;
     agentDescriptor?: import("./agent-identity.js").AgentDescriptor;
   }>
@@ -424,8 +426,9 @@ export function connectAIAuthModal(options: {
   origin?: string;
   timeoutMs?: number;
   windowObject?: Window;
-  sessionTtlMs?: number;
-  idleTimeoutMs?: number;
+  /** Milliseconds, or null for Never. Omit to let the wallet offer Never. */
+  sessionTtlMs?: number | null;
+  idleTimeoutMs?: number | null;
   /**
    * Enforce a participation policy: remote tool requests must pass
    * `authorizeProtected` (membership, epoch, execution grant, revocation)
@@ -729,13 +732,14 @@ export const MIN_SESSION_TTL_MS: number;
 export const DEFAULT_IDLE_TIMEOUT_MS: number;
 export function sessionLimits(
   request?: {
-    sessionTtlMs?: number;
-    idleTimeoutMs?: number;
+    sessionTtlMs?: number | null;
+    idleTimeoutMs?: number | null;
   } | null,
-): { maxSessionTtlMs: number; maxIdleTimeoutMs: number };
+): { maxSessionTtlMs: number | null; maxIdleTimeoutMs: number | null };
 
 export interface SessionGrant {
-  expiresAt: number;
+  /** null when the grant is Never. */
+  expiresAt: number | null;
   idleTimeoutMs?: number | null;
   capabilities?: readonly string[];
 }
@@ -744,11 +748,13 @@ export type SessionStatus = "active" | "expired" | "idle" | "revoked";
 /** Tracks one verified session grant. Expiry is the signed grant expiry; idle timeout counts only authorized activity. */
 export class SessionLease {
   constructor(payload: SessionGrant, options?: { now?: () => number });
-  readonly expiresAt: number;
+  /** null when the grant is Never. */
+  readonly expiresAt: number | null;
   readonly idleTimeoutMs: number | null;
   readonly lastActivityAt: number;
   /** Earliest time the lease can stop being usable without further activity. */
-  readonly deadline: number;
+  /** null when the grant is Never. */
+  readonly deadline: number | null;
   status(): SessionStatus;
   isActive(): boolean;
   /** Records authorized activity. Returns false when the lease is unusable. */

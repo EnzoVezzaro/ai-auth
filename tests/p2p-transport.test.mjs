@@ -56,7 +56,10 @@ async function makeWallet(name) {
   };
 }
 
-async function makeVerifiedConnection(capabilities = ["tools.invoke"]) {
+async function makeVerifiedConnection(
+  capabilities = ["tools.invoke"],
+  approveOptions = {},
+) {
   const wallet = await makeWallet("Test site wallet");
   const listeners = new Set();
   const popupMessages = [];
@@ -109,7 +112,12 @@ async function makeVerifiedConnection(capabilities = ["tools.invoke"]) {
     await new Promise((resolve) => setImmediate(resolve));
   await dispatch({ type: "ai-auth/connect-ready" });
   const request = popupMessages[0].message.request;
-  const consent = await approvePermissionRequest(wallet, request, capabilities);
+  const consent = await approvePermissionRequest(
+    wallet,
+    request,
+    capabilities,
+    approveOptions,
+  );
   await dispatch({ type: "ai-auth/connect-consent", consent });
   return connectionPromise;
 }
@@ -398,7 +406,10 @@ test("WebMCP tools require tools.invoke even when presence is approved", async (
 });
 
 test("WebMCP registration expires with its verified wallet connection", async () => {
-  const connection = await makeVerifiedConnection(["tools.invoke"]);
+  // A short explicit lifetime: the default grant is Never and has no end to test.
+  const connection = await makeVerifiedConnection(["tools.invoke"], {
+    sessionTtlMs: 60_000,
+  });
   const registrations = [];
   let executions = 0;
   const modelContext = {

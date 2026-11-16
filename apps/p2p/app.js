@@ -101,19 +101,43 @@ const shortId = (value) =>
   value ? `${value.slice(0, 20)}…${value.slice(-9)}` : "Not created";
 const dateText = (value) => new Date(value).toLocaleString();
 function durationText(ms) {
+  if (ms === null) return "Never";
   const minutes = Math.round(ms / 60_000);
   if (ms < 60_000) return `${Math.round(ms / 1000)} seconds`;
   return minutes === 1 ? "1 minute" : `${minutes} minutes`;
 }
+// Session choices in ms, with null as "Never". Never is offered only when the
+// site did not cap the session; a site's numeric cap bounds every choice.
 function sessionTtlChoices(request) {
   const { maxSessionTtlMs } = sessionLimits(request);
-  const choices = new Set(
+  const timed = new Set(
     [5, 15, 30, 60]
       .map((minutes) => minutes * 60_000)
-      .filter((ms) => ms <= maxSessionTtlMs),
+      .filter((ms) => maxSessionTtlMs === null || ms <= maxSessionTtlMs),
   );
-  choices.add(maxSessionTtlMs);
-  return [...choices].sort((a, b) => a - b);
+  if (maxSessionTtlMs !== null) timed.add(maxSessionTtlMs);
+  const sorted = [...timed].sort((a, b) => a - b);
+  return maxSessionTtlMs === null ? [...sorted, null] : sorted;
+}
+// The wallet pre-selects Never when the site allows it, otherwise the usual
+// 30 minutes or the site's cap, whichever is shorter.
+function defaultSessionTtl(limits) {
+  return limits.maxSessionTtlMs === null
+    ? null
+    : Math.min(limits.maxSessionTtlMs, DEFAULT_SESSION_TTL_MS);
+}
+function parseSessionTtl(value) {
+  return value === "never" ? null : Number(value);
+}
+function sessionLimitCopy(request) {
+  return "Choose how long this session may last. Shorter sessions also end after the idle time shown, up to 10 minutes. Never has no time or idle limit: the session stays active until you end it or the site stops it.";
+}
+// A grant with no fixed end (Never) stays open until it is ended or revoked.
+function grantOpen(payload) {
+  return (
+    Boolean(payload) &&
+    (payload.expiresAt === null || payload.expiresAt > Date.now())
+  );
 }
 
 function toast(message) {
@@ -229,7 +253,7 @@ function externalPermissionView() {
       ? `<section class="panel" id="renewal-panel"><p class="mini-label">EXTENSION REQUESTED</p><h2>Keep ${esc(displayOrigin)} connected?</h2><p class="panel-copy">The site asks to extend your session for ${EXTEND_MINUTES} more minutes with the same permissions: ${esc(state.renewal.capabilities.map((capability) => capabilityCopy(capability).title).join(", "))}. Extending never adds permissions.</p><div class="button-row"><button class="button" id="approve-renewal">${EXTEND_LABEL}</button><button class="button quiet" id="decline-renewal">Don't allow</button></div></section>`
       : "";
     return `${pageHead("APPROVAL SENT", "Return to the requesting site.", "Your signed approval was sent to the site that opened this wallet. You can close this tab.")}
-      <section class="panel"><p class="mini-label">APPROVED SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">Approved permissions: ${esc((grant?.capabilities ?? []).map((capability) => capabilityCopy(capability).title).join(", "))}</p><div class="metric-line"><span>Session</span><strong id="session-countdown">${esc(sessionEndText(grant?.expiresAt))}</strong></div>${grant?.idleTimeoutMs ? `<div class="metric-line"><span>Ends after inactivity</span><strong>${esc(durationText(grant.idleTimeoutMs))}</strong></div>` : `<p class="help">Legacy short session from a site on an older SDK; it cannot be renewed.</p>`}<div class="button-row top-gap"><button class="button quiet" id="end-session">End session</button></div></section>${renewalPanel}`;
+      <section class="panel"><p class="mini-label">APPROVED SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">Approved permissions: ${esc((grant?.capabilities ?? []).map((capability) => capabilityCopy(capability).title).join(", "))}</p><div class="metric-line"><span>Session</span><strong id="session-countdown">${esc(sessionEndText(grant?.expiresAt))}</strong></div>${grant?.idleTimeoutMs !== undefined ? `<div class="metric-line"><span>Ends after inactivity</span><strong>${esc(durationText(grant.idleTimeoutMs))}</strong></div>` : `<p class="help">Legacy short session from a site on an older SDK; it cannot be renewed.</p>`}<div class="button-row top-gap"><button class="button quiet" id="end-session">End session</button></div></section>${renewalPanel}`;
   }
   if (state.externalStatus === "rejected") {
     return `${pageHead("REQUEST DECLINED", "The site stays disconnected.", "No identity or permission proof was shared.")}
@@ -257,11 +281,11 @@ function externalPermissionView() {
       )
         .map(
           (ms) =>
-            `<option value="${ms}"${ms === Math.min(sessionLimits(request).maxSessionTtlMs, DEFAULT_SESSION_TTL_MS) ? " selected" : ""}>${esc(durationText(ms))}</option>`,
+            `<option value="${ms === null ? "never" : ms}"${ms === defaultSessionTtl(sessionLimits(request)) ? " selected" : ""}>${esc(durationText(ms))}</option>`,
         )
         .join(
           "",
-        )}</select><small>The session ends at the time shown or after ${esc(durationText(Math.min(sessionLimits(request).maxIdleTimeoutMs, sessionLimits(request).maxSessionTtlMs)))} without activity. The site must ask again to extend it.</small></div>${setupFormError()}<div class="button-row"><button class="button" type="submit">Allow selected permissions</button><button class="button quiet" type="button" id="reject-external-request">Don't allow</button></div></form>
+        )}</select><small>${esc(sessionLimitCopy(request))}</small></div>${setupFormError()}<div class="button-row"><button class="button" type="submit">Allow selected permissions</button><button class="button quiet" type="button" id="reject-external-request">Don't allow</button></div></form>
     </section><aside class="stack"><section class="panel"><div class="panel-head"><div><p class="mini-label">YOUR KEY STAYS HERE</p><h3>Only your approval leaves this tab</h3></div></div><p class="panel-copy">The site receives your public ID and the permissions you allow. A signature proves you control this wallet; the site still enforces its own rules.</p></section></aside></div>`;
 }
 
@@ -519,7 +543,7 @@ async function startRoom() {
     state.transfers.subscribe((transfer) => {
       if (
         state.externalStatus === "sent" &&
-        state.consent?.body?.payload?.expiresAt > Date.now()
+        grantOpen(state.consent?.body?.payload)
       )
         state.externalSource.postMessage(
           { type: "ai-auth/transfer-event", transfer },
@@ -746,7 +770,7 @@ function bindView() {
           sessionTtlMs:
             state.externalRequest.version === 1
               ? undefined
-              : Number(
+              : parseSessionTtl(
                   event.currentTarget.querySelector("#session-ttl")?.value,
                 ),
         },
@@ -796,10 +820,7 @@ function bindView() {
         renewal,
         renewal.capabilities,
         {
-          sessionTtlMs: Math.min(
-            sessionLimits(renewal).maxSessionTtlMs,
-            DEFAULT_SESSION_TTL_MS,
-          ),
+          sessionTtlMs: defaultSessionTtl(sessionLimits(renewal)),
           previousConsent: state.consent,
         },
       );
@@ -964,6 +985,8 @@ function scheduleSessionExpiry() {
     expireExternalSession(state.lease.status());
     return;
   }
+  // A Never grant has no deadline; it is re-checked when the visitor acts.
+  if (state.lease.deadline === null) return;
   state.sessionTimer = setTimeout(
     scheduleSessionExpiry,
     Math.max(1, state.lease.deadline - Date.now()),
@@ -1163,7 +1186,7 @@ if (externalConnectMode) {
       event.origin === state.externalOrigin &&
       event.origin === state.externalRequest?.audience &&
       state.externalStatus === "sent" &&
-      state.consent?.body?.payload?.expiresAt > Date.now()
+      grantOpen(state.consent?.body?.payload)
     ) {
       state.lease?.touch();
       const { id, method, args } = event.data;

@@ -30,9 +30,10 @@ The wallet approval is a signed `connect/consent` envelope with `payload.version
 
 - `audience`, `requestNonce`, `room`, `capabilities` (subset of the request).
 - `issuedAt` and `challengeExpiresAt` (must equal the request `expiresAt`; `issuedAt` must not be later than it).
-- `expiresAt`: the session grant end, equal to `issuedAt + sessionTtlMs`.
-- `sessionTtlMs`: at most the request hint (default 30 minutes) and never more than the 60 minute hard cap.
-- `idleTimeoutMs`: at most `sessionTtlMs` and at most the request hint (default 10 minutes).
+- `expiresAt`: the session grant end, equal to `issuedAt + sessionTtlMs`, or `null` for Never.
+- `sessionPolicy`: `"never"` when the request names no lifetime. It allows Never, and the wallet pre-selects it. Absent on requests from SDKs that predate Never; those keep the 30 minute default, and a Never consent does not verify against them.
+- `sessionTtlMs`: `null` for Never, otherwise an integer between 1 second and 60 minutes. A numeric value is the site's cap and must not be combined with `sessionPolicy`.
+- `idleTimeoutMs`: `null` for Never, otherwise at most `sessionTtlMs` and at most the request hint (default 10 minutes, capped by the lifetime).
 - `renewsNonce`: present only on a renewal.
 
 A renewal is a fresh request with `renews` set, answered by a new consent signed by the same wallet for the same audience and room. Its capabilities must be a subset of the consent being renewed. Verifiers consume the request nonce against the challenge expiry, so a replayed consent or stale challenge is rejected. A consent without `version` is the legacy form whose `expiresAt` may not exceed the request `expiresAt`.

@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 - 2026-11-16
+
+### Changed
+
+- Session length defaults to Never. A site that names no limit gets a grant with no fixed end and no idle end; the session lasts until the owner ends it, the site ends it, or it is revoked. `sessionTtlMs` and `idleTimeoutMs` accept `null` for Never. A numeric site cap rules out Never, and the wallet honors it.
+- The wallet's "Session lasts" choices are 5, 15, 30 and 60 minutes and Never, with Never pre-selected when the site allows it.
+- Consent version 2 may carry `expiresAt: null` and `sessionTtlMs: null` (and `idleTimeoutMs: null`) for Never. Verifiers accept those only when the request allows Never.
+- Requests that name no lifetime carry `sessionPolicy: "never"`. Requests from SDKs that predate Never have no such field and keep the 30 minute default, so existing sites (for example BODY4AI on 0.5.x) still verify their consent.
 
 ## 0.5.3 - 2026-11-16
 

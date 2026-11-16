@@ -149,6 +149,8 @@ const siteServer = createHttpServer((request, response) => {
             const connection = await connectAIAuthModal({
               walletUrl,
               capabilities: ["presence.read", "tools.invoke", "messages.send", "content.share"],
+              // A numeric session: the lifecycle checks below need an expiry (default is Never).
+              sessionTtlMs: 30 * 60_000,
             });
             window.__connection = connection;
             window.__removeWheel = mountCollaborationWheel(connection.transfers, { capabilities: connection.capabilities });

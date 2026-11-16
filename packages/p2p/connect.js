@@ -136,12 +136,25 @@ export async function createPermissionRequest(
     expiresAt: now + expiresInMs,
     capabilities: normalizeCapabilities(capabilities),
     room: validRoom(room),
+    // A request that names no lifetime opts in to Never; the wallet still shows
+    // the visitor the choice and defaults to it.
+    ...(sessionTtlMs === undefined ? { sessionPolicy: "never" } : {}),
     ...(sessionTtlMs === undefined
       ? {}
-      : { sessionTtlMs: boundedMs(sessionTtlMs, "Session lifetime") }),
+      : {
+          sessionTtlMs:
+            sessionTtlMs === null
+              ? null
+              : boundedMs(sessionTtlMs, "Session lifetime"),
+        }),
     ...(idleTimeoutMs === undefined
       ? {}
-      : { idleTimeoutMs: boundedMs(idleTimeoutMs, "Idle timeout") }),
+      : {
+          idleTimeoutMs:
+            idleTimeoutMs === null
+              ? null
+              : boundedMs(idleTimeoutMs, "Idle timeout"),
+        }),
     ...(renews === undefined ? {} : { renews }),
   };
 }
@@ -151,16 +164,58 @@ export async function createPermissionRequest(
  * less than the hard cap; it can never extend its own grant.
  */
 export function sessionLimits(request) {
-  return {
-    maxSessionTtlMs: Math.min(
-      request?.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS,
-      MAX_SESSION_TTL_MS,
-    ),
-    maxIdleTimeoutMs: Math.min(
-      request?.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS,
-      MAX_SESSION_TTL_MS,
-    ),
-  };
+  // null means Never: no fixed end and no idle end. Only a request that opts
+  // in (sessionPolicy "never", or an explicit null) allows Never. A numeric
+  // hint caps the grant. A request without either comes from an SDK that
+  // predates Never; its verifier needs a finite expiry, so it keeps the
+  // 30 minute default.
+  const hint = request?.sessionTtlMs;
+  const maxSessionTtlMs =
+    typeof hint === "number"
+      ? hint
+      : hint === null || request?.sessionPolicy === "never"
+        ? null
+        : DEFAULT_SESSION_TTL_MS;
+  const idleHint = request?.idleTimeoutMs;
+  const maxIdleTimeoutMs =
+    idleHint !== undefined
+      ? idleHint
+      : maxSessionTtlMs === null
+        ? null
+        : Math.min(DEFAULT_IDLE_TIMEOUT_MS, maxSessionTtlMs);
+  return { maxSessionTtlMs, maxIdleTimeoutMs };
+}
+
+// A signed or hinted limit: Never (null) or an integer grant length.
+function optionalLimit(value, name) {
+  return value === null ? null : optionalBounded(value, name);
+}
+
+// The wallet's choice must fit the request's limit. Never is allowed only when
+// the request allows it; an undefined choice takes the request's limit.
+function chooseLimit(choice, allowed, name) {
+  if (choice === undefined) return allowed;
+  if (choice === null) {
+    if (allowed !== null)
+      throw new RangeError(`${name} exceeds the allowed grant`);
+    return null;
+  }
+  const value = boundedMs(choice, name);
+  if (allowed !== null && value > allowed)
+    throw new RangeError(`${name} exceeds the allowed grant`);
+  return value;
+}
+
+// Whether a signed limit is valid under the request's limit (see chooseLimit).
+function withinLimit(value, allowed) {
+  if (value === null) return allowed === null;
+  if (
+    !Number.isInteger(value) ||
+    value < MIN_SESSION_TTL_MS ||
+    value > MAX_SESSION_TTL_MS
+  )
+    return false;
+  return allowed === null || value <= allowed;
 }
 
 export async function approvePermissionRequest(
@@ -217,18 +272,20 @@ export async function approvePermissionRequest(
       throw new Error("Renewal cannot widen the approved capabilities");
   }
   const limits = sessionLimits(request);
-  const ttl = boundedMs(
-    sessionTtlMs ?? limits.maxSessionTtlMs,
+  const ttl = chooseLimit(
+    sessionTtlMs,
+    limits.maxSessionTtlMs,
     "Session lifetime",
   );
-  if (ttl > limits.maxSessionTtlMs)
-    throw new RangeError("Session lifetime exceeds the allowed grant");
-  const idle = Math.min(
-    boundedMs(idleTimeoutMs ?? limits.maxIdleTimeoutMs, "Idle timeout"),
-    ttl,
-  );
-  if (idle > limits.maxIdleTimeoutMs)
-    throw new RangeError("Idle timeout exceeds the allowed grant");
+  // A numeric lifetime without an idle choice keeps the 10 minute idle default
+  // (never longer than the lifetime), even when the site set no idle limit.
+  let idle =
+    idleTimeoutMs === undefined &&
+    ttl !== null &&
+    limits.maxIdleTimeoutMs === null
+      ? Math.min(DEFAULT_IDLE_TIMEOUT_MS, ttl)
+      : chooseLimit(idleTimeoutMs, limits.maxIdleTimeoutMs, "Idle timeout");
+  if (idle !== null && ttl !== null) idle = Math.min(idle, ttl);
   // Optional signed self-description (`ai-auth-agent-descriptor` v1), bound to
   // this request's nonce, origin and room. Old verifiers ignore the extra
   // field; verifiers that know it check it. Legacy v1 consents never carry it.
@@ -253,7 +310,7 @@ export async function approvePermissionRequest(
     room: validRoom(request.room ?? "default"),
     issuedAt: now,
     challengeExpiresAt: request.expiresAt,
-    expiresAt: now + ttl,
+    expiresAt: ttl === null ? null : now + ttl,
     sessionTtlMs: ttl,
     idleTimeoutMs: idle,
     ...(request.renews === undefined ? {} : { renewsNonce: request.renews }),
@@ -274,12 +331,19 @@ export async function verifyPermissionRequest(
       if (
         request.sessionTtlMs !== undefined ||
         request.idleTimeoutMs !== undefined ||
+        request.sessionPolicy !== undefined ||
         request.renews !== undefined
       )
         return false;
     } else {
-      optionalBounded(request.sessionTtlMs, "Session lifetime");
-      optionalBounded(request.idleTimeoutMs, "Idle timeout");
+      optionalLimit(request.sessionTtlMs, "Session lifetime");
+      optionalLimit(request.idleTimeoutMs, "Idle timeout");
+      if (
+        request.sessionPolicy !== undefined &&
+        (request.sessionPolicy !== "never" ||
+          typeof request.sessionTtlMs === "number")
+      )
+        return false;
       if (
         request.renews !== undefined &&
         (typeof request.renews !== "string" ||
@@ -372,10 +436,14 @@ export async function verifyPermissionConsent(
         validRoom(request.room ?? "default")
     )
       return false;
+    // A version 2 grant may be Never (expiresAt null); every other grant
+    // needs a finite expiry still in the future.
+    const neverExpires =
+      payload.version === CONSENT_VERSION && payload.expiresAt === null;
     if (
       payload.requestNonce !== request.nonce ||
-      !Number.isFinite(payload.expiresAt) ||
-      payload.expiresAt <= now
+      (!neverExpires &&
+        (!Number.isFinite(payload.expiresAt) || payload.expiresAt <= now))
     )
       return false;
     if (payload.version === CONSENT_VERSION) {
@@ -388,14 +456,14 @@ export async function verifyPermissionConsent(
         payload.issuedAt > now + 30_000 ||
         payload.issuedAt > request.expiresAt ||
         payload.challengeExpiresAt !== request.expiresAt ||
-        !Number.isInteger(payload.sessionTtlMs) ||
-        payload.sessionTtlMs < MIN_SESSION_TTL_MS ||
-        payload.sessionTtlMs > limits.maxSessionTtlMs ||
-        payload.expiresAt !== payload.issuedAt + payload.sessionTtlMs ||
-        !Number.isInteger(payload.idleTimeoutMs) ||
-        payload.idleTimeoutMs < MIN_SESSION_TTL_MS ||
-        payload.idleTimeoutMs > payload.sessionTtlMs ||
-        payload.idleTimeoutMs > limits.maxIdleTimeoutMs
+        !withinLimit(payload.sessionTtlMs, limits.maxSessionTtlMs) ||
+        (payload.sessionTtlMs === null
+          ? payload.expiresAt !== null
+          : payload.expiresAt !== payload.issuedAt + payload.sessionTtlMs) ||
+        !withinLimit(payload.idleTimeoutMs, limits.maxIdleTimeoutMs) ||
+        (payload.idleTimeoutMs !== null &&
+          payload.sessionTtlMs !== null &&
+          payload.idleTimeoutMs > payload.sessionTtlMs)
       )
         return false;
       if (request.renews !== undefined) {
@@ -495,7 +563,7 @@ export class SessionLease {
   #revoked = false;
 
   constructor(payload, { now = () => Date.now() } = {}) {
-    if (!Number.isFinite(payload?.expiresAt))
+    if (payload?.expiresAt !== null && !Number.isFinite(payload?.expiresAt))
       throw new TypeError("A signed session grant is required");
     this.#payload = payload;
     this.#clock = now;
@@ -516,15 +584,20 @@ export class SessionLease {
 
   /** Earliest time the lease can stop being usable without further activity. */
   get deadline() {
-    return this.idleTimeoutMs === null
-      ? this.expiresAt
-      : Math.min(this.expiresAt, this.#lastActivityAt + this.idleTimeoutMs);
+    const ends = [
+      this.expiresAt,
+      this.idleTimeoutMs === null
+        ? null
+        : this.#lastActivityAt + this.idleTimeoutMs,
+    ].filter((time) => time !== null);
+    return ends.length === 0 ? null : Math.min(...ends);
   }
 
   status() {
     if (this.#revoked) return "revoked";
     const now = this.#clock();
-    if (this.#payload.expiresAt <= now) return "expired";
+    if (this.#payload.expiresAt !== null && this.#payload.expiresAt <= now)
+      return "expired";
     if (
       this.idleTimeoutMs !== null &&
       this.#lastActivityAt + this.idleTimeoutMs <= now
@@ -546,7 +619,11 @@ export class SessionLease {
 
   /** Replaces the grant after a verified renewal. Never revives a dead lease. */
   renew(payload) {
-    if (!this.isActive() || !Number.isFinite(payload?.expiresAt)) return false;
+    if (
+      !this.isActive() ||
+      (payload?.expiresAt !== null && !Number.isFinite(payload?.expiresAt))
+    )
+      return false;
     const before = this.#payload.capabilities ?? [];
     if (
       payload.capabilities?.some((capability) => !before.includes(capability))

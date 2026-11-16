@@ -133,7 +133,7 @@ WebMCP is the primary in-page agent tool surface: the SDK discovers tools expose
 
 ## Sessions
 
-A connection grants a bounded session. The default is 30 minutes, the hard cap is 60 minutes, and the session ends after 10 minutes without authorized activity. A site can ask for less through `sessionTtlMs` and `idleTimeoutMs`, but never more than the cap. Call `connection.renew()` to ask the wallet owner to approve again; renewal can keep or narrow capabilities, never widen them. The wallet shows the expiry countdown and lets the owner end the session. Expired, idle, or ended sessions stop authorized publishing, receiving, transfers and WebMCP calls.
+A connection grants a session. By default it never expires: a site that names no limit gets Never, and the session lasts until the owner ends it, the site ends it, or it is revoked. The wallet lets the owner choose 5, 15, 30 or 60 minutes or Never. A site can cap the session through `sessionTtlMs` and `idleTimeoutMs` (numbers in milliseconds, or `null` for Never); a numeric cap rules out Never, and the wallet honors it. A numeric session without an idle choice ends after 10 minutes without authorized activity. Call `connection.renew()` to ask the wallet owner to approve again; renewal can keep or narrow capabilities, never widen them. The wallet shows the expiry countdown and lets the owner end the session. Expired, idle, or ended sessions stop authorized publishing, receiving, transfers and WebMCP calls.
 
 ## Participation modes
 

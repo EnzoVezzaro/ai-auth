@@ -1,11 +1,16 @@
 const verifiedPageConnections = new WeakMap();
 
+// A grant expiry is a finite time, or null for Never.
+function validGrantExpiry(expiresAt) {
+  return expiresAt === null || Number.isFinite(expiresAt);
+}
+
 export function markVerifiedPageConnection(connection, consent) {
   if (
     !connection ||
     typeof connection !== "object" ||
     !Array.isArray(consent?.body?.payload?.capabilities) ||
-    !Number.isFinite(consent.body.payload.expiresAt)
+    !validGrantExpiry(consent.body.payload.expiresAt)
   )
     throw new TypeError("A verified wallet consent is required");
   verifiedPageConnections.set(connection, {
@@ -21,7 +26,7 @@ export function renewVerifiedPageConnection(connection, consent) {
   if (
     !record ||
     !Array.isArray(capabilities) ||
-    !Number.isFinite(consent.body.payload.expiresAt) ||
+    !validGrantExpiry(consent.body.payload.expiresAt) ||
     capabilities.some((capability) => !record.capabilities.includes(capability))
   )
     throw new TypeError("A verified renewal of this connection is required");
@@ -32,7 +37,7 @@ export function renewVerifiedPageConnection(connection, consent) {
 export function readVerifiedPageConnection(connection, now = Date.now()) {
   const record = verifiedPageConnections.get(connection);
   if (!record) return null;
-  if (record.expiresAt <= now) {
+  if (record.expiresAt !== null && record.expiresAt <= now) {
     revokeVerifiedPageConnection(connection);
     return null;
   }

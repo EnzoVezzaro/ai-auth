@@ -69,34 +69,60 @@ test("handshake challenge stays 1-120s while the session grant is bounded separa
   const payload = consent.body.payload;
   assert.equal(payload.version, 2);
   assert.equal(payload.challengeExpiresAt, request.expiresAt);
-  assert.equal(payload.sessionTtlMs, DEFAULT_SESSION_TTL_MS);
-  assert.equal(payload.expiresAt, payload.issuedAt + DEFAULT_SESSION_TTL_MS);
-  // The signed expiry is the session grant, not the 60 s handshake expiry.
-  assert.ok(payload.expiresAt > request.expiresAt + 15 * MINUTE);
+  // A site that names no limit gets Never: no fixed end and no idle end.
+  assert.equal(payload.sessionTtlMs, null);
+  assert.equal(payload.idleTimeoutMs, null);
+  assert.equal(payload.expiresAt, null);
   assert.equal(await verify(consent, request, wallet), true);
 });
 
-test("a 15 minute collaboration stays authorized and then expires", async () => {
+test("a site that names no limit gets a Never grant that does not expire", async () => {
   const { wallet, request } = await handshake();
   const consent = await approvePermissionRequest(
     wallet,
     request,
     request.capabilities,
   );
-  let clock = consent.body.payload.issuedAt;
-  const lease = new SessionLease(consent.body.payload, { now: () => clock });
-  for (let minute = 1; minute <= 29; minute += 1) {
-    clock = consent.body.payload.issuedAt + minute * MINUTE;
+  const payload = consent.body.payload;
+  let clock = payload.issuedAt;
+  const lease = new SessionLease(payload, { now: () => clock });
+  for (const hours of [1, 24, 24 * 30]) {
+    clock = payload.issuedAt + hours * 60 * MINUTE;
+    assert.equal(lease.status(), "active", `active after ${hours} hours`);
+  }
+  assert.equal(lease.deadline, null);
+  assert.equal(lease.touch(), true);
+  // Only the visitor ends a Never grant, through revocation.
+  lease.revoke();
+  assert.equal(lease.status(), "revoked");
+});
+
+test("a 15 minute collaboration stays authorized and then expires", async () => {
+  const { wallet, request } = await handshake({ sessionTtlMs: 15 * MINUTE });
+  const consent = await approvePermissionRequest(
+    wallet,
+    request,
+    request.capabilities,
+    { sessionTtlMs: 15 * MINUTE },
+  );
+  const payload = consent.body.payload;
+  assert.equal(payload.expiresAt, payload.issuedAt + 15 * MINUTE);
+  // Idle defaults to 10 minutes, capped by the 15 minute lifetime.
+  assert.equal(payload.idleTimeoutMs, 10 * MINUTE);
+  let clock = payload.issuedAt;
+  const lease = new SessionLease(payload, { now: () => clock });
+  for (let minute = 1; minute <= 14; minute += 1) {
+    clock = payload.issuedAt + minute * MINUTE;
     assert.equal(lease.touch(), true, `active at minute ${minute}`);
   }
-  clock = consent.body.payload.expiresAt - 1;
+  clock = payload.expiresAt - 1;
   assert.equal(lease.status(), "active");
-  clock = consent.body.payload.expiresAt;
+  clock = payload.expiresAt;
   assert.equal(lease.status(), "expired");
   assert.equal(lease.touch(), false);
 });
 
-test("a request cannot extend its own grant beyond the hard cap", async () => {
+test("a numeric site cap bounds the grant; only an uncapped site may choose Never", async () => {
   await assert.rejects(
     createPermissionRequest(ORIGIN, ["presence.read"], {
       sessionTtlMs: MAX_SESSION_TTL_MS + 1,
@@ -117,14 +143,55 @@ test("a request cannot extend its own grant beyond the hard cap", async () => {
     approvePermissionRequest(wallet, forged, forged.capabilities),
     /invalid or expired/u,
   );
-  // Without a hint the wallet may not exceed the default either.
+
+  // A site capped at 30 minutes: Never and longer lengths are refused.
+  const capped = await createPermissionRequest(ORIGIN, ["presence.read"], {
+    sessionTtlMs: DEFAULT_SESSION_TTL_MS,
+  });
   await assert.rejects(
-    approvePermissionRequest(wallet, request, request.capabilities, {
+    approvePermissionRequest(wallet, capped, capped.capabilities, {
+      sessionTtlMs: null,
+    }),
+    /exceeds the allowed grant/u,
+  );
+  await assert.rejects(
+    approvePermissionRequest(wallet, capped, capped.capabilities, {
       sessionTtlMs: DEFAULT_SESSION_TTL_MS + 1,
     }),
     /exceeds the allowed grant/u,
   );
-  // A hint up to the cap is honored, and nothing above it.
+  const shorter = await approvePermissionRequest(
+    wallet,
+    capped,
+    capped.capabilities,
+    { sessionTtlMs: 5 * MINUTE },
+  );
+  assert.equal(shorter.body.payload.sessionTtlMs, 5 * MINUTE);
+  // A signed Never grant cannot be presented against the capped request.
+  const neverForCapped = await wallet.sign("connect/consent", {
+    version: 2,
+    audience: ORIGIN,
+    requestNonce: capped.nonce,
+    capabilities: capped.capabilities,
+    room: "default",
+    issuedAt: Date.now(),
+    challengeExpiresAt: capped.expiresAt,
+    expiresAt: null,
+    sessionTtlMs: null,
+    idleTimeoutMs: null,
+  });
+  assert.equal(await verify(neverForCapped, capped, wallet), false);
+
+  // An uncapped request accepts Never; a numeric hint up to the cap still works.
+  const open = await createPermissionRequest(ORIGIN, ["presence.read"]);
+  const forever = await approvePermissionRequest(
+    wallet,
+    open,
+    open.capabilities,
+    { sessionTtlMs: null },
+  );
+  assert.equal(forever.body.payload.expiresAt, null);
+  assert.equal(await verify(forever, open, wallet), true);
   const hinted = await createPermissionRequest(ORIGIN, ["presence.read"], {
     sessionTtlMs: MAX_SESSION_TTL_MS,
   });
@@ -140,6 +207,44 @@ test("a request cannot extend its own grant beyond the hard cap", async () => {
     }),
     RangeError,
   );
+});
+
+test("a request from an SDK that predates Never keeps the 30 minute default", async () => {
+  const wallet = await makeWallet();
+  const modern = await createPermissionRequest(ORIGIN, ["presence.read"]);
+  const { sessionPolicy, ...legacy } = modern;
+  void sessionPolicy;
+  assert.equal(
+    await verifyPermissionRequest(legacy, { expectedOrigin: ORIGIN }),
+    true,
+  );
+  await assert.rejects(
+    approvePermissionRequest(wallet, legacy, legacy.capabilities, {
+      sessionTtlMs: null,
+    }),
+    /exceeds the allowed grant/u,
+  );
+  const consent = await approvePermissionRequest(
+    wallet,
+    legacy,
+    legacy.capabilities,
+  );
+  assert.equal(consent.body.payload.sessionTtlMs, DEFAULT_SESSION_TTL_MS);
+  assert.equal(await verify(consent, legacy, wallet), true);
+  // A Never consent must not verify against a request that did not allow Never.
+  const never = await wallet.sign("connect/consent", {
+    version: 2,
+    audience: ORIGIN,
+    requestNonce: legacy.nonce,
+    capabilities: legacy.capabilities,
+    room: "default",
+    issuedAt: Date.now(),
+    challengeExpiresAt: legacy.expiresAt,
+    expiresAt: null,
+    sessionTtlMs: null,
+    idleTimeoutMs: null,
+  });
+  assert.equal(await verify(never, legacy, wallet), false);
 });
 
 test("verifier rejects a signed consent that outlives the cap or the request's own hint", async () => {
@@ -342,10 +447,12 @@ test("a version 1 request gets the legacy consent the 0.4.1 verifier accepts", a
   const old = await legacyVerifier();
   const wallet = await makeWallet();
   const modern = await createPermissionRequest(ORIGIN, ["presence.read"]);
-  const { sessionTtlMs, idleTimeoutMs, renews, ...base } = modern;
+  const { sessionTtlMs, idleTimeoutMs, renews, sessionPolicy, ...base } =
+    modern;
   void sessionTtlMs;
   void idleTimeoutMs;
   void renews;
+  void sessionPolicy;
   const request = legacyRequest(base);
   const consent = await approvePermissionRequest(wallet, request, [
     "presence.read",

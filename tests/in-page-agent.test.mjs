@@ -888,10 +888,15 @@ const waitFor = async (check) => {
 };
 
 test("a connection outlives the 2 minute handshake window and then expires", async () => {
-  const { connection, popupMessages } = await makeVerifiedConnection([
-    "presence.read",
-    "tools.invoke",
-  ]);
+  // An explicit 30 minute lifetime with the 10 minute idle timeout: the default
+  // grant is Never and would not expire at all.
+  const { connection, popupMessages } = await makeVerifiedConnection(
+    ["presence.read", "tools.invoke"],
+    true,
+    {
+      approveOptions: { sessionTtlMs: 30 * 60_000, idleTimeoutMs: 10 * 60_000 },
+    },
+  );
   closeAfter.push(connection);
   const events = [];
   connection.onLifecycle((event) => events.push(event));
