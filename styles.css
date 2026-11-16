@@ -842,8 +842,11 @@ textarea.control {
   main {
     padding-inline: 24px;
   }
+  /* Stack the request and key panels below 900px: the wallet also renders
+     inside a 720px connect dialog, where side-by-side columns crush the
+     request text into a few characters per line. */
   .grid-main {
-    grid-template-columns: minmax(0, 1.25fr) minmax(220px, 0.85fr);
+    grid-template-columns: 1fr;
   }
 }
 @media (max-width: 700px) {

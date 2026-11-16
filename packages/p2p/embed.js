@@ -195,16 +195,20 @@ export async function connectAIAuthModal({
   const dialog = document.createElement("dialog");
   dialog.setAttribute("aria-label", "Connect AI Auth wallet");
   dialog.style.cssText =
-    "padding:0;border:0;border-radius:12px;width:min(96vw,720px);height:min(90vh,800px);max-width:none;overflow:hidden";
-  const frame = document.createElement("iframe");
-  frame.title = "AI Auth wallet";
-  frame.style.cssText = "border:0;width:100%;height:100%";
-  frame.allow = "clipboard-write";
+    "padding:0;border:0;border-radius:12px;width:min(96vw,720px);height:min(90vh,800px);max-width:none;overflow:hidden;display:flex;flex-direction:column;background:#f3f1eb;color:#0e0e10";
+  // Cancel sits in its own row above the wallet, so it never covers the
+  // wallet's header. It meets the page's 44px touch-target rule.
   const cancelButton = document.createElement("button");
   cancelButton.type = "button";
   cancelButton.textContent = "Cancel";
   cancelButton.setAttribute("aria-label", "Cancel wallet connection");
-  cancelButton.style.cssText = "position:absolute;right:12px;top:8px;z-index:1";
+  cancelButton.style.cssText =
+    "align-self:flex-end;margin:6px 8px 0 0;min-height:44px;min-width:44px;padding:0 16px;border:1px solid #0e0e10;border-radius:999px;background:#fff;color:#0e0e10;font:600 15px/1 system-ui,sans-serif;cursor:pointer";
+  const frame = document.createElement("iframe");
+  frame.title = "AI Auth wallet";
+  frame.style.cssText =
+    "border:0;width:100%;flex:1 1 auto;min-height:0;display:block";
+  frame.allow = "clipboard-write";
   dialog.append(cancelButton, frame);
   document.body.append(dialog);
   const popup = frame.contentWindow;
