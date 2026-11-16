@@ -80,6 +80,19 @@ export interface AgentRuntime {
   readonly connectionState: ConnectionSnapshot;
   readonly identity: AgentWallet | null;
   readonly room: string | null;
+  /** Room facade accepted by createAIAuthAgentClient(). */
+  readonly agentRoom: {
+    readonly wallet?: { id: string };
+    readonly session?: string;
+    send(
+      type: string,
+      payload?: Record<string, unknown>,
+      options?: { to?: string },
+    ): Promise<unknown>;
+    subscribe(
+      listener: (message: { direction: string; envelope?: unknown }) => void,
+    ): () => void;
+  };
   readonly capabilities: readonly string[];
   readonly origin: string;
   onConnectionState(

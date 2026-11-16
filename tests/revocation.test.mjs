@@ -708,7 +708,9 @@ test("link revocations flow through gossip into the policy and a site's revoked 
   t.after(() => [...g.gossips, second].forEach((x) => x.close()));
   const { event, linkId } = await linkRevocationEvent(g.w.alice, g.w.clock.t);
   assert.equal((await g.gossips[0].publishLinkRevocation(event)).applied, true);
-  await settle();
+  await until(
+    () => g.policies[1].revokedLinks.has(linkId) && siteSet.has(linkId),
+  );
   assert.equal(g.policies[1].revokedLinks.has(linkId), true);
   assert.equal(siteSet.has(linkId), true);
   // A replay and a tampered event change nothing.
@@ -779,7 +781,12 @@ test("a peer that was offline converges through a bounded, verified catch-up", a
   assert.equal(g.policies[1].epoch, 0);
   // Peer 1 comes online and announces itself: peer 0 pushes its state back.
   await g.rooms[1].send("peer/hello", {});
-  await settle();
+  await until(
+    () =>
+      g.policies[1].isRevoked("wallet", w.alice.id) &&
+      g.policies[1].revokedLinks.has(linkId) &&
+      g.policies[1].epoch === 1,
+  );
   assert.equal(g.policies[1].isRevoked("wallet", w.alice.id), true);
   assert.equal(g.policies[1].revokedLinks.has(linkId), true);
   assert.equal(g.policies[1].epoch, 1);

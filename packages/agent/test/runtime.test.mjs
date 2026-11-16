@@ -279,3 +279,20 @@ test("the runtime never exposes private key material", async (t) => {
   assert.ok(!dump.includes('"d"'));
   assert.equal(runtime.identity.privateKey, undefined);
 });
+
+test("agentRoom drives the SDK agent client and follows the live session", async (t) => {
+  const hub = createHub();
+  const { runtime } = await setup(t, hub);
+  assert.equal(runtime.agentRoom.session, undefined);
+  await runtime.join();
+  const first = runtime.agentRoom.session;
+  assert.equal(typeof first, "string");
+  assert.equal(runtime.agentRoom.wallet.id, runtime.identity.id);
+  const seen = [];
+  const stop = runtime.agentRoom.subscribe((m) => seen.push(m.direction));
+  await runtime.agentRoom.send("message/text", { text: "x" });
+  assert.ok(seen.includes("out"));
+  stop();
+  await runtime.join("lobby2");
+  assert.notEqual(runtime.agentRoom.session, first);
+});
