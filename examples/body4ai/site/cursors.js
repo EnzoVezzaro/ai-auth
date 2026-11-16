@@ -1,62 +1,71 @@
-// Presence list keyed by VERIFIED identity (the envelope issuer). A display
-// label is shown as the sender's claim next to the verified fingerprint.
-const GRACE_MS = 30_000;
+// Presence list and cursor overlay built on the SDK presence tracker
+// (docs/PROTOCOL.md §6, §8). The tracker only receives events the room has
+// already verified (signature, room, origin, replay, membership), so every
+// entry is keyed by a verified wallet id and session. Labels are claims.
+import { createPresenceTracker } from "../../../packages/p2p/browser.js";
 
-export function mountCursorList({ target, room }) {
-  const entries = new Map();
-  const render = () => {
-    target.replaceChildren();
-    for (const entry of entries.values()) {
-      const node = document.createElement("li");
-      node.dataset.cursor = "";
-      node.dataset.issuer = entry.issuer;
-      node.dataset.session = entry.session;
-      node.dataset.x = String(entry.x);
-      node.dataset.y = String(entry.y);
-      const fingerprint = document.createElement("code");
-      fingerprint.className = "fp";
-      fingerprint.textContent = entry.issuer.slice(6, 18);
-      const claim = document.createElement("span");
-      claim.className = "claim";
-      claim.textContent = ` claims to be "${entry.label}"`;
-      node.append(fingerprint, claim);
-      target.append(node);
-    }
+const SWEEP_MS = 2_000;
+
+function presenceItem(peer) {
+  const node = document.createElement("li");
+  node.dataset.cursor = "";
+  node.dataset.issuer = peer.walletId;
+  node.dataset.session = peer.session;
+  node.dataset.state = peer.state;
+  if (peer.cursor) {
+    node.dataset.x = String(peer.cursor.x);
+    node.dataset.y = String(peer.cursor.y);
+    node.dataset.page = peer.cursor.pageKey;
+  }
+  const fingerprint = document.createElement("code");
+  fingerprint.className = "fp";
+  fingerprint.textContent = peer.walletId.slice(6, 18);
+  const claim = document.createElement("span");
+  claim.className = "claim";
+  claim.textContent = ` claims to be "${peer.label ?? "unnamed"}" (${peer.state})`;
+  node.append(fingerprint, claim);
+  return node;
+}
+
+function cursorMarker(peer) {
+  const marker = document.createElement("div");
+  marker.className = "remote-cursor";
+  marker.dataset.issuer = peer.walletId;
+  marker.style.left = `${peer.cursor.x}px`;
+  marker.style.top = `${peer.cursor.y}px`;
+  marker.textContent = `▲ ${peer.walletId.slice(6, 12)} · ${peer.label ?? ""}`;
+  return marker;
+}
+
+/** Feeds verified room events into the tracker and renders its view. */
+export function mountPresence({ list, overlay, room, pageKey }) {
+  const tracker = createPresenceTracker();
+  const render = (peers) => {
+    list.replaceChildren(...peers.map(presenceItem));
+    overlay.replaceChildren(
+      ...peers
+        .filter((p) => p.state === "online" && p.cursor?.pageKey === pageKey)
+        .map(cursorMarker),
+    );
   };
-  const live = (issuer) =>
-    [...room.peers.values()].some((peer) => peer.id === issuer);
-  const stop = room.subscribe(({ direction, envelope }) => {
+  const stopTracker = tracker.subscribe(render);
+  const stopRoom = room.subscribe(({ direction, envelope }) => {
     if (direction !== "in" || !envelope) return;
     const { type, issuer, payload } = envelope.body;
-    if (type === "peer/goodbye") {
-      if (entries.delete(issuer)) render();
-    } else if (type === "presence/cursor") {
-      if (payload.visible === false) entries.delete(issuer);
-      else
-        entries.set(issuer, {
-          issuer,
-          session: payload.session,
-          x: payload.x,
-          y: payload.y,
-          label: String(payload.label ?? "").slice(0, 60),
-          seenAt: Date.now(),
-        });
-      render();
-    }
+    const peer = { walletId: issuer, session: payload.session };
+    if (type === "peer/hello" || type === "peer/heartbeat")
+      tracker.heartbeat({ ...peer, label: String(payload.label ?? "") });
+    else if (type === "peer/goodbye") tracker.goodbye(peer);
+    else if (type === "presence/cursor") tracker.cursor({ ...peer, payload });
   });
-  const sweep = setInterval(() => {
-    let changed = false;
-    for (const [issuer, entry] of entries)
-      if (Date.now() - entry.seenAt > GRACE_MS && !live(issuer)) {
-        entries.delete(issuer);
-        changed = true;
-      }
-    if (changed) render();
-  }, 2_000);
-  return () => {
-    stop();
-    clearInterval(sweep);
-    entries.clear();
-    render();
+  const sweep = setInterval(() => tracker.sweep() || render(tracker.list()), SWEEP_MS);
+  return {
+    tracker,
+    stop() {
+      stopRoom();
+      stopTracker();
+      clearInterval(sweep);
+      tracker.clear();
+    },
   };
 }

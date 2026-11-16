@@ -1,20 +1,30 @@
 // Steps 12-20: tab close, late joiner, restart, revocation, unlink,
 // disconnect, cross-origin, private presence and the headless agent.
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import {
   assert,
-  CAPS,
   config,
   cursorsOf,
   expectEventually,
   networkAware,
 } from "./world.mjs";
 import { Participant, newContext } from "./participants.mjs";
-import { Pending } from "./report.mjs";
 import { approveNext, discover } from "./steps-tools.mjs";
 
 const peerIds = async (p) => (await p.snapshot()).peers;
+let nodeSeq = 0;
+/** A protocol v1 cursor from the headless agent (document coordinates). */
+const nodeCursor = (x, y) => ({
+  type: "presence/cursor",
+  payload: {
+    type: "ai-auth-cursor",
+    v: 1,
+    pageKey: "/headless",
+    x,
+    y,
+    seq: ++nodeSeq,
+    label: "headless agent",
+  },
+});
 const gotText = (p, from, text) =>
   p.get(
     "b4a.state.events.some((e) => e.type === 'message/text' && e.issuer === arg)",
@@ -78,16 +88,15 @@ export async function step13(w, evidence) {
   await networkAware([second], () => second.call("join"));
   await second.waitForPeers(2, { timeout: 120_000 });
   const stream = async () => {
-    await a1.call("moveCursor", 0.31, 0.41);
-    await a2.call("moveCursor", 0.52, 0.62);
-    await w.headless.cmd("send", {
-      type: "presence/cursor",
-      payload: { x: 0.7, y: 0.2, visible: true, label: "headless agent" },
-    });
+    await a1.call("moveCursor", 310, 410);
+    await a2.call("moveCursor", 520, 620);
+    await w.headless.cmd("send", nodeCursor(700, 200));
   };
   await expectEventually(async () => {
     await stream();
-    const ids = (await cursorsOf(second)).map((c) => c.issuer);
+    const ids = (await cursorsOf(second))
+      .filter((c) => c.x !== null)
+      .map((c) => c.issuer);
     return [a1.walletId, a2.walletId].every((x) => ids.includes(x));
   }, "Human B to see both agents' cursors");
   const sent = await second.call("sendText", {
@@ -134,27 +143,41 @@ export async function step14(w, evidence) {
   await a1.connect();
   await networkAware([a1], () => a1.call("join"));
   await a1.waitForPeers(2, { timeout: 120_000 });
-  await a1.call("moveCursor", 0.34, 0.44);
   const fresh = (await a1.snapshot()).session;
   assert.notEqual(fresh, oldSession);
+  // No ghost: the only ONLINE entry for Agent 1 is the new session with its
+  // cursor; the old session may linger only as offline until its lease ends.
   await expectEventually(
     async () => {
-      const entries = (await cursorsOf(hb2)).filter(
+      await a1.call("moveCursor", 340, 440);
+      const mine = (await cursorsOf(hb2)).filter(
         (c) => c.issuer === a1.walletId,
       );
-      return entries.length === 1 && entries[0].session === fresh;
+      const online = mine.filter((c) => c.state === "online");
+      return (
+        online.length === 1 &&
+        online[0].session === fresh &&
+        online[0].x === 340 &&
+        mine.every((c) => c.session === fresh || c.state === "offline")
+      );
     },
-    "exactly one cursor for Agent 1 on the new session",
+    "exactly one online cursor for Agent 1, on the new session",
     45_000,
   );
   await expectEventually(
     async () => {
-      const list = (await hb2.snapshot()).peerList.filter(
+      const mine = (await cursorsOf(hb2)).filter(
+        (c) => c.issuer === a1.walletId,
+      );
+      const peers = (await hb2.snapshot()).peerList.filter(
         (p) => p.id === a1.walletId,
       );
-      return list.every((p) => p.session === fresh);
+      return (
+        mine.every((c) => c.session === fresh) &&
+        peers.every((p) => p.session === fresh)
+      );
     },
-    "the old session to leave Human B's peer list (lease)",
+    "the old session to be removed within the lease",
     60_000,
   );
   // Headless agent: same keystore, new process, same identity.
@@ -314,18 +337,72 @@ export async function step18(w, evidence) {
   evidence.foreign = result;
 }
 
-export async function step19() {
-  const source = readFileSync(
-    fileURLToPath(new URL("../../packages/p2p/p2p.js", import.meta.url)),
-    "utf8",
+export async function step19(w, evidence) {
+  const { hb2 } = w.p;
+  const ctx = await newContext(w.browser);
+  w.contexts.push(ctx);
+  const pa = new Participant(
+    "Private agent",
+    ctx,
+    w.serverA.siteUrl + "body4ai/",
+    "agent",
   );
-  if (!/privatePresence|presence:\s*"private"/u.test(source))
-    throw new Pending(
-      "private presence is not merged yet (Worker A); no feature to detect",
-    );
-  throw new Pending(
-    "private presence detected; step body not wired to its final API yet",
+  w.p.pa = pa;
+  await pa.open(
+    "index.html",
+    config(w, { label: "Private agent", privatePresence: true }),
   );
+  await pa.identity("Private agent");
+  const proof = await w.authority.admit(pa.walletId, [
+    "presence.read",
+    "messages.send",
+  ]);
+  await pa.call("admitMembership", proof);
+  await pa.connect({ approve: ["presence.read", "messages.send"] });
+  await networkAware([pa], () => pa.call("join"));
+  assert.equal((await pa.snapshot()).privateMode, true);
+  await pa.waitForPeers(1, { timeout: 120_000 });
+  // It receives authorized room events: Human B's broadcast reaches it.
+  await expectEventually(
+    async () => {
+      await hb2.call("sendText", { text: "for every member" });
+      return pa.get(
+        "b4a.state.transferLog.some((e) => e.type === 'text' && e.text === 'for every member')",
+      );
+    },
+    "the private agent to receive an authorized broadcast",
+    60_000,
+  );
+  // It advertises nothing: no cursor can be sent and nobody lists it.
+  const cursor = await pa.call("moveCursor", 50, 50);
+  assert.match(cursor.error ?? "", /do not advertise presence/u);
+  const said = `private signed ${Date.now()}`;
+  assert.equal(
+    (await pa.call("sendSigned", "message/text", { text: said })).ok,
+    true,
+  );
+  await expectEventually(
+    () => gotText(hb2, pa.walletId, said),
+    "Human B to receive the private agent's signed event",
+  );
+  assert.ok(
+    !(await hb2.snapshot()).peers.includes(pa.walletId),
+    "not in presence",
+  );
+  assert.ok(
+    !(await cursorsOf(hb2)).some((c) => c.issuer === pa.walletId),
+    "no cursor for the private agent",
+  );
+  const audit = await pa.call("audit");
+  assert.ok(
+    audit.some((e) => e.type === "message/text" && e.private === true),
+    "audited",
+  );
+  assert.ok(
+    !audit.some((e) => e.type === "peer/hello" || e.type === "presence/cursor"),
+  );
+  evidence.privateWallet = pa.walletId;
+  evidence.audit = audit.map((e) => e.type);
 }
 
 export async function step20(w, evidence) {
@@ -341,14 +418,12 @@ export async function step20(w, evidence) {
     seenBy.peers.includes(node),
     `browser peers see the headless agent; hb2 status ${seenBy.status}/${seenBy.directPeerCount} peers ${seenBy.peers.map((x) => x.slice(6, 14))} node ${node.slice(6, 14)} nodeState ${JSON.stringify({ ...state, events: state.events.length, states: state.states.slice(-4) })}`,
   );
-  await w.headless.cmd("send", {
-    type: "presence/cursor",
-    payload: { x: 0.8, y: 0.3, visible: true, label: "headless" },
-  });
-  await expectEventually(
-    async () => (await cursorsOf(hb2)).some((c) => c.issuer === node),
-    "headless cursor on Human B's page",
-  );
+  await expectEventually(async () => {
+    await w.headless.cmd("send", nodeCursor(800, 300));
+    return (await cursorsOf(hb2)).some(
+      (c) => c.issuer === node && c.x === 800 && c.state === "online",
+    );
+  }, "headless agent's v1 cursor in Human B's presence list");
   const text = `from headless ${Date.now()}`;
   await w.headless.cmd("send", { type: "message/text", payload: { text } });
   await expectEventually(
@@ -365,5 +440,4 @@ export async function step20(w, evidence) {
     "headless agent receives Agent 1's signed event",
   );
   evidence.headlessId = node;
-  void CAPS;
 }

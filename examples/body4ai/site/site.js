@@ -7,6 +7,7 @@ import {
   NostrWebRTC,
   P2PRoom,
   approveLink,
+  buildCursorPayload,
   createAIAuthAgentClient,
   createAIAuthConnectInstruction,
   createParticipationPolicy,
@@ -14,7 +15,6 @@ import {
   createWallet,
   listLinks,
   loadWallet,
-  mountAIAuthCollaboration,
   mountAIAuthConnectPanel,
   mountAIAuthInPageAgent,
   mountCollaborationWheel,
@@ -26,7 +26,7 @@ import {
   revokeVerifiedPageConnection,
 } from "../../../packages/p2p/session.js";
 import { PRODUCTS, getProduct } from "./catalog.js";
-import { mountCursorList } from "./cursors.js";
+import { mountPresence } from "./cursors.js";
 import { negotiateSession, renewSession } from "./session.js";
 import { buildActions, makeAuthorize } from "./tools.js";
 import { foreignChecks } from "./foreign.js";
@@ -83,6 +83,7 @@ function makeAdapter() {
   const disconnects = new Set();
   let closed = false;
   const payload = () => state.session.consent.body.payload;
+  let cursorSeq = 0;
   const adapter = {
     get identity() {
       return { id: state.wallet.id, name: state.wallet.name };
@@ -111,16 +112,18 @@ function makeAdapter() {
       if (state.room) listener(state.room.session);
       return () => {};
     },
-    publishCursor({ x, y, visible = true, scroll }) {
-      void state.room
-        ?.send("presence/cursor", {
+    // Protocol v1 cursor: document coordinates on this page (PROTOCOL.md §8).
+    publishCursor({ x, y }) {
+      return state.room.send(
+        "presence/cursor",
+        buildCursorPayload({
+          pageKey: location.pathname,
           x,
           y,
-          visible,
+          seq: ++cursorSeq,
           label: state.wallet.name,
-          ...(scroll === undefined ? {} : { scroll }),
-        })
-        .catch(() => {});
+        }),
+      );
     },
     publishAction({ name, state: phase, summary }) {
       void state.room
@@ -244,6 +247,8 @@ function createRoom() {
     : null;
   const room = new P2PRoom(state.wallet, config.room, {
     origin: config.origin,
+    // Private presence: receive authorized events, advertise no presence.
+    privateMode: Boolean(config.privatePresence),
     capabilities: approved,
     ...(state.policy
       ? {
@@ -313,20 +318,25 @@ async function join() {
       directPeerCount: snapshot.directPeerCount,
     }),
   );
+  state.presence = mountPresence({
+    list: $("#cursor-list"),
+    overlay: $("#cursor-overlay"),
+    room,
+    pageKey: location.pathname,
+  });
   state.transfers = new CollaborationTransfers(room, {
     authorize: () => state.session.lease.isActive(),
   });
   state.cleanups.push(
     recordEvents(room),
     recordTransfers(state.transfers),
-    mountCursorList({ target: $("#cursor-list"), room }),
+    () => state.presence.stop(),
     mountCollaborationWheel(state.transfers, {
       capabilities: approved,
       room,
       network: state.transport,
       expiresAt: state.session.lease.expiresAt,
     }),
-    mountAIAuthCollaboration(state.adapter, { target: document.body }),
     () => state.transfers.close(),
   );
   if (state.policy)
@@ -349,8 +359,10 @@ async function mountTools() {
   state.tools = await mountAIAuthInPageAgent({
     actions: buildActions(state),
     connection: state.adapter,
+    // The SDK gate: every remote run needs a live membership scope and an
+    // execution grant from this policy; `authorize` adds the human decision.
+    policy: state.policy,
     authorize: makeAuthorize({
-      policy: state.policy,
       target: $("#approvals"),
       log: (...entry) => state.denials.push(entry.join(": ")),
     }),
@@ -379,11 +391,14 @@ function snapshot() {
     issuedAt: state.session?.consent.body.payload.issuedAt ?? null,
     hasMembership: Boolean(state.membership),
     mode: room?.participationMode ?? null,
+    privateMode: room?.privateMode ?? false,
     cursors: [...document.querySelectorAll("[data-cursor]")].map((node) => ({
       issuer: node.dataset.issuer,
       session: node.dataset.session,
-      x: Number(node.dataset.x),
-      y: Number(node.dataset.y),
+      state: node.dataset.state,
+      page: node.dataset.page ?? null,
+      x: node.dataset.x === undefined ? null : Number(node.dataset.x),
+      y: node.dataset.y === undefined ? null : Number(node.dataset.y),
       text: node.textContent,
     })),
     catalogs: state.catalogs.map((c) => ({
@@ -545,7 +560,16 @@ window.__b4a = {
     return snapshot();
   },
   disconnect: () => state.adapter?.close("closed"),
-  moveCursor: (x, y) => state.adapter.publishCursor({ x, y }),
+  moveCursor: (x, y) =>
+    state.adapter.publishCursor({ x, y }).then(
+      () => ({ ok: true }),
+      (error) => describeError(error),
+    ),
+  audit: () => state.room.audit().map(({ type, private: hidden }) => ({ type, private: hidden })),
+  overlay: () =>
+    [...document.querySelectorAll("#cursor-overlay .remote-cursor")].map(
+      (node) => node.dataset.issuer,
+    ),
   sendText,
   sendAttachment,
   callTool,

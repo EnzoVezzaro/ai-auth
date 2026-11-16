@@ -1,6 +1,5 @@
 // Steps 10 and 11: BODY4AI WebMCP tools and mixed permissions.
 import { assert, CAPS, expectEventually } from "./world.mjs";
-import { KnownBug } from "./report.mjs";
 
 const ids = (p) => p.get("b4a.state.catalogs.map((c) => c.wallet)");
 
@@ -30,6 +29,20 @@ export async function step10(w, evidence) {
     "wishlist.add",
   ]);
   evidence.tools = catalog.tools;
+  // Restricted room: a member without an execution grant runs nothing, not
+  // even a read-only tool, and gets an explicit refusal (no human prompt).
+  const noGrant = await a1.call("callTool", {
+    host: ha.walletId,
+    name: "catalog.search",
+    input: { query: "chair" },
+    giveUpMs: 15_000,
+  });
+  assert.equal(noGrant.ok, undefined, "no execution grant, no run");
+  assert.match(noGrant.error ?? "", /not authorized/u);
+  assert.equal(await ha.get("b4a.state.executions.length"), 0);
+  evidence.withoutGrant = noGrant.error;
+  const grant = await w.authority.executionGrant(a1.walletId);
+  assert.equal((await ha.call("admitGrant", a1.walletId, grant)).ok, true);
   const search = await a1.call("callTool", {
     host: ha.walletId,
     name: "catalog.search",
@@ -38,20 +51,7 @@ export async function step10(w, evidence) {
   assert.equal(search.ok, true, search.error);
   assert.equal(search.result.results[0].id, "b4a-001");
   assert.equal(search.result.results[0].memberPrice, 995);
-  // Protected without an execution grant: rejected before any human prompt.
-  const noGrant = await a1.call("callTool", {
-    host: ha.walletId,
-    name: "wishlist.add",
-    input: { productId: "b4a-001" },
-    giveUpMs: 10_000,
-  });
-  assert.ok(
-    noGrant.error || noGrant.result?.error,
-    "no execution grant, no run",
-  );
   assert.equal(await ha.get("b4a.state.wishlist.length"), 0);
-  const grant = await w.authority.executionGrant(a1.walletId);
-  assert.equal((await ha.call("admitGrant", a1.walletId, grant)).ok, true);
   // Approve.
   const approved = a1.call("callTool", {
     host: ha.walletId,
@@ -131,11 +131,7 @@ export async function step10(w, evidence) {
   );
   evidence.denyObservation = verdict;
   evidence.hostDenials = await ha.get("b4a.state.denials");
-  if (verdict.ok)
-    throw new KnownBug(
-      `deny resolved the agent call as success: ${JSON.stringify(verdict.result)}`,
-      "the agent call rejects (webmcp-contract todo: denied calls are sent as tool-response.result {error})",
-    );
+  assert.equal(verdict.ok, undefined, "a denied call must not succeed");
   assert.match(
     verdict.error,
     /approval|denied/u,
@@ -169,6 +165,8 @@ export async function step11(w, evidence) {
     "host to accept the upgraded membership",
     45_000,
   );
+  const grant = await w.authority.executionGrant(a2.walletId);
+  assert.equal((await ha.call("admitGrant", a2.walletId, grant)).ok, true);
   const ok = await a2.call("callTool", {
     host: ha.walletId,
     name: "catalog.search",

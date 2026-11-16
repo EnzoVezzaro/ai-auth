@@ -1,7 +1,6 @@
 // BODY4AI WebMCP tools. catalog.search and product.get are read-only;
 // wishlist.add is protected: it needs the tools.invoke scope, a live execution
 // grant (authorizeProtected) AND an explicit human decision on this page.
-import { authorizeProtected } from "../../../packages/p2p/browser.js";
 import { getProduct, searchCatalog } from "./catalog.js";
 
 const objectSchema = (properties, required = []) => ({
@@ -49,6 +48,8 @@ export function buildActions({ wishlist, executions }) {
     {
       name: "wishlist.add",
       description: "Add a product to the visitor's wishlist (needs approval).",
+      // Always requires the participation policy gate for remote requesters.
+      protected: true,
       inputSchema: objectSchema({ productId: { type: "string" } }, [
         "productId",
       ]),
@@ -88,23 +89,20 @@ export function askHuman({ target, action, input, requester }) {
   });
 }
 
-export function makeAuthorize({ policy, target, log }) {
+/**
+ * The human gate. The SDK already enforced membership scope and the execution
+ * grant before this runs; read-only tools need no extra click, side effects do.
+ */
+export function makeAuthorize({ target, log }) {
   return async (action, input, context) => {
     const requester = context.requester?.id;
-    if (!requester || !policy.can(requester, "tools.invoke")) {
-      log("denied", action.name, "missing scope");
+    if (!requester) {
+      log("denied", action.name, "no verified requester");
       return false;
     }
     if (action.readOnly) return true;
-    const verdict = authorizeProtected({
-      policy,
-      walletId: requester,
-      scope: "tools.invoke",
-    });
-    if (!verdict.allow) {
-      log("denied", action.name, verdict.reason);
-      return false;
-    }
-    return askHuman({ target, action, input, requester });
+    const approved = await askHuman({ target, action, input, requester });
+    if (!approved) log("denied", action.name, "human declined");
+    return approved;
   };
 }

@@ -10,7 +10,6 @@ import {
   hasEvent,
   networkAware,
 } from "./world.mjs";
-import { KnownBug } from "./report.mjs";
 
 export async function step4(w, evidence) {
   const { ha, a1, a2, hb } = w.p;
@@ -158,63 +157,71 @@ export async function step6(w, evidence) {
   );
   const leaked = seen.filter((t) => !allowed.has(t.split(" ")[0]));
   evidence.agent3Received = seen;
-  if (leaked.length)
-    throw new KnownBug(
-      `uninvited Agent 3 received restricted-room events: ${leaked.join(", ")} (members' policies do not list it)`,
-      "no non-presence event reaches a wallet that holds no valid membership",
-    );
+  assert.deepEqual(
+    leaked,
+    [],
+    "uninvited Agent 3 received no restricted-room events",
+  );
 }
 
 export async function step7(w, evidence) {
   const { ha, a1, a2, a3 } = w.p;
+  // Protocol v1 cursors: document coordinates (CSS px) on a page key.
   const spots = [
-    [ha, 0.11, 0.21],
-    [a1, 0.33, 0.43],
-    [a2, 0.55, 0.65],
+    [ha, 110, 210],
+    [a1, 330, 430],
+    [a2, 550, 650],
   ];
   // A pointer streams positions; a cursor sent before a peer has verified our
   // membership is legitimately dropped, so keep moving until each is seen.
   const move = async () => {
     for (const [p, x, y] of spots) await p.call("moveCursor", x, y);
-    await a3.call("moveCursor", 0.9, 0.9);
+    await a3.call("moveCursor", 900, 900);
   };
-  await move();
   const issuers = [ha, a1, a2].map((p) => p.walletId);
+  const withCursor = (list) => list.filter((c) => c.x !== null);
   for (const viewer of [ha, a1, a2]) {
     const expected = issuers.filter((id) => id !== viewer.walletId);
     await expectEventually(async () => {
       await move();
-      const list = await cursorsOf(viewer);
+      const list = withCursor(await cursorsOf(viewer));
       return expected.every((id) => list.some((c) => c.issuer === id));
-    }, `${viewer.name} to see the other cursors`).catch(async (error) => {
-      const got = await viewer.get(
-        "b4a.state.events.filter((e) => e.type === 'presence/cursor').map((e) => e.issuer.slice(6, 14))",
-      );
-      throw new Error(
-        `${error.message}; cursor events from ${JSON.stringify(got)}; list ${JSON.stringify((await cursorsOf(viewer)).map((c) => c.issuer.slice(6, 14)))}; expected ${JSON.stringify(expected.map((x) => x.slice(6, 14)))}`,
-      );
-    });
+    }, `${viewer.name} to see the other cursors`);
     const list = await cursorsOf(viewer);
     const ids = list.map((c) => c.issuer);
     assert.equal(
       new Set(ids).size,
       ids.length,
-      `${viewer.name}: no duplicate cursors`,
+      `${viewer.name}: one entry per identity`,
     );
     assert.ok(
       !ids.includes(viewer.walletId),
-      "own identity is not listed as a remote cursor",
+      "own identity is not a remote cursor",
     );
-    assert.ok(!ids.includes(a3.walletId), "uninvited agent has no cursor");
+    assert.ok(!ids.includes(a3.walletId), "uninvited agent has no presence");
     for (const entry of list) assert.match(entry.text, /claims to be/u);
   }
   const seen = await cursorsOf(ha);
   const forA1 = seen.find((c) => c.issuer === a1.walletId);
-  assert.equal(forA1.x, 0.33);
+  assert.deepEqual(
+    [forA1.x, forA1.y, forA1.page],
+    [330, 430, "/ai-auth/body4ai/index.html"],
+  );
+  // Same page, same overlay: Agent 1 and Agent 2 browse the catalog page.
+  await expectEventually(
+    async () => (await a1.call("overlay")).includes(a2.walletId),
+    "Agent 2's cursor drawn on Agent 1's catalog page",
+  );
+  assert.ok(
+    !(await a1.call("overlay")).includes(ha.walletId),
+    "Human A is on another page",
+  );
   evidence.cursorsSeenByHumanA = seen.map((c) => ({
     issuer: c.issuer.slice(0, 18),
+    state: c.state,
     x: c.x,
     y: c.y,
+    page: c.page,
   }));
 }
 

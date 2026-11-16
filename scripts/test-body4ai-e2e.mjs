@@ -167,7 +167,7 @@ try {
     );
     await run(
       19,
-      "Private presence: no cursor, still receives (PENDING feature)",
+      "Private presence: no cursor or presence, still receives and is audited",
       life.step19,
     );
   }
