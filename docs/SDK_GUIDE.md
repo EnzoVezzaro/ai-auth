@@ -17,7 +17,7 @@ AI Auth operates no authentication server, database, or collaboration backend. T
 
 Every package works without an AI Auth-operated service.
 
-AI Auth is published on **GitHub Pages only**. See the [hosting policy](HOSTING.md) for the CI guard and removal of the legacy Vercel GitHub App.
+The static site is hosted on **GitHub Pages**; the npm packages are published to npm by [`.github/workflows/release.yml`](../.github/workflows/release.yml). See the [hosting policy](HOSTING.md) for the CI guard and removal of the legacy Vercel GitHub App.
 
 ## Run the wallet
 
@@ -144,7 +144,7 @@ A connection grants a session. By default it never expires: a site that names no
 
 Rooms are `open` by default: anyone who knows the site origin and room name can join. The SDK does not emit a join notice; it exposes the disclosure text as `OPEN_ROOM_DISCLOSURE` (`policy.disclosure` / `room.disclosure`) for the site to display. A `restricted` room admits only peers that present a site-issued `ai-auth-membership` proof. Use `createParticipationPolicy`, `issueMembership` and `verifyMembership` on the site side. Membership can last a short time, a configured time, a long time, or until revoked. An until-revoked membership never runs protected operations on its own; each protected operation also needs a short-lived execution grant (`issueExecutionGrant`, checked by `authorizeProtected`). Revoke a membership or link with a signed `ai-auth-revocation` record; the record is shared between connected peers with `createRevocationGossip`.
 
-Revocation is not instant and not global. A peer that was offline or disconnected learns about it only when it reconnects and catches up, and an execution grant limits the damage in the meantime. See [the security boundaries](SECURITY.md) and [the protocol contracts](PROTOCOL.md).
+Revocation is per-target and per-room, not universal. `revocation.js` provides signed revocation records for exactly three kinds — one `membership`, `link`, or `wallet` id (`REVOCATION_KINDS`) — plus signed `ai-auth-epoch` records, verified against one exact origin and room (`verifyRevocation` and `verifyEpochRecord` fail closed on a wrong origin or room) and spread by `createRevocationGossip` with bounded reconnect catch-up. What is absent: no cross-room or cross-origin switch and no revoke-everything call; a peer offline beyond the catch-up window does not converge through gossip (see [the security boundaries](SECURITY.md)). Within one room policy, `bumpEpoch()` does invalidate every proof and grant issued under an older epoch, and the short-lived execution grant keeps the window small. See also [the protocol contracts](PROTOCOL.md).
 
 ## Private presence
 
@@ -152,9 +152,9 @@ Private mode joins a room silently. A private participant receives the room's au
 
 ## Headless agents
 
-`@enzovezzaro/ai-auth-agent` lets an agent stay in a site's room without a browser tab. Each agent instance keeps its own wallet in an encrypted keystore (`0600` file, passphrase from `AI_AUTH_PASSPHRASE` or a terminal prompt). A corrupted keystore fails closed rather than creating a new identity. `createAgentRuntime` joins the room, sends heartbeat leases, reconnects with backoff, and `resume()` rejoins a saved room after a restart (the MCP CLI does this with `--resume`). The runtime reports `direct-peer-connected` only after a real WebRTC data channel is open. A worked example is `packages/agent/examples/peer.mjs`, and the design is in [the agent runtime notes](AGENT_RUNTIME.md).
+`@enzovezzaro/ai-auth-agent` lets an agent stay in a site's room without a browser tab. Each agent instance keeps its own wallet in an encrypted keystore (`0600` file, passphrase from `AI_AUTH_PASSPHRASE` or a terminal prompt). A corrupted keystore fails closed rather than creating a new identity. `createAgentRuntime` joins the room, sends heartbeat leases, reconnects with backoff, and `resume()` rejoins a saved room after a restart (the MCP CLI does this with `--resume`). The runtime reports `direct-peer-connected` only after a real WebRTC data channel is open. A worked example is `packages/agent/examples/peer.mjs`. [AGENT_RUNTIME.md](AGENT_RUNTIME.md) is the Node WebRTC spike record, not a setup guide.
 
-Local agent runtimes can use `ai-auth-mcp`, which exposes `ai_auth_*` tools over MCP stdio. Connecting asks the owner for consent: an interactive terminal shows a preview and prompts, and a non-interactive run refuses unless `--approve` lists the exact scopes. Claude Code has been verified end to end. Codex and OpenCode registration is documented in [the adapter guide](AGENT_ADAPTERS.md); their tool calls have not yet been verified.
+Local agent runtimes can use `ai-auth-mcp`, which exposes `ai_auth_*` tools over MCP stdio. Connecting asks the owner for consent: an interactive terminal shows a preview and prompts, and a non-interactive run refuses unless `--approve` lists the exact scopes. The [adapter guide](AGENT_ADAPTERS.md) records verification on 2026-11-15 (scratch configs only): a Claude Code tool call reached a peer over WebRTC, while Codex and OpenCode tool calls remain unverified (those runs stopped before a tool call).
 
 ## Upgrading from 0.4.x
 
