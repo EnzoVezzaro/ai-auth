@@ -20,7 +20,7 @@ The independent page built in `scripts/test-browser-e2e.mjs` is **not Body4AI**.
 | Generic tool advertisement | `packages/p2p/webmcp.js`, **site-provided** action definitions | The separate agent sees `page.review`, `demo.echo` and `demo.increment` in the site's catalog |
 | Tool authorization and execution | `mountAIAuthInPageAgent`; **site-provided** approval callback and executors | Separate agent calls `demo.echo` once and `demo.increment` twice; asserted results require browser approval |
 | Cursor and visible signed-event log | AI Auth room events and browser fixture | Browser E2E asserts agent cursor and human cursor, and screenshots the receiving page after assertions |
-| Screenshot evidence | Playwright `page.screenshot()` | `test-results/screenshots/generic-site-verified-events.png` and `ai-auth-wallet-connected.png`; GitHub Actions artifact `ai-auth-playwright-screenshots` |
+| Screenshot evidence | Playwright `page.screenshot()` | `test-results/screenshots/generic-site-verified-events.png` and `generic-agent-client-connected.png`; GitHub Actions artifact `ai-auth-playwright-screenshots` |
 | Failure evidence | Browser E2E error handler | Attempts `test-results/screenshots/generic-site-failure.png`; original failure is re-thrown |
 | Headless runtime, human departure/return | `packages/agent` + separate consumer tests | **Not covered by this screenshot test**; see the dedicated multi-agent E2E and Body4AI keep-alive test |
 | Production Body4AI deployment | `sell-ai-companion`, not the AI Auth SDK | **Not established by this PR**; requires a separate production deployment/review |
