@@ -3,22 +3,17 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { once } from "node:events";
-import { createServer as createNetServer } from "node:net";
 import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
-import { chromium } from "playwright";
+import {
+  approveWallet as approveWalletModal,
+  freePort,
+  launchBrowser,
+  root,
+  waitForServer,
+} from "./e2e/helpers.mjs";
 
-const root = fileURLToPath(new URL("../", import.meta.url));
-const portProbe = createNetServer();
-await new Promise((resolve, reject) => {
-  portProbe.once("error", reject);
-  portProbe.listen(0, "127.0.0.1", resolve);
-});
-const walletPort = portProbe.address().port;
-await new Promise((resolve, reject) =>
-  portProbe.close((error) => (error ? reject(error) : resolve())),
-);
+const walletPort = await freePort();
 const basePath = "/ai-auth/";
 const staticSiteUrl = `http://127.0.0.1:${walletPort}${basePath}`;
 const walletBaseUrl = `${staticSiteUrl}wallet/`;
@@ -252,155 +247,22 @@ const integrationSiteUrl = `http://localhost:${siteServer.address().port}/?debug
 let browser;
 const contexts = [];
 
-async function waitForServer(url) {
-  const deadline = Date.now() + 30_000;
-  while (Date.now() < deadline) {
-    if (walletServer.exitCode !== null)
-      throw new Error(
-        `Static wallet server exited with ${walletServer.exitCode}`,
-      );
-    try {
-      const response = await fetch(url);
-      if (response.ok) return;
-    } catch {
-      await delay(100);
-    }
-  }
-  throw new Error(`Static wallet server did not serve ${url}`);
-}
-
-async function approveWallet(context, name, passphrase) {
-  await context.addInitScript(() => {
-    const NativePeerConnection = window.RTCPeerConnection;
-    if (!NativePeerConnection) return;
-    window.__aiAuthIceDiagnostics = [];
-    window.RTCPeerConnection = new Proxy(NativePeerConnection, {
-      construct(target, args, newTarget) {
-        const peer = Reflect.construct(target, args, newTarget);
-        peer.addEventListener("iceconnectionstatechange", async () => {
-          if (!["failed", "disconnected"].includes(peer.iceConnectionState))
-            return;
-          const stats = await peer.getStats().catch(() => new Map());
-          const entries = [...stats.values()];
-          const candidates = entries
-            .filter(
-              (stat) =>
-                stat.type === "local-candidate" ||
-                stat.type === "remote-candidate",
-            )
-            .map(({ type, candidateType, protocol, port, relayProtocol }) => ({
-              type,
-              candidateType,
-              protocol,
-              port,
-              relayProtocol,
-            }));
-          const pairs = entries
-            .filter((stat) => stat.type === "candidate-pair")
-            .map(
-              ({
-                state,
-                nominated,
-                selected,
-                bytesSent,
-                bytesReceived,
-                localCandidateId,
-                remoteCandidateId,
-              }) => ({
-                state,
-                nominated,
-                selected,
-                bytesSent,
-                bytesReceived,
-                localCandidateId,
-                remoteCandidateId,
-              }),
-            );
-          window.__aiAuthIceDiagnostics.push({
-            iceConnectionState: peer.iceConnectionState,
-            connectionState: peer.connectionState,
-            candidates,
-            pairs,
-          });
-        });
-        return peer;
-      },
-    });
+function approveWallet(context, name, passphrase) {
+  return approveWalletModal(context, {
+    siteUrl: integrationSiteUrl,
+    name,
+    passphrase,
+    approve: [
+      "presence.read",
+      "tools.invoke",
+      "messages.send",
+      "content.share",
+    ],
   });
-  const site = await context.newPage();
-  const siteDiagnostics = [];
-  site.on("console", (message) => {
-    if (message.text().includes("[AI Auth debug]"))
-      siteDiagnostics.push(message.text());
-  });
-  await site.goto(integrationSiteUrl);
-  await site.locator("#connect").click();
-  const popupErrors = [];
-  site.on("pageerror", (error) => popupErrors.push(error.message));
-  site.on("console", (message) => {
-    if (
-      message.type() === "error" ||
-      message.text().includes("[AI Auth debug]")
-    )
-      popupErrors.push(message.text());
-  });
-  await site.locator('dialog iframe[title="AI Auth wallet"]').waitFor();
-  const popup = await (
-    await site.locator('dialog iframe[title="AI Auth wallet"]').elementHandle()
-  ).contentFrame();
-  assert.ok(popup, "wallet iframe exists");
-  await popup.waitForFunction(
-    () =>
-      document
-        .querySelector("#view")
-        ?.innerText.includes("Requested capabilities"),
-    undefined,
-    { timeout: 10_000 },
-  );
-  if (await popup.locator("[data-go-wallet]").count()) {
-    await popup.locator("[data-go-wallet]").click();
-    await popup.locator("#wallet-name").fill(name);
-    await popup.locator("#wallet-passphrase").fill(passphrase);
-    await popup.locator("#wallet-passphrase-confirm").fill(passphrase);
-    assert.notEqual(await site.evaluate(() => window.__connected), true);
-    const download = site.waitForEvent("download");
-    await popup.locator('#create-wallet-form button[type="submit"]').click();
-    await download;
-  }
-  try {
-    await popup
-      .locator("#external-permission-form")
-      .waitFor({ timeout: 30_000 });
-  } catch (error) {
-    throw new Error(
-      `Wallet popup did not show the permission form. Current view: ${await popup.locator("#view").innerText()} Errors: ${popupErrors.join(" | ")}`,
-      { cause: error },
-    );
-  }
-  await popup
-    .locator('input[name="external-capability"][value="presence.read"]')
-    .check();
-  await popup
-    .locator('input[name="external-capability"][value="tools.invoke"]')
-    .check();
-  await popup
-    .locator('input[name="external-capability"][value="messages.send"]')
-    .check();
-  await popup
-    .locator('input[name="external-capability"][value="content.share"]')
-    .check();
-  assert.notEqual(await site.evaluate(() => window.__connected), true);
-  await popup
-    .locator('#external-permission-form button[type="submit"]')
-    .click();
-  await site.waitForFunction(() => window.__connected === true, undefined, {
-    timeout: 30_000,
-  });
-  return { site, popup, popupErrors, siteDiagnostics };
 }
 
 try {
-  await waitForServer(walletUrl);
+  await waitForServer(walletUrl, walletServer);
   const landing = await fetch(staticSiteUrl).then((response) =>
     response.text(),
   );
@@ -414,15 +276,7 @@ try {
   assert.equal((await fetch(`${walletBaseUrl}styles.css`)).status, 200);
   assert.equal((await fetch(`${staticSiteUrl}ai-auth.js`)).status, 200);
 
-  browser = await chromium.launch({
-    headless: true,
-    args: process.env.AI_AUTH_BLOCK_THIRD_PARTY
-      ? ["--test-third-party-cookie-phaseout"]
-      : [],
-    ...(process.env.AI_AUTH_CHROMIUM_PATH
-      ? { executablePath: process.env.AI_AUTH_CHROMIUM_PATH }
-      : {}),
-  });
+  browser = await launchBrowser();
   const contextA = await browser.newContext({ acceptDownloads: true });
   const contextB = await browser.newContext({ acceptDownloads: true });
   contexts.push(contextA, contextB);
