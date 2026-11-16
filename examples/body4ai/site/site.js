@@ -15,7 +15,6 @@ import {
   createWallet,
   listLinks,
   loadWallet,
-  mountAIAuthConnectPanel,
   mountAIAuthInPageAgent,
   mountCollaborationWheel,
   unlink,
@@ -26,7 +25,16 @@ import {
   revokeVerifiedPageConnection,
 } from "../../../packages/p2p/session.js";
 import { PRODUCTS, getProduct } from "./catalog.js";
+import { mountConnectPanel } from "./connect-panel.js";
 import { mountPresence } from "./cursors.js";
+import {
+  PlainError,
+  capabilityLabel,
+  connectionStatusLabel,
+  requirePassphrase,
+  requireWallet,
+  sessionEndText,
+} from "./messages.js";
 import { negotiateSession, renewSession } from "./session.js";
 import { buildActions, makeAuthorize } from "./tools.js";
 import { foreignChecks } from "./foreign.js";
@@ -63,6 +71,10 @@ const state = {
   lifecycle: [],
   calls: new Map(),
   cleanups: [],
+  busy: false,
+  error: "",
+  closeReason: "",
+  panel: null,
 };
 const $ = (selector) => document.querySelector(selector);
 const storageKey = () =>
@@ -162,7 +174,7 @@ function makeAdapter() {
         room: state.config.room,
       });
       renewVerifiedPageConnection(adapter, state.session.consent);
-      showExpiry();
+      refreshView();
       for (const l of lifecycle)
         l({ type: "renewed", expiresAt: adapter.expiresAt });
     },
@@ -171,7 +183,10 @@ function makeAdapter() {
       closed = true;
       state.session?.lease.revoke();
       revokeVerifiedPageConnection(adapter);
+      state.closeReason = reason;
+      state.error = "";
       void teardown(reason === "expired" || reason === "idle");
+      refreshView();
       state.lifecycle.push({ type: "disconnected", reason });
       for (const l of lifecycle) l({ type: "disconnected", reason });
       for (const l of disconnects) l();
@@ -181,6 +196,9 @@ function makeAdapter() {
 }
 
 async function teardown(expired) {
+  const { transport, room } = state;
+  state.transport = null;
+  state.room = null;
   for (const cleanup of state.cleanups.splice(0)) {
     try {
       await cleanup();
@@ -188,14 +206,11 @@ async function teardown(expired) {
       // Best effort: the connection is already closed.
     }
   }
-  await state.transport?.close({ expired }).catch(() => {});
-  await state.room?.close().catch(() => {});
+  await transport?.close({ expired }).catch(() => {});
+  await room?.close().catch(() => {});
 }
 
-async function identity({ label, passphrase }) {
-  let wallet = await loadWallet();
-  const created = !wallet;
-  wallet ??= await createWallet({ name: label, passphrase });
+function adoptWallet(wallet) {
   state.wallet = wallet;
   try {
     state.membership = JSON.parse(localStorage.getItem(storageKey()));
@@ -203,12 +218,35 @@ async function identity({ label, passphrase }) {
     state.membership = null;
   }
   $("#identity").textContent = wallet.id;
+  renderPanel();
+}
+
+async function identity({ label, passphrase }) {
+  let wallet = await loadWallet();
+  const created = !wallet;
+  wallet ??= await createWallet({ name: label, passphrase });
+  adoptWallet(wallet);
   return { walletId: wallet.id, publicKey: wallet.publicKey, created };
+}
+
+async function createVisitorWallet(passphrase) {
+  state.error = "";
+  try {
+    await identity({
+      label: "Visitor",
+      passphrase: requirePassphrase(passphrase),
+    });
+  } catch (error) {
+    state.error = plainMessage(error);
+    renderPanel();
+  }
 }
 
 async function connect() {
   if (state.adapter && state.session?.lease.isActive()) return state.adapter;
+  requireWallet(state.wallet);
   const { config } = state;
+  state.closeReason = "";
   state.session = await negotiateSession({
     wallet: state.wallet,
     origin: config.origin,
@@ -218,20 +256,78 @@ async function connect() {
   });
   state.adapter = makeAdapter();
   markVerifiedPageConnection(state.adapter, state.session.consent);
-  showExpiry();
   const watch = setInterval(() => {
     const status = state.session.lease.status();
     if (status !== "active") state.adapter.close(status);
   }, 500);
-  state.cleanups.push(() => clearInterval(watch));
+  const refresh = setInterval(refreshView, 15_000);
+  state.cleanups.push(
+    () => clearInterval(watch),
+    () => clearInterval(refresh),
+  );
+  refreshView();
   return state.adapter;
 }
 
+// Local time with a countdown, shown under the catalog. Empty when no session
+// has been granted; the panel repeats the same time.
 function showExpiry() {
-  const { expiresAt, issuedAt } = state.session.consent.body.payload;
-  const minutes = Math.round((expiresAt - issuedAt) / 60_000);
-  $("#session-expiry").textContent =
-    `Session ends ${new Date(expiresAt).toISOString()} (${minutes} min grant)`;
+  const el = $("#session-expiry");
+  if (!state.session) {
+    el.textContent = "";
+    return;
+  }
+  const { expiresAt } = state.session.consent.body.payload;
+  const active = state.session.lease.isActive();
+  el.textContent =
+    active || state.closeReason === "expired"
+      ? sessionEndText({ expiresAt, now: Date.now() })
+      : "";
+}
+
+function plainMessage(error) {
+  if (error instanceof PlainError) return error.message;
+  console.error(error);
+  return "Something went wrong. Click Connect agent to try again.";
+}
+
+function panelView() {
+  const active = Boolean(state.adapter && state.session?.lease.isActive());
+  const phase = state.busy
+    ? "connecting"
+    : active
+      ? "connected"
+      : state.closeReason
+        ? "disconnected"
+        : "idle";
+  const payload = state.session?.consent.body.payload;
+  const detail =
+    phase === "connected" && payload
+      ? `${sessionEndText({ expiresAt: payload.expiresAt, now: Date.now() })}. You allowed: ${payload.capabilities
+          .map(capabilityLabel)
+          .join(", ")}.`
+      : "";
+  return {
+    phase,
+    busy: state.busy,
+    status: connectionStatusLabel({
+      phase,
+      transport: state.transport?.connectionState?.status,
+      reason: state.closeReason,
+    }),
+    detail,
+    error: state.error,
+    hasWallet: Boolean(state.wallet),
+  };
+}
+
+function renderPanel() {
+  state.panel?.render(panelView());
+}
+
+function refreshView() {
+  showExpiry();
+  renderPanel();
 }
 
 function createRoom() {
@@ -312,12 +408,13 @@ async function join() {
     relayUrls: config.relayUrls,
     onStatus: (message) => state.statusLog.push(message),
   });
-  state.transport.onConnectionState((snapshot) =>
+  state.transport.onConnectionState((snapshot) => {
     state.connLog.push({
       status: snapshot.status,
       directPeerCount: snapshot.directPeerCount,
-    }),
-  );
+    });
+    renderPanel();
+  });
   state.presence = mountPresence({
     list: $("#cursor-list"),
     overlay: $("#cursor-overlay"),
@@ -503,24 +600,66 @@ function renderPage() {
   }
 }
 
+function defaultConfig() {
+  return {
+    origin: location.origin,
+    room: "body4ai-demo",
+    restricted: true,
+    host: false,
+  };
+}
+
+// Visitor flow: connect with the button, approve in the site dialog, and the
+// panel follows the live connection. Errors become one plain line.
+async function startConnection() {
+  state.error = "";
+  state.busy = true;
+  renderPanel();
+  try {
+    await connect();
+    if (!state.room) await join();
+  } catch (error) {
+    state.error = plainMessage(error);
+  } finally {
+    state.busy = false;
+    refreshView();
+    if (state.error) state.panel?.focusConnect();
+  }
+}
+
+async function extendSession() {
+  state.error = "";
+  renderPanel();
+  try {
+    await state.adapter.renew();
+  } catch (error) {
+    state.error = plainMessage(error);
+  }
+  refreshView();
+}
+
 function mountPanel() {
+  if (state.panel) return;
   const walletUrl = new URL("../wallet/", location.href).href;
-  mountAIAuthConnectPanel({
+  const instruction = createAIAuthConnectInstruction({
+    siteOrigin: location.origin,
+    walletUrl,
+    capabilities: DEFAULT_CAPABILITIES,
+    room: state.config.room,
+    siteName: "BODY4AI",
+  });
+  state.panel = mountConnectPanel({
     target: $("#agent-connect-panel"),
-    label: "BODY4AI agent connection",
-    instruction: createAIAuthConnectInstruction({
-      siteOrigin: location.origin,
-      walletUrl,
-      capabilities: DEFAULT_CAPABILITIES,
-      room: state.config?.room ?? "default",
-      siteName: "BODY4AI",
-    }),
-    connect: async () => {
-      await connect();
-      if (!state.room) await join();
-      return state.adapter;
+    instruction:
+      typeof instruction === "string" ? instruction : instruction.instruction,
+    handlers: {
+      onConnect: startConnection,
+      onCreateWallet: (passphrase) => createVisitorWallet(passphrase),
+      onExtend: extendSession,
+      onDisconnect: () => state.adapter?.close("closed"),
     },
   });
+  renderPanel();
 }
 
 function admitMembership(proof) {
@@ -533,13 +672,7 @@ function admitMembership(proof) {
 window.__b4a = {
   state,
   init(config) {
-    state.config = {
-      origin: location.origin,
-      room: "body4ai-demo",
-      restricted: true,
-      host: false,
-      ...config,
-    };
+    state.config = { ...defaultConfig(), ...config };
     mountPanel();
     return state.config;
   },
@@ -606,4 +739,12 @@ window.__b4a = {
   foreignChecks: (artifacts) => foreignChecks(artifacts, state),
 };
 
+state.config = defaultConfig();
 renderPage();
+mountPanel();
+// Restore a wallet from an earlier visit; never create one without the visitor.
+loadWallet()
+  .then((wallet) => {
+    if (wallet) adoptWallet(wallet);
+  })
+  .catch((error) => console.error(error));
