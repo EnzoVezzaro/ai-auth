@@ -10,12 +10,16 @@ const output = resolve(root, "dist-p2p");
 const basePath = process.env.BASE_PATH ?? "/";
 if (!basePath.startsWith("/") || !basePath.endsWith("/"))
   throw new Error("BASE_PATH must start and end with a slash");
-const build = spawnSync(
-  process.execPath,
-  [resolve(root, "scripts/build-p2p-static.mjs")],
-  { stdio: "inherit" },
-);
-if (build.status !== 0) process.exit(build.status ?? 1);
+// A second server over the same dist-p2p (for example a second origin in an
+// E2E run) must not rebuild underneath the first one.
+if (process.env.AI_AUTH_SKIP_BUILD !== "1") {
+  const build = spawnSync(
+    process.execPath,
+    [resolve(root, "scripts/build-p2p-static.mjs")],
+    { stdio: "inherit" },
+  );
+  if (build.status !== 0) process.exit(build.status ?? 1);
+}
 
 const types = {
   ".css": "text/css; charset=utf-8",

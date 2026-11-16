@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BODY4AI product (AI Auth demo)</title>
+    <link rel="stylesheet" href="./site.css" />
+  </head>
+  <body>
+    <h1 id="product-name">Product</h1>
+    <p>Demo site built with the AI Auth SDK. Your wallet identity: <code id="identity">not connected</code></p>
+    <section id="product-detail" aria-label="Product">
+      <p id="product-blurb"></p>
+      <section id="share-target">
+        <p>Public product notes for collaborators.</p>
+        <label>Gift card code <input id="gift-code" type="password" value="GIFT-SECRET-1234" /></label>
+      </section>
+    </section>
+    <p id="session-expiry" aria-live="polite"></p>
+    <section aria-label="Connect an agent">
+      <button id="before-panel" type="button">Agent connection</button>
+      <div id="agent-connect-panel"></div>
+    </section>
+    <section aria-label="Who is here">
+      <h2>Who is here (verified identities)</h2>
+      <ul id="cursor-list"></ul>
+    </section>
+    <div id="approvals" aria-live="polite"></div>
+    <div id="cursor-overlay" aria-hidden="true"></div>
+    <script type="module" src="./site.js"></script>
+  </body>
+</html>

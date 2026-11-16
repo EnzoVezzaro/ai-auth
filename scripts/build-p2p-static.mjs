@@ -37,6 +37,21 @@ await build({
   sourcemap: false,
 });
 
+// BODY4AI reference demo site, served under /body4ai/ (used by the E2E).
+const demoSource = resolve(root, "examples/body4ai/site");
+await mkdir(resolve(output, "body4ai"), { recursive: true });
+for (const name of ["index.html", "product.html", "site.css"])
+  await cp(resolve(demoSource, name), resolve(output, "body4ai", name));
+await build({
+  entryPoints: [resolve(demoSource, "site.js")],
+  outfile: resolve(output, "body4ai/site.js"),
+  bundle: true,
+  format: "esm",
+  platform: "browser",
+  target: ["es2022"],
+  sourcemap: false,
+});
+
 for (const name of [
   "ARCHITECTURE.md",
   "SECURITY.md",

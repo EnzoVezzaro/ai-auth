@@ -87,7 +87,13 @@ function createHub() {
             me.message = h;
             return () => (me.message = null);
           },
-          async send(data, targets) {
+          // Same contract as @trystero-p2p/core 0.27: `send(data, { target })`.
+          // Anything else in the options slot (such as a bare array) is not a
+          // target, so Trystero broadcasts to every peer.
+          async send(data, options = {}) {
+            const target = options?.target;
+            const targets =
+              target === undefined || target === null ? null : [target].flat();
             const wire = JSON.parse(JSON.stringify(data));
             for (const other of peers.values()) {
               if (other === me || (targets && !targets.includes(other.peerId)))
@@ -739,4 +745,62 @@ test("a private participant converges on revocations and epoch via catch-up", as
     () => aliceP.room.policy.isRevoked("wallet", ctx.mallory.id),
     "alice caught up",
   );
+});
+
+test("restricted delivery uses Trystero's send(data, { target }) contract", async () => {
+  // Pin the fake to the real library: if Trystero changes its send signature,
+  // this fails instead of silently broadcasting restricted events.
+  const { readFile } = await import("node:fs/promises");
+  const types = await readFile(
+    new URL(
+      "../node_modules/@trystero-p2p/core/dist/types.d.mts",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(types, /send: \(data: T, options\?: SendOptions\) =>/u);
+  assert.match(types, /export type SendOptions = \{\s*target\?: PeerTarget;/u);
+
+  const hub = createHub();
+  const calls = [];
+  const joinRoom = hub.joinRoom.bind(hub);
+  hub.joinRoom = (...args) => {
+    const transport = joinRoom(...args);
+    const makeAction = transport.makeAction;
+    transport.makeAction = (...a) => {
+      const action = makeAction(...a);
+      const send = action.send;
+      action.send = (data, options) => {
+        calls.push({ type: data?.body?.type, options });
+        return send(data, options);
+      };
+      return action;
+    };
+    return transport;
+  };
+  const ctx = await setup();
+  const hostP = await joinRestricted(
+    hub,
+    ctx,
+    ctx.host,
+    await ctx.proofFor(ctx.host.id, { role: "owner", scopes: ["*"] }),
+  );
+  await joinRestricted(hub, ctx, ctx.alice, await ctx.proofFor(ctx.alice.id));
+  await join(hub, ctx.mallory);
+  await waitFor(
+    () => hostP.room.policy.isMember(ctx.alice.id),
+    "alice admitted",
+  );
+  await hostP.room.send("collab/text", { text: "members only" });
+  await waitFor(
+    () => calls.some((c) => c.type === "collab/text"),
+    "targeted send",
+  );
+  for (const call of calls) {
+    assert.equal(Array.isArray(call.options), false, "never positional");
+    if (call.options !== undefined)
+      assert.ok(Array.isArray(call.options.target), "target is a peer list");
+  }
+  const targeted = calls.find((c) => c.type === "collab/text");
+  assert.equal(targeted.options.target.length, 1, "only the member peer");
 });
