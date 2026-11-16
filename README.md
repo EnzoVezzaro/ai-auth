@@ -1,8 +1,46 @@
+![AI Auth, identity for AI agents](https://raw.githubusercontent.com/EnzoVezzaro/ai-auth/main/docs/assets/ai-auth-banner.jpg)
+
+<div align="center">
+
 # AI Auth
 
-AI Auth is a self-custodied identity wallet and collaboration SDK for AI agents. Browser wallets keep signing keys in origin-scoped storage; headless agents keep identities in encrypted local keystores. The wallet holds the identity; the agent's own runtime holds its connection. A site requests specific capabilities, the wallet owner approves a subset, and the site remains responsible for enforcing access to its own resources.
+A self-custodied identity wallet and collaboration SDK for AI agents.
 
-AI Auth operates no authentication server, database, or collaboration backend. Identity outlives any one connection or page. The website is the logical collaboration hub: wallet-approved agents on the same site join its shared public space. Public Nostr relays coordinate discovery and WebRTC signaling; signed collaboration events travel over direct WebRTC data channels. No blockchain or cryptocurrency is involved.
+[Website](https://enzovezzaro.github.io/ai-auth/) · [Wallet](https://enzovezzaro.github.io/ai-auth/wallet/) · [Architecture](https://enzovezzaro.github.io/ai-auth/docs/ARCHITECTURE.md) · [npm](https://www.npmjs.com/package/@enzovezzaro/ai-auth-wallet)
+
+[![npm version](https://img.shields.io/npm/v/@enzovezzaro/ai-auth-wallet.svg)](https://www.npmjs.com/package/@enzovezzaro/ai-auth-wallet)
+[![CI](https://github.com/EnzoVezzaro/ai-auth/actions/workflows/ci.yml/badge.svg)](https://github.com/EnzoVezzaro/ai-auth/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-231F20.svg)](LICENSE)
+
+</div>
+
+Your agents carry their identity with them. A website asks for named capabilities, the wallet owner approves a subset, and the agent works inside that grant. The key stays with the agent. AI Auth runs no authentication server, database, or collaboration backend.
+
+Browser wallets keep signing keys in origin-scoped storage. Headless agents keep identities in encrypted local keystores. The wallet holds the identity; the agent's runtime holds the connection. Public Nostr relays handle discovery and WebRTC signaling, while signed collaboration events travel directly between peers. No blockchain or cryptocurrency is involved.
+
+## Contents
+
+- [Why AI Auth](#why-ai-auth)
+- [Packages](#packages)
+- [Quick start](#quick-start)
+- [Connect a site](#connect-a-site)
+- [Connect instructions](#connect-instructions)
+- [Local agent runtimes](#local-agent-runtimes)
+- [How it fits together](#how-it-fits-together)
+- [Documentation](#documentation)
+- [Development checks](#development-checks)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Why AI Auth
+
+- The wallet key is generated and kept locally, either in origin-scoped browser storage or in an encrypted keystore file.
+- A request names exact capabilities for one origin. The wallet signs only the scopes the owner accepts.
+- Approved agents on the same website join its shared public space. There is no AI Auth hub to deploy or trust.
+- Relays carry signaling. Messages, cursors, and tool results move over WebRTC data channels as signed events.
+- A verified identity proves control of a key. Each site checks that proof and enforces access to its own resources.
+
+`@enzovezzaro/ai-auth-server` is retired. Use the wallet package instead. AI Auth is published on [GitHub Pages](https://enzovezzaro.github.io/ai-auth/) only; see the [hosting policy](docs/HOSTING.md).
 
 ## Packages
 
@@ -13,11 +51,15 @@ AI Auth operates no authentication server, database, or collaboration backend. I
 | `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local agent runtimes such as Claude Code         | 0.3.4   |
 | `@enzovezzaro/ai-auth-runtime` | Provider-neutral plugin host for local agent applications                                | 0.1.0   |
 
-`@enzovezzaro/ai-auth-server` is retired; use the wallet package instead. Every package works without an AI Auth-operated service.
+Every package works without an AI Auth-operated service. Install them from npm:
 
-AI Auth is published on **GitHub Pages only**. See the [hosting policy](docs/HOSTING.md) for the CI guard and removal of the legacy Vercel GitHub App.
+```sh
+npm install @enzovezzaro/ai-auth-wallet
+npm install @enzovezzaro/ai-auth-agent
+npm install @enzovezzaro/ai-auth-mcp
+```
 
-## Run the wallet
+## Quick start
 
 Requirements: Node.js 22 or newer and npm.
 
@@ -26,11 +68,11 @@ npm ci
 npm run dev
 ```
 
-Open the site root for the product landing page, `/wallet/` for the local wallet, and `/docs/ARCHITECTURE.md` for architecture. The command builds and serves static files only. The wallet starts in private mode; enable public collaboration when you want to join the current page's shared space.
+Open the site root for the landing page, `/wallet/` for the local wallet, and `/docs/ARCHITECTURE.md` for architecture. The command builds and serves static files only. The wallet starts in private mode; enable public collaboration when you want to join the current page's shared space.
 
 ## Connect a site
 
-The browser bundle is generated at `dist-p2p/ai-auth.js`. In a site build, bundle the SDK as an ES module or load that browser bundle from your static AI Auth wallet host:
+The browser bundle is generated at `dist-p2p/ai-auth.js`. Bundle the SDK as an ES module, or load that browser bundle from your static wallet host.
 
 ```js
 import {
@@ -60,7 +102,7 @@ const pageAgent = await mountAIAuthInPageAgent({
       execute: async () => ({ summary: "Site-specific result" }),
     },
   ],
-  // This callback must show a human approval UI for every requested action.
+  // Every requested action needs a human approval step.
   authorize: async (action, input, context) =>
     showApprovalDialog({
       action,
@@ -76,7 +118,7 @@ const pageAgent = await mountAIAuthInPageAgent({
 });
 
 connection.onEvent((event) => {
-  // Verify the event's site-specific effects before acting on them.
+  // Check the event's site-specific effects before acting on it.
   console.log(event.body.type, event.body.payload);
 });
 
@@ -86,13 +128,15 @@ removeCursorOverlay();
 connection.close();
 ```
 
-The wallet modal opens from a user gesture, presents the site's requested capabilities, and signs only the selected subset. Use HTTPS outside local development. See [the architecture](docs/ARCHITECTURE.md), [security boundaries](docs/SECURITY.md), [wire format](docs/WIRE_FORMAT.md), and [wallet recovery](docs/RECOVERY.md).
+The modal opens from a user gesture, shows the site's requested capabilities, and signs only the selected subset. Use HTTPS outside local development.
 
-The default public space is keyed by the exact website origin and the `default` room name, so wallets connecting to the same site discover one another. A site can pass the same explicit `room` key to group agents into another space. This public space is a client-side coordination boundary, not an AI Auth-hosted hub or an authorization boundary; each site must enforce access to its own resources.
+The default public space is keyed by the exact website origin and the `default` room name, so wallets on one site discover each other. A site can pass an explicit `room` key to group agents into another space. This space is a client-side coordination boundary, not an authorization boundary. Each site enforces access to its own resources.
 
-## Publish a connect instruction
+Read the [architecture](docs/ARCHITECTURE.md), [security boundaries](docs/SECURITY.md), [wire format](docs/WIRE_FORMAT.md), and [wallet recovery](docs/RECOVERY.md) for the details.
 
-Sites can publish a copyable connect instruction so any agent can join their shared space, plus a self-contained connect panel that runs the wallet handshake and reflects the connection state in the UI:
+## Connect instructions
+
+A site can publish a copyable connect instruction and a self-contained panel that shows the handshake state in its own UI.
 
 ```js
 import {
@@ -117,7 +161,6 @@ mountAIAuthConnectPanel({
       capabilities: [...instruction.capabilities],
       room: instruction.room,
     }),
-  // Reflect the state anywhere in the site UI (e.g. a header badge).
   onStateChange: (state) => {
     document.body.toggleAttribute(
       "data-agent-connected",
@@ -127,50 +170,78 @@ mountAIAuthConnectPanel({
 });
 ```
 
-The panel renders the instruction with a copy button, the handshake status (`idle` → `connecting` → `connected` → `disconnected`), the verified agent identity with approved capability chips, and a live expiry countdown. The host element mirrors that state as `data-status`, so page CSS and header badges can reflect the connection without reading the panel's closed shadow root. The instruction contains only public data: site origin, room name, wallet URL, and requested capabilities. See [the security boundaries](docs/SECURITY.md) and the complete BODY4AI integration under `examples/body4ai/`.
+The panel shows the instruction with a copy button, the handshake status (`idle` → `connecting` → `connected` → `disconnected`), the verified agent identity with approved capability chips, and a live expiry countdown. The host element mirrors that state as `data-status`, so page CSS and header badges can read it without reaching into the panel's closed shadow root. The instruction contains only public data: site origin, room name, wallet URL, and requested capabilities.
 
-## Optional local integrations
+## Local agent runtimes
 
-WebMCP is the primary in-page agent tool surface: the SDK discovers tools exposed by the connected page, advertises a bounded catalog to the shared public room, and accepts a call only after wallet scope checks and the page's explicit human approval. Signed requests, results, cursor, and action status are visible to connected peers; never send secrets or private page data through the shared room. The SDK feature-detects WebMCP and retains a JavaScript API fallback. WebMCP handles tool invocation; direct WebRTC carries peer collaboration. `@enzovezzaro/ai-auth-mcp`, `@enzovezzaro/ai-auth-agent` and `@enzovezzaro/ai-auth-runtime` are optional local integrations and are not required for a website or hosted service.
+`@enzovezzaro/ai-auth-agent` lets an agent stay in a room without a browser tab. Each instance keeps its wallet in an encrypted keystore (`0600` file, passphrase from `AI_AUTH_PASSPHRASE` or a terminal prompt). A corrupted keystore fails closed. `createAgentRuntime` joins the room, sends heartbeat leases, reconnects with backoff, and `resume()` rejoins a saved room after a restart. It reports `direct-peer-connected` only after a real WebRTC data channel opens. See `packages/agent/examples/peer.mjs` and the [agent runtime notes](docs/AGENT_RUNTIME.md).
 
-## Sessions
+`ai-auth-mcp` exposes `ai_auth_*` tools over MCP stdio for local coding agents:
 
-A connection grants a session. By default it never expires: a site that names no limit gets Never, and the session lasts until the owner ends it, the site ends it, or it is revoked. The wallet lets the owner choose 5, 15, 30 or 60 minutes or Never. A site can cap the session through `sessionTtlMs` and `idleTimeoutMs` (numbers in milliseconds, or `null` for Never); a numeric cap rules out Never, and the wallet honors it. A numeric session without an idle choice ends after 10 minutes without authorized activity. Call `connection.renew()` to ask the wallet owner to approve again; renewal can keep or narrow capabilities, never widen them. The wallet shows the expiry countdown and lets the owner end the session. Expired, idle, or ended sessions stop authorized publishing, receiving, transfers and WebMCP calls.
+```sh
+npx -y @enzovezzaro/ai-auth-mcp init
+npx -y @enzovezzaro/ai-auth-mcp serve \
+  --connect https://workspace.example \
+  --room project-room \
+  --caps presence.read,tools.invoke \
+  --auto-join
+```
 
-## Participation modes
+Connecting asks the owner for consent. An interactive terminal shows a preview and prompts; a non-interactive run refuses unless `--approve` lists the exact scopes. Claude Code has been verified end to end. Codex and OpenCode registration is documented in the [adapter guide](docs/AGENT_ADAPTERS.md); their tool calls have not been verified yet.
 
-Rooms are `open` by default: anyone who knows the site origin and room name can join, and the SDK discloses that. A `restricted` room admits only peers that present a site-issued `ai-auth-membership` proof. Use `createParticipationPolicy`, `issueMembership` and `verifyMembership` on the site side. Membership can last a short time, a configured time, a long time, or until revoked. An until-revoked membership never runs protected operations on its own; each protected operation also needs a short-lived execution grant (`issueExecutionGrant`, checked by `authorizeProtected`). Revoke a membership or link with a signed `ai-auth-revocation` record; the record is shared between connected peers with `createRevocationGossip`.
+WebMCP is the in-page tool surface. The SDK discovers tools on the connected page, advertises a bounded catalog, and accepts a call only after wallet scope checks and the page's explicit human approval. WebMCP handles tool invocation; direct WebRTC carries peer collaboration. These local integrations are optional for a website or hosted service. Never send secrets or private page data through the shared room.
 
-Revocation is not instant and not global. A peer that was offline or disconnected learns about it only when it reconnects and catches up, and an execution grant limits the damage in the meantime. See [the security boundaries](docs/SECURITY.md) and [the protocol contracts](docs/PROTOCOL.md).
+<details>
+<summary><strong>Sessions, participation, and revocation</strong></summary>
 
-## Private presence
+A connection grants a session. By default it never expires: a site that names no limit gets Never, and the session lasts until the owner ends it, the site ends it, or it is revoked. The wallet lets the owner choose 5, 15, 30, or 60 minutes or Never. A site can cap the session through `sessionTtlMs` and `idleTimeoutMs`; a numeric cap rules out Never. A numeric session without an idle choice ends after 10 minutes without authorized activity. `connection.renew()` asks the owner to approve again. Renewal can keep or narrow capabilities, never widen them. Expired, idle, or ended sessions stop authorized publishing, receiving, transfers, and WebMCP calls.
 
-Private mode joins a room silently. A private participant receives the room's authorized events but advertises no presence or cursor, and its actions are still signed and audited. Private mode does not bypass site authorization and does not hide metadata from relays.
+Rooms are `open` by default: anyone who knows the site origin and room name can join, and the SDK says so. A `restricted` room admits only peers with a site-issued `ai-auth-membership` proof. Use `createParticipationPolicy`, `issueMembership`, and `verifyMembership` on the site side. Membership can be short-lived, time-bound, long-lived, or valid until revoked. An until-revoked membership never runs a protected operation on its own; each protected operation also needs a short-lived execution grant (`issueExecutionGrant`, checked by `authorizeProtected`). Revoke a membership or link with a signed `ai-auth-revocation` record, shared with connected peers through `createRevocationGossip`.
 
-## Headless agents
+Revocation is not instant and not global. A peer that was offline learns about it when it reconnects and catches up, and an execution grant limits the damage in the meantime. Private mode joins a room silently: the participant receives authorized events but advertises no presence or cursor, and its actions are still signed and audited. Private mode does not bypass site authorization or hide metadata from relays.
 
-`@enzovezzaro/ai-auth-agent` lets an agent stay in a site's room without a browser tab. Each agent instance keeps its own wallet in an encrypted keystore (`0600` file, passphrase from `AI_AUTH_PASSPHRASE` or a terminal prompt). A corrupted keystore fails closed rather than creating a new identity. `createAgentRuntime` joins the room, sends heartbeat leases, reconnects with backoff, and `resume()` rejoins a saved room after a restart (the MCP CLI does this with `--resume`). The runtime reports `direct-peer-connected` only after a real WebRTC data channel is open. A worked example is `packages/agent/examples/peer.mjs`, and the design is in [the agent runtime notes](docs/AGENT_RUNTIME.md).
+</details>
 
-Local agent runtimes can use `ai-auth-mcp`, which exposes `ai_auth_*` tools over MCP stdio. Connecting asks the owner for consent: an interactive terminal shows a preview and prompts, and a non-interactive run refuses unless `--approve` lists the exact scopes. Claude Code has been verified end to end. Codex and OpenCode registration is documented in [the adapter guide](docs/AGENT_ADAPTERS.md); their tool calls have not yet been verified.
-
-## Upgrading from 0.4.x
+<details>
+<summary><strong>Upgrading from 0.4.x</strong></summary>
 
 - `registerAIAuthPageActions` now throws unless you pass `authorize`. Every page action needs a human approval step.
 - Denied and failed WebMCP tool calls reject on the agent side instead of resolving as success.
 - `privateMode` joins a room silently instead of being refused.
 - Deploy the SDK and wallet together. Older SDKs cannot verify the version 2 consent that carries long sessions.
 
-The full list is in [the changelog](CHANGELOG.md).
+The full list is in the [changelog](CHANGELOG.md).
 
-## Network limits
+</details>
 
-Nostr relay operators can observe participation and timing metadata. The hashed room topic is not a secret or an authorization boundary. No TURN server is configured. Collaboration data uses direct WebRTC only, so peers behind restrictive NATs or firewalls may fail to connect.
+## How it fits together
 
-## Generic-site browser evidence
+```mermaid
+flowchart LR
+  A[Agent runtime] -->|signed identity| S[Website]
+  S -->|capability request| W[Wallet owner]
+  W -->|scoped grant| S
+  A <-->|WebRTC data channel| B[Other agents]
+  R[Nostr relays] -. signaling .-> A
+  R -. signaling .-> B
+```
 
-The Playwright integration fixture in `scripts/test-browser-e2e.mjs` is an independent website, not Body4AI. It uses a real wallet handshake, peer discovery and direct WebRTC to exercise signed events, cursor updates, site-authorized `demo.echo` and `demo.increment` tool calls from a separate agent wallet, and approval/cancellation. Successful CI runs save unmodified browser screenshots as the `ai-auth-playwright-screenshots` artifact; failed runs attempt to capture the live test page before closing it. Screenshots prove the UI state seen by Chromium; the E2E assertions and CI logs separately establish functional behavior.
+Nostr relay operators can observe participation and timing metadata. The hashed room topic is not a secret or an authorization boundary. No TURN server is configured. Collaboration data travels directly between peers, so restrictive NATs or firewalls may block a connection.
 
-See [generic integration review and test evidence](docs/GENERIC_INTEGRATION_REVIEW.md). Browser-only tools remain unavailable without a running browser provider. Body4AI is a separate consumer of the public SDK and owns its own catalog and tools.
+The generic-site browser fixture in `scripts/test-browser-e2e.mjs` is an independent website, not Body4AI. It uses a real wallet handshake, peer discovery, and direct WebRTC to exercise signed events, cursor updates, site-authorized tool calls, and approval or cancellation. Successful CI runs save unmodified browser screenshots as the `ai-auth-playwright-screenshots` artifact. See the [generic integration review](docs/GENERIC_INTEGRATION_REVIEW.md). Body4AI is a separate consumer of the public SDK and owns its own catalog and tools.
+
+## Documentation
+
+| Topic                  | Source                                                                            |
+| ---------------------- | --------------------------------------------------------------------------------- |
+| Architecture           | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)                                      |
+| Security boundaries    | [docs/SECURITY.md](docs/SECURITY.md)                                              |
+| Protocol and wire data | [docs/PROTOCOL.md](docs/PROTOCOL.md) · [docs/WIRE_FORMAT.md](docs/WIRE_FORMAT.md) |
+| Agent adapters         | [docs/AGENT_ADAPTERS.md](docs/AGENT_ADAPTERS.md)                                  |
+| Agent runtime          | [docs/AGENT_RUNTIME.md](docs/AGENT_RUNTIME.md)                                    |
+| Recovery               | [docs/RECOVERY.md](docs/RECOVERY.md)                                              |
+| Hosting policy         | [docs/HOSTING.md](docs/HOSTING.md)                                                |
+| Implementation plan    | [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md)                        |
 
 ## Development checks
 
@@ -184,4 +255,12 @@ npm run test:browser:e2e
 npm run test:e2e:body4ai # multi-agent BODY4AI scenario (see docs/E2E.md)
 ```
 
-The browser E2E uses two isolated wallets and public relay/WebRTC connectivity. It currently requires network paths that allow direct ICE; do not interpret peer discovery alone as a successful collaboration session. Release status and remaining work are tracked in [the implementation plan](docs/IMPLEMENTATION_PLAN.md).
+The browser E2E uses two isolated wallets and public relay and WebRTC connectivity. It needs network paths that allow direct ICE; peer discovery alone does not mean a collaboration session succeeded.
+
+## Contributing
+
+Issues and pull requests are welcome. Before opening a PR, run `npm run test:all`, `npm run build`, and `npm run format:check`. Keep changes to one package or one concern, and describe the behavior you verified. For a security finding, follow [docs/SECURITY.md](docs/SECURITY.md) instead of opening a public issue.
+
+## License
+
+[MIT](LICENSE). The browser SDK, agent runtime, MCP tools, and landing page are open source.
