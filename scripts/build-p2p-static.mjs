@@ -19,7 +19,8 @@ const walletEntry = (
   await readFile(resolve(root, "apps/p2p/index.html"), "utf8")
 )
   .replace('href="./styles.css"', `href="./styles.css?v=${version}"`)
-  .replace('src="./app.js"', `src="./app.js?v=${version}"`);
+  .replace('src="./app.js"', `src="./app.js?v=${version}"`)
+  .replace("AI Auth Wallet v0.2.0", `AI Auth Wallet v${version}`);
 await writeFile(resolve(output, "wallet/index.html"), walletEntry);
 await cp(resolve(root, "styles.css"), resolve(output, "wallet/styles.css"));
 await build({

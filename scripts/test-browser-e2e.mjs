@@ -270,8 +270,8 @@ try {
   assert.match(landing, /href="\.\/docs\/ARCHITECTURE\.md"/u);
   assert.equal((await fetch(`${staticSiteUrl}landing.css`)).status, 200);
   const html = await fetch(walletUrl).then((response) => response.text());
-  assert.match(html, /src="\.\/app\.js"/);
-  assert.match(html, /href="\.\/styles\.css"/);
+  assert.match(html, /src="\.\/app\.js(\?v=[^"]*)?"/);
+  assert.match(html, /href="\.\/styles\.css(\?v=[^"]*)?"/);
   assert.equal((await fetch(`${walletBaseUrl}app.js`)).status, 200);
   assert.equal((await fetch(`${walletBaseUrl}styles.css`)).status, 200);
   assert.equal((await fetch(`${staticSiteUrl}ai-auth.js`)).status, 200);
