@@ -159,6 +159,7 @@ function makeAdapter() {
         room: state.config.room,
       });
       renewVerifiedPageConnection(adapter, state.session.consent);
+      showExpiry();
       for (const l of lifecycle)
         l({ type: "renewed", expiresAt: adapter.expiresAt });
     },
@@ -214,12 +215,20 @@ async function connect() {
   });
   state.adapter = makeAdapter();
   markVerifiedPageConnection(state.adapter, state.session.consent);
+  showExpiry();
   const watch = setInterval(() => {
     const status = state.session.lease.status();
     if (status !== "active") state.adapter.close(status);
   }, 500);
   state.cleanups.push(() => clearInterval(watch));
   return state.adapter;
+}
+
+function showExpiry() {
+  const { expiresAt, issuedAt } = state.session.consent.body.payload;
+  const minutes = Math.round((expiresAt - issuedAt) / 60_000);
+  $("#session-expiry").textContent =
+    `Session ends ${new Date(expiresAt).toISOString()} (${minutes} min grant)`;
 }
 
 function createRoom() {
@@ -360,7 +369,9 @@ function snapshot() {
     status: net?.status ?? "idle",
     directPeerCount: net?.directPeerCount ?? 0,
     peers: [...peers.keys()],
-    peerSessions: Object.fromEntries(peers),
+    peerList: [...(room?.peers.values() ?? [])]
+      .filter((peer) => peer.id !== state.wallet.id)
+      .map((peer) => ({ id: peer.id, session: peer.session, name: peer.name })),
     session: room?.session ?? null,
     sessionStatus: state.session?.lease.status() ?? "none",
     capabilities: state.session?.consent.body.payload.capabilities ?? [],
@@ -371,6 +382,8 @@ function snapshot() {
     cursors: [...document.querySelectorAll("[data-cursor]")].map((node) => ({
       issuer: node.dataset.issuer,
       session: node.dataset.session,
+      x: Number(node.dataset.x),
+      y: Number(node.dataset.y),
       text: node.textContent,
     })),
     catalogs: state.catalogs.map((c) => ({
@@ -392,19 +405,24 @@ const describeError = (error) => ({
   name: error?.name ?? "Error",
 });
 
-async function callTool({ host, name, input, callId }) {
+async function callTool({ host, name, input, callId, giveUpMs }) {
   const catalog = findCatalog(host);
   if (!catalog) return { error: "no catalog", name: "NoCatalog" };
   const controller = new AbortController();
   if (callId) state.calls.set(callId, controller);
+  // For calls that are expected to get no answer at all (a dropped request).
+  const giveUp = giveUpMs
+    ? setTimeout(() => controller.abort(), giveUpMs)
+    : null;
   try {
     const result = await state.client.callTool(catalog, name, input ?? {}, {
       signal: controller.signal,
     });
     return { ok: true, result };
   } catch (error) {
-    return describeError(error);
+    return { ...describeError(error), gaveUp: Boolean(giveUp) && controller.signal.aborted };
   } finally {
+    clearTimeout(giveUp);
     if (callId) state.calls.delete(callId);
   }
 }
@@ -533,6 +551,20 @@ window.__b4a = {
   callTool,
   abortCall: (callId) => state.calls.get(callId)?.abort(),
   rawToolRequest,
+  sendSigned: (type, payload, to) =>
+    state.room.send(type, payload, to ? { to } : {}).then(
+      () => ({ ok: true }),
+      (error) => describeError(error),
+    ),
+  probeSign: async () => {
+    try {
+      guardActive("probe/ping");
+      await state.wallet.sign("probe/ping", { at: Date.now() });
+      return { ok: true };
+    } catch (error) {
+      return describeError(error);
+    }
+  },
   linkApprove: (challenge, capabilities) =>
     approveLink(state.wallet, challenge, { capabilities }),
   links: async () =>
