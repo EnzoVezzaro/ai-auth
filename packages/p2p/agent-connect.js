@@ -1,3 +1,12 @@
+import {
+  CONNECT_LABEL,
+  DISCONNECTED_BY_USER_MESSAGE,
+  EXTEND_LABEL,
+  RECONNECT_LABEL,
+  RELOAD_NOTICE,
+  sessionEndText,
+} from "./copy.js";
+
 const DEFAULT_SDK_SOURCE = "https://esm.sh/@enzovezzaro/ai-auth-wallet";
 const ROOM_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,99}$/u;
 const CAPABILITY_PATTERN = /^[a-z][a-z0-9]*(?:[.:/_-][a-z0-9]+)*$/u;
@@ -159,6 +168,7 @@ export function createAIAuthConnectController({ connect, instruction } = {}) {
   let activeConnection = null;
   let connectingToken = 0;
   let closed = false;
+  let userClosing = false;
 
   const notify = () => {
     for (const listener of [...listeners]) {
@@ -222,9 +232,11 @@ export function createAIAuthConnectController({ connect, instruction } = {}) {
         activeConnection = null;
         setState({
           status: "disconnected",
-          reason: ["expired", "idle", "revoked"].includes(event.reason)
-            ? event.reason
-            : "closed",
+          reason: userClosing
+            ? "user"
+            : ["expired", "idle", "revoked"].includes(event.reason)
+              ? event.reason
+              : "closed",
         });
       }
     });
@@ -259,15 +271,21 @@ export function createAIAuthConnectController({ connect, instruction } = {}) {
 
   function disconnect() {
     if (state.status !== "connected") return;
+    // The lifecycle event from this close is the user's own action, so it is
+    // reported as "user" rather than as a generic close.
+    userClosing = true;
     try {
       state.connection.close();
-    } catch {}
+    } catch {
+    } finally {
+      userClosing = false;
+    }
     // A compliant connection emits "disconnected" on close, but fail closed
     // even if an external adapter does not emit the lifecycle event.
     if (state.status === "connected") {
       detachConnection();
       activeConnection = null;
-      setState({ status: "disconnected", reason: "closed" });
+      setState({ status: "disconnected", reason: "user" });
     }
   }
 
@@ -301,6 +319,43 @@ export function createAIAuthConnectController({ connect, instruction } = {}) {
   };
 }
 
+const DISCONNECT_REASON_TEXT = Object.freeze({
+  expired: "Connection expired.",
+  idle: "Disconnected after an idle timeout.",
+  revoked: "Session ended by the wallet.",
+});
+
+/**
+ * The one status sentence the connect panel shows, in plain words. `reloaded`
+ * is true when this page was reloaded, which ended any earlier connection.
+ */
+export function connectPanelStatusText(state, { reloaded = false } = {}) {
+  if (state.status === "connecting")
+    return "Waiting for your approval in the wallet window.";
+  if (state.status === "connected") return "Connected.";
+  if (state.status === "disconnected") {
+    if (state.reason === "user") return DISCONNECTED_BY_USER_MESSAGE;
+    return DISCONNECT_REASON_TEXT[state.reason] ?? "Disconnected.";
+  }
+  return reloaded ? RELOAD_NOTICE : "Not connected.";
+}
+
+/** The label of the panel's main button for the given state. */
+export function connectPanelButtonLabel(state, { reloaded = false } = {}) {
+  if (state.status === "connecting") return "Connecting…";
+  return reloaded && state.status === "idle" ? RECONNECT_LABEL : CONNECT_LABEL;
+}
+
+function pageWasReloaded() {
+  try {
+    const [entry] =
+      globalThis.performance?.getEntriesByType?.("navigation") ?? [];
+    return entry?.type === "reload";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Renders the site connect panel: the copyable agent connect instruction plus
  * a live status area that reflects the wallet handshake and the signed
@@ -314,6 +369,7 @@ export function mountAIAuthConnectPanel({
   target = globalThis.document?.body,
   label = "Connect your agent",
   onStateChange,
+  reloaded = pageWasReloaded(),
 } = {}) {
   if (!target || !target.ownerDocument)
     throw new TypeError(
@@ -354,7 +410,7 @@ export function mountAIAuthConnectPanel({
     pre { margin:0 0 10px; padding:10px; border-radius:8px; background:#f4f7f5; border:1px solid #e2e9e5; font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; overflow-wrap:anywhere; max-height:220px; overflow:auto; }
     .actions { display:flex; gap:8px; flex-wrap:wrap; }
     button { padding:8px 14px; border-radius:8px; border:1px solid #245d4e; background:#245d4e; color:#fff; font:14px/1.2 system-ui,sans-serif; cursor:pointer; }
-    button:disabled { opacity:0.6; cursor:default; }
+    button[aria-disabled="true"] { opacity:0.6; cursor:default; }
     button.secondary { background:#fff; color:#245d4e; }
     .note { margin:10px 0 0; font-size:12px; color:#6b7a73; }
   `;
@@ -382,6 +438,7 @@ export function mountAIAuthConnectPanel({
   chips.setAttribute("aria-label", "Approved capabilities");
   const errorLine = document.createElement("p");
   errorLine.className = "error";
+  errorLine.setAttribute("aria-live", "polite");
   const pre = document.createElement("pre");
   pre.textContent = instructionText;
   const actions = document.createElement("div");
@@ -410,10 +467,19 @@ export function mountAIAuthConnectPanel({
     }, 2000);
   });
 
+  // Set while a connect attempt started from this panel is open. When it
+  // settles, focus goes back to the panel's button, because the wallet window
+  // that had focus has closed.
+  let returnFocusOnSettle = false;
+  let reloadNotice = reloaded === true;
   const connectButton = document.createElement("button");
   connectButton.type = "button";
-  connectButton.textContent = "Connect agent";
+  connectButton.textContent = CONNECT_LABEL;
   connectButton.addEventListener("click", () => {
+    // aria-disabled (not disabled) keeps the button focusable while connecting.
+    if (connectButton.getAttribute("aria-disabled") === "true") return;
+    reloadNotice = false;
+    returnFocusOnSettle = true;
     controller.connect().catch(() => {});
   });
   const disconnectButton = document.createElement("button");
@@ -424,22 +490,25 @@ export function mountAIAuthConnectPanel({
   const renewButton = document.createElement("button");
   renewButton.type = "button";
   renewButton.className = "secondary";
-  renewButton.textContent = "Renew session";
+  renewButton.textContent = EXTEND_LABEL;
   renewButton.addEventListener("click", () => {
     const connection = controller.getState().connection;
     if (!connection?.renew) return;
-    renewButton.disabled = true;
+    if (renewButton.getAttribute("aria-disabled") === "true") return;
+    renewButton.setAttribute("aria-disabled", "true");
     connection
       .renew()
       .then(() => {
         errorLine.hidden = true;
       })
       .catch((error) => {
-        errorLine.textContent = error?.message ?? "Renewal failed";
+        // A declined or timed-out renewal says the session is still active.
+        errorLine.textContent = error?.message ?? "Renewal did not finish.";
         errorLine.hidden = false;
       })
       .finally(() => {
-        renewButton.disabled = false;
+        renewButton.removeAttribute("aria-disabled");
+        renewButton.focus();
       });
   });
 
@@ -449,15 +518,6 @@ export function mountAIAuthConnectPanel({
       countdownTimer = null;
     }
   };
-
-  function countdownLabel(expiresAt) {
-    const remaining = Math.max(0, expiresAt - Date.now());
-    const minutes = Math.floor(remaining / 60_000);
-    const seconds = Math.floor((remaining % 60_000) / 1000);
-    return minutes > 0
-      ? `Expires in ${minutes}m ${String(seconds).padStart(2, "0")}s`
-      : `Expires in ${seconds}s`;
-  }
 
   function renderChips(capabilities) {
     chips.replaceChildren();
@@ -482,19 +542,18 @@ export function mountAIAuthConnectPanel({
     errorLine.hidden = !state.error;
     renderChips([]);
     actions.replaceChildren(copyButton);
-    statusText.textContent = "Not connected";
+    statusText.textContent = connectPanelStatusText(state, {
+      reloaded: reloadNotice,
+    });
     detail.hidden = true;
     chips.hidden = true;
-    if (state.status === "connecting") {
-      statusText.textContent =
-        "Handshake in progress — approve the wallet request";
-      connectButton.disabled = true;
-      connectButton.textContent = "Connecting…";
-      actions.append(connectButton);
-      return;
-    }
+    const connecting = state.status === "connecting";
+    connectButton.textContent = connectPanelButtonLabel(state, {
+      reloaded: reloadNotice,
+    });
+    if (connecting) connectButton.setAttribute("aria-disabled", "true");
+    else connectButton.removeAttribute("aria-disabled");
     if (state.status === "connected") {
-      statusText.textContent = "Connected";
       detail.hidden = false;
       const name = document.createElement("b");
       name.textContent = state.label || state.identity?.name || "Agent";
@@ -502,30 +561,20 @@ export function mountAIAuthConnectPanel({
       renderChips(state.capabilities);
       const expiresLabel = document.createElement("span");
       const updateCountdown = () => {
-        expiresLabel.textContent = countdownLabel(state.expiresAt);
+        expiresLabel.textContent = sessionEndText(state.expiresAt);
       };
       updateCountdown();
       detail.append(" · ", expiresLabel);
       countdownTimer = setInterval(updateCountdown, 1000);
       disconnectButton.textContent = "Disconnect";
       actions.append(renewButton, disconnectButton);
-      return;
-    }
-    if (state.status === "disconnected") {
-      statusText.textContent =
-        {
-          expired: "Connection expired",
-          idle: "Disconnected after an idle timeout",
-          revoked: "Session ended by the wallet",
-        }[state.reason] ?? "Disconnected";
-      connectButton.disabled = false;
-      connectButton.textContent = "Connect agent";
+    } else {
       actions.append(connectButton);
-      return;
     }
-    connectButton.disabled = false;
-    connectButton.textContent = "Connect agent";
-    actions.append(connectButton);
+    if (returnFocusOnSettle && !connecting) {
+      returnFocusOnSettle = false;
+      (state.status === "connected" ? disconnectButton : connectButton).focus();
+    }
   }
 
   const unsubscribe = controller.subscribe((state) => {

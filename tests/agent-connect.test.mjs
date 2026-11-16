@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  connectPanelButtonLabel,
+  connectPanelStatusText,
   createAIAuthConnectController,
   createAIAuthConnectInstruction,
 } from "../packages/p2p/agent-connect.js";
+import { EXTEND_LABEL, RELOAD_NOTICE } from "../packages/p2p/copy.js";
 
 const baseOptions = {
   siteOrigin: "https://www.body4ai.com",
@@ -354,4 +357,45 @@ test("calling connect twice while connected does not create an orphan", async ()
   assert.equal(calls, 1);
   controller.close();
   assert.equal(connection.closed, true);
+});
+
+test("a site-side disconnect is reported as the user's own action", async () => {
+  const controller = createAIAuthConnectController({
+    connect: async () => fakeConnection(),
+  });
+  await controller.connect();
+  controller.disconnect();
+  assert.equal(controller.getState().reason, "user");
+  assert.equal(
+    connectPanelStatusText(controller.getState()),
+    "You disconnected.",
+  );
+});
+
+test("the panel names the approval step and the connected status in plain words", () => {
+  assert.equal(
+    connectPanelStatusText({ status: "connecting" }),
+    "Waiting for your approval in the wallet window.",
+  );
+  assert.equal(connectPanelStatusText({ status: "idle" }), "Not connected.");
+  assert.equal(connectPanelButtonLabel({ status: "idle" }), "Connect agent");
+});
+
+test("after a page reload the panel explains the connection ended and offers Connect again", () => {
+  assert.equal(
+    connectPanelStatusText({ status: "idle" }, { reloaded: true }),
+    RELOAD_NOTICE,
+  );
+  assert.equal(
+    connectPanelButtonLabel({ status: "idle" }, { reloaded: true }),
+    "Connect again",
+  );
+});
+
+test("the extend action and the connected status use plain words", () => {
+  assert.equal(EXTEND_LABEL, "Extend for 30 more minutes");
+  assert.equal(
+    connectPanelStatusText({ status: "connected", label: "Agent" }),
+    "Connected.",
+  );
 });
