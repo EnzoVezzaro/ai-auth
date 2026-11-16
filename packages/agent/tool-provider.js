@@ -26,7 +26,9 @@ function validateTools(tools) {
   const byName = new Map();
   for (const tool of tools) {
     if (!tool || typeof tool.name !== "string" || !TOOL_NAME.test(tool.name))
-      throw new TypeError("Each tool needs a lowercase name such as notes.search");
+      throw new TypeError(
+        "Each tool needs a lowercase name such as notes.search",
+      );
     if (byName.has(tool.name))
       throw new TypeError(`Duplicate tool name: ${tool.name}`);
     if (typeof tool.handler !== "function")
@@ -41,7 +43,9 @@ function validateTools(tools) {
       Array.isArray(inputSchema) ||
       bytes(inputSchema) > MAX_SCHEMA_BYTES
     )
-      throw new TypeError(`Tool ${tool.name} input schema is invalid or too large`);
+      throw new TypeError(
+        `Tool ${tool.name} input schema is invalid or too large`,
+      );
     byName.set(tool.name, {
       handler: tool.handler,
       descriptor: Object.freeze({
@@ -73,18 +77,26 @@ export function createToolProvider({
   timeoutMs = EXECUTION_TIMEOUT_MS,
 }) {
   if (typeof authorize !== "function")
-    throw new TypeError("provideTools needs an authorize(requesterId, name, input) function");
-  if (!room || typeof room.send !== "function" || typeof room.subscribe !== "function")
+    throw new TypeError(
+      "provideTools needs an authorize(requesterId, name, input) function",
+    );
+  if (
+    !room ||
+    typeof room.send !== "function" ||
+    typeof room.subscribe !== "function"
+  )
     throw new TypeError("provideTools needs a joined agent room");
   const byName = validateTools(tools);
   const walletId = room.wallet?.id;
-  if (typeof walletId !== "string") throw new TypeError("provideTools needs a wallet");
+  if (typeof walletId !== "string")
+    throw new TypeError("provideTools needs a wallet");
   const nonce = randomToken(24);
   const seen = new Map();
   let running = 0;
   let closed = false;
 
-  const catalogTools = () => [...byName.values()].map((entry) => entry.descriptor);
+  const catalogTools = () =>
+    [...byName.values()].map((entry) => entry.descriptor);
 
   const publish = (list) => {
     if (closed || typeof room.session !== "string") return Promise.resolve();
@@ -121,18 +133,30 @@ export function createToolProvider({
     const entry = byName.get(request.name);
     let allowed = false;
     try {
-      allowed = (await authorize(requester.wallet, request.name, request.input)) === true;
+      allowed =
+        (await authorize(requester.wallet, request.name, request.input)) ===
+        true;
     } catch {
       allowed = false;
     }
-    if (!allowed) return { error: "This agent did not allow that tool for you" };
+    if (!allowed)
+      return { error: "This agent did not allow that tool for you" };
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const value = await Promise.race([
-        Promise.resolve(entry.handler(request.input, { signal: controller.signal, requester: requester.wallet })),
+        Promise.resolve(
+          entry.handler(request.input, {
+            signal: controller.signal,
+            requester: requester.wallet,
+          }),
+        ),
         new Promise((_, reject) =>
-          controller.signal.addEventListener("abort", () => reject(new Error("timeout")), { once: true }),
+          controller.signal.addEventListener(
+            "abort",
+            () => reject(new Error("timeout")),
+            { once: true },
+          ),
         ),
       ]);
       if (bytes(value ?? null) > MAX_RESULT_BYTES)
@@ -169,7 +193,12 @@ export function createToolProvider({
       announce();
       return;
     }
-    if (type !== "agent/action" || !validRequest(payload) || issuer === walletId) return;
+    if (
+      type !== "agent/action" ||
+      !validRequest(payload) ||
+      issuer === walletId
+    )
+      return;
     const now = Date.now();
     for (const [id, until] of seen) if (until <= now) seen.delete(id);
     if (seen.has(payload.requestId) || running >= CONCURRENCY) return;
@@ -177,7 +206,9 @@ export function createToolProvider({
     running += 1;
     const requester = { wallet: issuer, session: payload.session };
     execute(requester, payload)
-      .then((outcome) => respond(requester, { requestId: payload.requestId, ...outcome }))
+      .then((outcome) =>
+        respond(requester, { requestId: payload.requestId, ...outcome }),
+      )
       .finally(() => {
         running -= 1;
       });
