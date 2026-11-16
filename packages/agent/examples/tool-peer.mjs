@@ -25,7 +25,8 @@ const provider = runtime.provideTools({
   tools: [
     {
       name: "room.echo",
-      description: "Returns the text it receives, prefixed with the agent name.",
+      description:
+        "Returns the text it receives, prefixed with the agent name.",
       inputSchema: { text: { type: "string" } },
       handler: ({ text }) => ({ echo: String(text).slice(0, 200), by: name }),
     },
