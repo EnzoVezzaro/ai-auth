@@ -15,7 +15,7 @@ AI Auth operates no authentication server, database, or collaboration backend. T
 | `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local agent runtimes such as Claude Code         | 0.3.2   |
 | `@enzovezzaro/ai-auth-runtime` | Provider-neutral plugin host for local agent applications                                | 0.1.0   |
 
-`@enzovezzaro/ai-auth-server` is retired; use the wallet package instead. Every package works without an AI Auth-operated service.
+Every package works without an AI Auth-operated service.
 
 AI Auth is published on **GitHub Pages only**. See the [hosting policy](HOSTING.md) for the CI guard and removal of the legacy Vercel GitHub App.
 
@@ -41,7 +41,8 @@ import {
   mountAIAuthInPageAgent,
 } from "@enzovezzaro/ai-auth-wallet";
 
-// Call from a user gesture. The wallet is shown in an in-page modal.
+// Call from a user gesture by convention; the SDK does not enforce a gesture check.
+// The wallet is shown in an in-page modal.
 const connection = await connectAIAuthModal({
   walletUrl: "https://wallet.example/wallet/",
   capabilities: ["presence.read", "tools.invoke"],
@@ -88,9 +89,9 @@ removeCursorOverlay();
 connection.close();
 ```
 
-The wallet modal opens from a user gesture, presents the site's requested capabilities, and signs only the selected subset. Use HTTPS outside local development. See [the architecture](ARCHITECTURE.md), [security boundaries](SECURITY.md), [wire format](WIRE_FORMAT.md), and [wallet recovery](RECOVERY.md).
+The wallet modal is typically opened from a user gesture, though the SDK does not enforce a gesture check. It presents the site's requested capabilities and signs only the selected subset. Use HTTPS outside local development. See [the architecture](ARCHITECTURE.md), [security boundaries](SECURITY.md), [wire format](WIRE_FORMAT.md), and [wallet recovery](RECOVERY.md).
 
-The default public space is keyed by the exact website origin and the `default` room name, so wallets connecting to the same site discover one another. A site can pass the same explicit `room` key to group agents into another space. This public space is a client-side coordination boundary, not an AI Auth-hosted hub or an authorization boundary; each site must enforce access to its own resources.
+The default room name is the literal `default`. The site's exact origin still matters: the shared topic hash is `createSharedRoomTopic(origin, room)`, which folds the app id, origin, and room name into a SHA-256 hash, so wallets on the same origin and room name discover one another. A site can pass an explicit `room` key to group agents into another space. This public space is a client-side coordination boundary, not an AI Auth-hosted hub or an authorization boundary; each site must enforce access to its own resources.
 
 ## Publish a connect instruction
 
@@ -141,7 +142,7 @@ A connection grants a session. By default it never expires: a site that names no
 
 ## Participation modes
 
-Rooms are `open` by default: anyone who knows the site origin and room name can join, and the SDK discloses that. A `restricted` room admits only peers that present a site-issued `ai-auth-membership` proof. Use `createParticipationPolicy`, `issueMembership` and `verifyMembership` on the site side. Membership can last a short time, a configured time, a long time, or until revoked. An until-revoked membership never runs protected operations on its own; each protected operation also needs a short-lived execution grant (`issueExecutionGrant`, checked by `authorizeProtected`). Revoke a membership or link with a signed `ai-auth-revocation` record; the record is shared between connected peers with `createRevocationGossip`.
+Rooms are `open` by default: anyone who knows the site origin and room name can join. The SDK does not emit a join notice; it exposes the disclosure text as `OPEN_ROOM_DISCLOSURE` (`policy.disclosure` / `room.disclosure`) for the site to display. A `restricted` room admits only peers that present a site-issued `ai-auth-membership` proof. Use `createParticipationPolicy`, `issueMembership` and `verifyMembership` on the site side. Membership can last a short time, a configured time, a long time, or until revoked. An until-revoked membership never runs protected operations on its own; each protected operation also needs a short-lived execution grant (`issueExecutionGrant`, checked by `authorizeProtected`). Revoke a membership or link with a signed `ai-auth-revocation` record; the record is shared between connected peers with `createRevocationGossip`.
 
 Revocation is not instant and not global. A peer that was offline or disconnected learns about it only when it reconnects and catches up, and an execution grant limits the damage in the meantime. See [the security boundaries](SECURITY.md) and [the protocol contracts](PROTOCOL.md).
 
