@@ -13,10 +13,14 @@ await mkdir(resolve(output, "wallet"), { recursive: true });
 await mkdir(resolve(output, "docs"), { recursive: true });
 await cp(resolve(root, "index.html"), resolve(output, "index.html"));
 await cp(resolve(root, "landing.css"), resolve(output, "landing.css"));
-await cp(
-  resolve(root, "apps/p2p/index.html"),
-  resolve(output, "wallet/index.html"),
-);
+// Version the wallet assets by release, so a new deploy is never served from a
+// browser cache that still holds the previous stylesheet or script.
+const walletEntry = (
+  await readFile(resolve(root, "apps/p2p/index.html"), "utf8")
+)
+  .replace('href="./styles.css"', `href="./styles.css?v=${version}"`)
+  .replace('src="./app.js"', `src="./app.js?v=${version}"`);
+await writeFile(resolve(output, "wallet/index.html"), walletEntry);
 await cp(resolve(root, "styles.css"), resolve(output, "wallet/styles.css"));
 await build({
   entryPoints: [resolve(root, "apps/p2p/app.js")],
@@ -66,8 +70,8 @@ const wallet = await readFile(resolve(output, "wallet/index.html"), "utf8");
 if (
   !landing.includes('href="./wallet/"') ||
   !landing.includes('href="./docs/ARCHITECTURE.md"') ||
-  !wallet.includes('src="./app.js"') ||
-  !wallet.includes('href="./styles.css"')
+  !wallet.includes(`src="./app.js?v=${version}"`) ||
+  !wallet.includes(`href="./styles.css?v=${version}"`)
 ) {
   throw new Error("Wallet entry page has a broken static asset reference");
 }
