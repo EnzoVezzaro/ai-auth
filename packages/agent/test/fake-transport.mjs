@@ -28,7 +28,11 @@ export function createHub() {
         selfId: me.id,
         onError: () => () => {},
         makeAction: () => ({
-          send(envelope, targets) {
+          // Same contract as @trystero-p2p/core 0.27: `send(data, { target })`.
+          send(envelope, options = {}) {
+            const target = options?.target;
+            const targets =
+              target === undefined || target === null ? null : [target].flat();
             for (const other of members)
               if (other !== me && (!targets || targets.includes(other.id)))
                 queueMicrotask(() =>

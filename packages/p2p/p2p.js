@@ -705,10 +705,13 @@ export class NostrWebRTC {
 
   deliver(envelope, to) {
     const targets = this.targetsFor(envelope, to);
+    // Trystero's action.send takes `(data, { target })`. Passing the peer list
+    // positionally is ignored and broadcasts, which would leak restricted
+    // events to wallets that hold no membership.
     return targets === undefined
       ? this.sendAction(envelope)
       : targets.length
-        ? this.sendAction(envelope, targets)
+        ? this.sendAction(envelope, { target: targets })
         : null;
   }
 
