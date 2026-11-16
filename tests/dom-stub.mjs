@@ -132,7 +132,8 @@ function createNode(tag, doc) {
     set innerHTML(html) {
       this._text = "";
       this.children = [];
-      for (const child of [...parseHtml(html, doc).children]) this.append(child);
+      for (const child of [...parseHtml(html, doc).children])
+        this.append(child);
     },
     setAttribute(name, value) {
       this.attrs.set(String(name), String(value));
@@ -187,7 +188,12 @@ function createNode(tag, doc) {
       this._listeners.get(type)?.delete(fn);
     },
     dispatch(type, event = {}) {
-      const detail = { type, preventDefault() {}, stopPropagation() {}, ...event };
+      const detail = {
+        type,
+        preventDefault() {},
+        stopPropagation() {},
+        ...event,
+      };
       for (const fn of [...(this._listeners.get(type) ?? [])]) fn(detail);
     },
     focus() {
@@ -231,11 +237,18 @@ function createNode(tag, doc) {
       return all.filter((node) => {
         if (!matchesSimple(node, parts.at(-1))) return false;
         const ancestors = [];
-        for (let parent = node.parentNode; parent && parent !== this; parent = parent.parentNode)
+        for (
+          let parent = node.parentNode;
+          parent && parent !== this;
+          parent = parent.parentNode
+        )
           if (parent.nodeType === 1) ancestors.unshift(parent);
         let matched = 0;
         for (const ancestor of ancestors)
-          if (matched < parts.length - 1 && matchesSimple(ancestor, parts[matched]))
+          if (
+            matched < parts.length - 1 &&
+            matchesSimple(ancestor, parts[matched])
+          )
             matched += 1;
         return matched === parts.length - 1;
       });
