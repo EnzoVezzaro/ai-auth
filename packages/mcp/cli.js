@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, writeFile, chmod } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import {
   createFileKeystore,
@@ -107,8 +108,21 @@ async function serve(args) {
     if (!Number.isInteger(port) || port < 0 || port > 65_535)
       throw new Error("--http needs a port number");
     let first = server;
+    // The secret path is the credential. Keep it with the keystore so the same
+    // agent keeps the same address across restarts (clients store the URL).
+    const secretFile = path.join(args.keystoreDir, "http-secret");
+    let secret = await readFile(secretFile, "utf8").then(
+      (v) => v.trim(),
+      () => null,
+    );
+    if (!secret || !/^[A-Za-z0-9_-]{24,}$/u.test(secret)) {
+      secret = randomBytes(24).toString("base64url");
+      await writeFile(secretFile, `${secret}\n`, { mode: 0o600 });
+      await chmod(secretFile, 0o600);
+    }
     const http = await serveAIAuthMcpHttp({
       port,
+      secret,
       createMcpServer: () => {
         const ready = first;
         first = null;
@@ -141,6 +155,7 @@ async function unlink(args) {
     );
   await createFileKeystore({ dir: args.keystoreDir }).delete();
   await rm(path.join(args.keystoreDir, "runtime.json"), { force: true });
+  await rm(path.join(args.keystoreDir, "http-secret"), { force: true });
   err(
     "Keystore removed. Remove the server from your harness config to stop it; revoke grants in the site's wallet UI.",
   );

@@ -189,3 +189,45 @@ test("serve --http exposes the approved tools over Streamable HTTP at a secret p
   });
   assert.equal(wrong.status, 404);
 });
+
+test("serve --http keeps the same endpoint across restarts of the same keystore", async (t) => {
+  const dir = await scratch(t);
+  run(["init", "--keystore-dir", dir]);
+  const endpointOf = async () => {
+    const child = spawn(
+      process.execPath,
+      [
+        cli,
+        "serve",
+        ...baseArgs(dir),
+        "--approve",
+        "presence.read",
+        "--http",
+        "0",
+      ],
+      { env, stdio: ["ignore", "ignore", "pipe"] },
+    );
+    t.after(() => child.kill());
+    let stderr = "";
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`no endpoint: ${stderr}`)),
+        15_000,
+      );
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk;
+        const match = stderr.match(
+          /MCP endpoint: (http:\/\/127\.0\.0\.1:\d+\/mcp\/[A-Za-z0-9_-]{16,})/u,
+        );
+        if (match) {
+          clearTimeout(timer);
+          child.kill();
+          resolve(match[1].replace(/:\d+\//u, "/"));
+        }
+      });
+    });
+  };
+  const first = await endpointOf();
+  const second = await endpointOf();
+  assert.equal(second, first, "the secret path is stored with the keystore");
+});

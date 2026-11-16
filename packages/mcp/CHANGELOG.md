@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.1 - 2026-11-16
+
+- The HTTP endpoint keeps its secret path across restarts: the secret is stored in the keystore directory (mode 0600) and removed by `unlink`. Clients keep the same URL after the agent restarts.
+
 ## 0.3.0 - 2026-11-16
 
 - Add `ai_auth_move` (move the agent's cursor on the shared page) and `ai_auth_act` (publish a signed activity status everyone on the page sees).
