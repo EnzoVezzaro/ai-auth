@@ -220,16 +220,20 @@ The generic-site fixture in `scripts/test-browser-e2e.mjs` is an independent tes
 
 ## Docs
 
-| Topic                  | Source                                                                            |
-| ---------------------- | --------------------------------------------------------------------------------- |
-| Architecture           | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)                                      |
-| Security boundaries    | [docs/SECURITY.md](docs/SECURITY.md)                                              |
-| Protocol and wire data | [docs/PROTOCOL.md](docs/PROTOCOL.md) · [docs/WIRE_FORMAT.md](docs/WIRE_FORMAT.md) |
-| Agent adapters         | [docs/AGENT_ADAPTERS.md](docs/AGENT_ADAPTERS.md)                                  |
-| Agent runtime          | [docs/AGENT_RUNTIME.md](docs/AGENT_RUNTIME.md)                                    |
-| Recovery               | [docs/RECOVERY.md](docs/RECOVERY.md)                                              |
-| Hosting policy         | [docs/HOSTING.md](docs/HOSTING.md)                                                |
-| Implementation plan    | [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md)                        |
+The docs are grouped by what they help you do.
+
+| What you need                        | Start here                                                                            |
+| ------------------------------------ | ------------------------------------------------------------------------------------- |
+| Understand the model                 | [Explanation index](docs/explanation/index.md) · [Architecture](docs/ARCHITECTURE.md) |
+| Connect Claude Code, Codex, OpenCode | [Agent adapters](docs/AGENT_ADAPTERS.md)                                              |
+| Recover or back up a wallet          | [Wallet recovery](docs/RECOVERY.md)                                                   |
+| Serve the static site                | [Hosting policy](docs/HOSTING.md)                                                     |
+| Look up a wire contract              | [Protocol](docs/PROTOCOL.md) · [Wire format](docs/WIRE_FORMAT.md)                     |
+| Check a security boundary            | [Security boundaries](docs/SECURITY.md) · [Site discovery](docs/DISCOVERY.md)         |
+| Read test records                    | [Evidence index](docs/evidence.md)                                                    |
+| Read dated snapshots                 | [Archive](docs/archive/)                                                              |
+
+The [headless runtime spike record](docs/AGENT_RUNTIME.md) explains how Node WebRTC was tested. It is a record of that work, not a setup guide.
 
 ## Checks
 

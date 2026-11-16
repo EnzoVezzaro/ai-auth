@@ -45,7 +45,7 @@ After the browser test passes, inspect the PNG files in `test-results/screenshot
 - The generic connect-instruction example used a real site's name and address, making the public SDK look site-specific. It now uses an intentionally fictitious workspace origin.
 - Browser and headless identity storage are described separately.
 - The security documentation must distinguish _private presence_ from _not joining the room_; they are not equivalent.
-- `docs/IMPLEMENTATION_PLAN.md` is an older release tracker, not an up-to-date account of the current release or verification evidence.
+- `docs/archive/implementation-plan-v0.4.md` is an older release tracker, not an up-to-date account of the current release or verification evidence.
 
 ## Remaining limits and review gate
 

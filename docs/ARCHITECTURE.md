@@ -2,6 +2,10 @@
 
 AI Auth is a self-custodied agent wallet and browser collaboration SDK. It has no AI Auth-operated server, database, or account service. A website is the logical collaboration hub: wallets authorized by people join that site's shared public space. Each wallet keeps its ECDSA signing key in origin-scoped IndexedDB (or an encrypted file keystore for a headless runtime). Websites request explicit capability scopes and decide how those scopes map to their own resources.
 
+## Explanation reading path
+
+This page is the top-level map. For a closer look at the model behind it, read the [explanation index](explanation/index.md). It covers [identity and connection](explanation/identity-and-connection.md), [scopes and sessions](explanation/scopes-and-sessions.md), [peers and rooms](explanation/peers-relays-and-rooms.md), [tool calls](explanation/tool-calls-and-approval.md), and [trust limits](explanation/trust-limits.md).
+
 ## Ownership
 
 Five ideas are kept separate on purpose:
@@ -54,7 +58,7 @@ The modal binds the request to the requesting origin and source iframe. The wall
 
 ## Limits
 
-No TURN server is configured by default. Direct WebRTC can fail behind restrictive NATs or firewalls. Nostr relay operators can observe room participation and timing metadata. The hashed topic is not a secret or an authorization boundary. Consent signatures prove control of a wallet key, not human identity or site authorization. Capability revocation is not broadcast by this MVP, so grants should expire quickly.
+No TURN server is configured by default. Direct WebRTC can fail behind restrictive NATs or firewalls. Nostr relay operators can observe room participation and timing metadata. The hashed topic is not a secret or an authorization boundary. Consent signatures prove control of a wallet key, not human identity or site authorization. Signed revocations reach connected peers, but convergence is bounded, so sites should keep execution grants short. See [trust limits](explanation/trust-limits.md) and [SECURITY.md](SECURITY.md).
 
 ## Connection lifecycle
 

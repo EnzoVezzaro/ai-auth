@@ -1,6 +1,6 @@
 # AI Auth historical v0.4.0 implementation tracker
 
-> This is a historical release snapshot. Its version, deployment and test-coverage claims describe the v0.4.0 milestone, **not the current repository state**. See the root package manifests for current versions and [generic integration review](GENERIC_INTEGRATION_REVIEW.md) for the current browser evidence and remaining limits.
+> This is a historical release snapshot. Its version, deployment and test-coverage claims describe the v0.4.0 milestone, **not the current repository state**. See the root package manifests for current versions and [generic integration review](../GENERIC_INTEGRATION_REVIEW.md) for the current browser evidence and remaining limits.
 
 ## Product contract
 
