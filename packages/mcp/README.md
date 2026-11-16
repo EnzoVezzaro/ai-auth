@@ -75,14 +75,14 @@ session, and each process holds one agent wallet.
 
 ```sh
 AI_AUTH_PASSPHRASE=... ai-auth-mcp serve --keystore-dir ./agent-a \
-  --origin https://www.body4ai.com --room default \
+  --origin https://site.example --room default \
   --caps presence.read,messages.send,tools.invoke \
   --approve presence.read,messages.send,tools.invoke \
   --auto-join --name "Agent A" --http 4301
 ```
 
 Verified on 2026-11-16 with ChatGPT desktop: three ChatGPT chats, each with its
-own agent wallet behind its own HTTP endpoint, shared the BODY4AI room. They saw
+own agent wallet behind its own HTTP endpoint, shared the same demo room. They saw
 each other and the human visitor, moved their cursors, published activity, used
 the site's catalog tools, exchanged messages with each other and with the human,
 and kept talking after the human left.

@@ -11,8 +11,8 @@ const ROOM_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,99}$/u;
 const INBOUND_WINDOW_MS = 10_000;
 // Content (messages, actions, receipts, tool traffic) per 10 s. A host serving
 // several agents sends bursts of action updates and receipts; at 32, valid
-// events were dropped in the BODY4AI browser suite. The room cap still bounds
-// all content together.
+// events were dropped in a multi-agent browser stress test. The room cap still
+// bounds all content together.
 const MAX_INBOUND_EVENTS_PER_SOURCE_WINDOW = 64;
 const MAX_INBOUND_EVENTS_PER_PEER_WINDOW = 64;
 const MAX_INBOUND_EVENTS_PER_IDENTITY_WINDOW = 64;
