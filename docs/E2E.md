@@ -13,7 +13,7 @@ npx playwright install chromium     # once
 npm run test:e2e:body4ai            # builds dist-p2p first
 ```
 
-Environment: `AI_AUTH_CHROMIUM_PATH` selects another Chromium. `B4A_STOP_AFTER=<n>` stops after step n (debugging). The whole run times out after 10 minutes. Output: a PASS / FAIL / KNOWN-BUG / PENDING / NETWORK line per step, a summary table, and `test-results/e2e-report.json` (gitignored) with each step's duration and evidence such as wallet ids and peer counts. The exit code is 0 only when every step passes. A NETWORK result (ICE or relay failure) is reported as a network problem, not a product failure.
+Environment: `AI_AUTH_CHROMIUM_PATH` selects another Chromium. `B4A_STOP_AFTER=<n>` stops after step n (debugging). The whole run times out after 10 minutes. Output: a PASS / FAIL / KNOWN-BUG / PENDING / NETWORK line per step, a summary table, and `test-results/e2e-report.json` (gitignored) with each step's duration and evidence such as wallet ids and peer counts. The exit code is 0 only when every recorded step is `PASS`; `PENDING`, `FAIL`, `KNOWN-BUG` and `NETWORK` all make it non-zero (`scripts/e2e/report.mjs`). A NETWORK result (ICE or relay failure) is reported as a network problem, not a product failure.
 
 ## Network requirements
 
@@ -98,8 +98,8 @@ evidence remains the multi-agent scenario above.
 These were real product bugs. Each fix has a unit test that fails on the old code.
 
 - **Restricted-room confidentiality (step 6).** `NostrWebRTC.deliver` passed the peer list as a positional argument to Trystero's `action.send`. Trystero 0.27 reads `send(data, { target })`, so the list was ignored and restricted events were broadcast to every direct peer, including wallets with no membership. Fixed in `packages/p2p/p2p.js`; the test fakes (`tests/participation.test.mjs`, `packages/agent/test/fake-transport.mjs`) now follow the real contract, and a contract test pins it to the installed Trystero types.
-- **Denied tool calls (step 10).** A denied call resolved as success. Fixed on `integration/0.5.0` (refusals are now `tool-response.error`); the matching `webmcp-contract` todos are closed.
-- **Presence for private wallets (step 19).** Implemented on `integration/0.5.0` (private presence, `membership/prove`); the step now runs instead of reporting PENDING.
+- **Denied tool calls (step 10).** A denied call resolved as success. Fixed in `packages/p2p/webmcp.js` (refusals are sent as `tool-response.error` with no `result`); released in tag `v0.5.0`. The matching `webmcp-contract` todos are closed.
+- **Presence for private wallets (step 19).** Implemented in `packages/p2p/p2p.js` (private presence and `membership/prove`); released in tag `v0.5.0`. The step now runs instead of reporting PENDING.
 - **Headless agent (step 20).** Implemented in `packages/agent`; the step runs against a real child process.
 
 ## Post-release check (deferred)

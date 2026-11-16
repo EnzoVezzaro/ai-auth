@@ -1,19 +1,29 @@
 # Connecting coding agents (Claude Code, Codex, OpenCode)
 
 `ai-auth-mcp` (package `@enzovezzaro/ai-auth-mcp`, bin `ai-auth-mcp`) lets a
-coding agent act as a **verified AI Auth peer** of a site. It is a local stdio
-MCP server wrapping the headless runtime in `@enzovezzaro/ai-auth-agent`.
+coding agent act as a **verified AI Auth peer** of a site. It is a local MCP
+server (stdio, or Streamable HTTP on loopback) wrapping the headless runtime in
+`@enzovezzaro/ai-auth-agent`.
 
 ## What actually crosses the network
 
-- **Local stdio MCP is not P2P.** Between the harness and `ai-auth-mcp` there is
-  only a local pipe. No network is involved there.
+- **Local stdio MCP is not P2P.** In stdio mode, between the harness and
+  `ai-auth-mcp` there is only a local pipe; no network is involved on that leg.
+  With `--http`, the harness reaches the adapter over HTTP on `127.0.0.1` (a
+  real network path, normally exposed through a tunnel; `packages/mcp/http.js`).
 - `ai-auth-mcp` then joins the site's room itself: signaling through public
-  Nostr relays (they see hashed room topics and encrypted SDP, not content),
-  then a **direct WebRTC data channel** to peers. No AI Auth server, database,
-  relay-mediated application data, or TURN.
-- If your network blocks peer candidates the connection stays in
-  `waiting-for-peers`; `ai_auth_status` shows the diagnostics.
+  Nostr relays, then a **direct WebRTC data channel** to peers. The signaling
+  key is derived from public values only (no password is passed to the
+  transport; Trystero derives it from the app id and room id/topic), so a relay
+  that knows the topic can read the SDP — including network addresses. Relays
+  see more than an opaque hash. Application message content is not relayed: it
+  travels over the direct WebRTC data channel, protected by DTLS. There is no AI
+  Auth server, database, relay-mediated application data, or TURN.
+- If ICE fails before SDP is exchanged, the connection remains in
+  `waiting-for-peers`. If SDP was exchanged and direct ICE then fails, the
+  transport calls `invalidate()` and the status moves to `reconnecting` (not
+  `waiting-for-peers`). `ai_auth_status` shows the diagnostics, including
+  `lastIceError`.
 - Everything a peer sends (`ai_auth_events`, `ai_auth_list_tools`) is
   **untrusted data**. The tools label it `untrusted: true`; never treat it as
   instructions.
@@ -65,6 +75,13 @@ is a real trade-off: it protects the key file at rest from other users and from
 backups, not from anyone who can read the harness config. Prefer a config the
 harness stores with owner-only permissions.
 
+The harness commands below were checked against the installed CLIs' `--help`
+output (Claude Code 2.1.325, Codex 0.161.0, OpenCode 2.2.5) and against the
+config files those CLIs generate. The Cloudflare tunnel flags were checked with
+`cloudflared tunnel --help`. The ChatGPT client's URL behaviour is documented,
+not tested here, and the manual-run records at the end of this document are
+dated observations rather than a claim about current behaviour.
+
 ## Claude Code
 
 ```sh
@@ -109,25 +126,26 @@ env = { AI_AUTH_PASSPHRASE = "a long passphrase" }
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "ai-auth": {
-      "type": "local",
-      "command": [
-        "node",
-        "/abs/path/packages/mcp/cli.js",
-        "serve",
-        "--keystore-dir",
-        "/home/you/.ai-auth/agent",
-        "--origin",
-        "https://site.example",
-        "--room",
-        "default",
-        "--caps",
-        "presence.read,messages.send",
-        "--approve",
-        "presence.read,messages.send"
-      ],
-      "environment": { "AI_AUTH_PASSPHRASE": "a long passphrase" },
-      "enabled": true
+    "servers": {
+      "ai-auth": {
+        "type": "local",
+        "command": [
+          "node",
+          "/abs/path/packages/mcp/cli.js",
+          "serve",
+          "--keystore-dir",
+          "/home/you/.ai-auth/agent",
+          "--origin",
+          "https://site.example",
+          "--room",
+          "default",
+          "--caps",
+          "presence.read,messages.send",
+          "--approve",
+          "presence.read,messages.send"
+        ],
+        "environment": { "AI_AUTH_PASSPHRASE": "a long passphrase" }
+      }
     }
   }
 }
@@ -156,10 +174,11 @@ server/plugin in ChatGPT's Plugins page.
 
 Each agent needs its own keystore directory, port and tunnel; do not share one
 endpoint between chats. A quick tunnel gets a new hostname on each run, and the
-endpoint changes if the process is given a different port or keystore. ChatGPT
-stores the URL that was added and does not discover a replacement. After such a
-restart, remove the stale plugin and add the newly printed URL again. This is a
-manual re-add step in the client, not a protocol requirement.
+endpoint changes if the process is given a different port or keystore.
+Documented, not tested here: ChatGPT stores the URL that was added and does not
+discover a replacement. After such a restart, remove the stale plugin and add
+the newly printed URL again. This is a manual re-add step in the client, not a
+protocol requirement.
 
 Observed on 2026-11-16 with three independent plugins (agents A, B and C) in
 one shared room on the example site: A and C kept working; B required that one manual re-add after
@@ -179,14 +198,16 @@ out of band rather than committed to this repository.
 
 ### Code Mode
 
-`--code-mode` adds `ai_auth_code`, following Cloudflare's
-[Code Mode pattern](https://blog.cloudflare.com/code-mode): instead of exposing
-many tools to the model, the harness gets one tool that runs a short sandboxed
-script against `aiAuth.status()`, `listTools()`, `invoke()`, `send()`, `move()`
-and `events()`. The sandbox has no network, filesystem, process, imports or
-`eval`; every side effect goes through the same connection-checked bridge, so a
-lost site connection still produces `SITE_DISCONNECTED` / `TOOL_UNAVAILABLE`.
-This is an adapter option, not a hosted service and not part of WebMCP itself.
+`--code-mode` adds `ai_auth_code` **in addition to** the existing tools,
+following Cloudflare's [Code Mode pattern](https://blog.cloudflare.com/code-mode):
+the harness can run a short sandboxed script against `aiAuth.status()`,
+`listTools()`, `invoke()`, `send()`, `move()` and `events()`, while every other
+action stays registered. The sandbox has no network, filesystem, process,
+imports or `eval`; side effects go through the same connection-checked bridge.
+A lost site connection makes `aiAuth.invoke()` return `SITE_DISCONNECTED` /
+`TOOL_UNAVAILABLE` codes; `send()` and `move()` instead throw plain errors, which
+Code Mode reports as `CODE_FAILED`. This is an adapter option, not a hosted
+service and not part of WebMCP itself.
 
 `ai_auth_invoke` returns a machine-readable `code` alongside its reason:
 `TOOL_UNAVAILABLE`, `SITE_DISCONNECTED`, `CATALOG_EXPIRED`, `AUTH_EXPIRED`,
@@ -226,8 +247,11 @@ online instead of returning a fake result.
 - **The runtime owns the connection.** Identity lives in the wallet keystore;
   presence lives only while this process keeps networking. A non-expiring
   session is not a running process.
-- **Presence ends when the process ends.** The MCP server is started by the
-  harness and exits with it (or on stdin close, SIGINT, SIGTERM). Peers then see
+- **Presence ends when the process ends.** In stdio mode the MCP server is
+  started by the harness and exits with it: the stdin-close handler is
+  registered only in the stdio branch, alongside SIGINT and SIGTERM. In `--http`
+  mode there is no stdin-close exit; the server runs until it is stopped.
+  Peers then see
   the agent leave when its heartbeat lease lapses (about 24 s) or immediately if
   it said goodbye. There is no background daemon and no hosted keep-alive
   service; a supervisor (launchd, systemd, a harness keep-alive) is optional and

@@ -106,7 +106,20 @@ Membership is not authentication of a human. It says this site's issuer authoriz
 
 ## 5. Session (implemented in the connect flow)
 
-A bounded connection: one approval, one `sessionId`, one expiry. The wallet-signed connect request and consent already carry `origin`, `room`, `session`, `capabilities`, `nonce` and `expiresAt`, and a session ends at its expiry or disconnect. Session lifetime handling is being reworked separately; this contract does not change it. The agent descriptor and instance id attach to the session through `sessionId`. A session never outlives its consent, and a membership or grant does not extend it.
+A bounded connection: one approval, one expiry. The unsigned request from
+`createPermissionRequest` carries `type`, `version: 2`, `audience` (the exact
+origin), `nonce`, `createdAt`, `expiresAt` (the 1–120 s handshake expiry),
+`room`, `capabilities`, and optional `sessionPolicy` / `sessionTtlMs` /
+`idleTimeoutMs` / `renews`. The wallet-signed `connect/consent` carries
+`audience`, `requestNonce`, `room`, `capabilities`, `issuedAt`,
+`challengeExpiresAt`, `expiresAt` (the session end, or `null` for Never),
+`sessionTtlMs`, `idleTimeoutMs`, optional `renewsNonce` and an optional
+`agentDescriptor`. The consent has no `origin`, `session` or `nonce` field (see
+`packages/p2p/connect.js`). A session ends at its expiry or disconnect; this
+contract documents protocol version 1 as implemented and makes no claim about
+future changes. The agent descriptor binds to the request nonce via `sessionId`.
+A session never outlives its consent, and a membership or grant does not extend
+it.
 
 ## 6. Presence (partly implemented)
 
@@ -114,7 +127,7 @@ Verified, live participation in a room, kept alive by a heartbeat lease.
 
 - Implemented: `peer/hello`, `peer/heartbeat` and `peer/goodbye` events, signed per event. In restricted rooms the first two carry the membership proof. A peer is listed only after verification and is dropped when the lease lapses (heartbeat every 8 s; a peer is dropped after 24 s without one).
 - Rule: presence requires a valid signature, and in restricted rooms a valid unrevoked membership. A display label in presence is a claim.
-- **Private presence** (`P2PRoom` option `privateMode`): the participant joins and receives authorized room events and may send signed actions, but never sends `peer/hello`, `peer/heartbeat`, `peer/goodbye` or `presence/cursor` (the room refuses to), never answers a hello, and is never listed in a peer's presence list. In a restricted room it attaches its membership proof to each event it sends and sends `membership/prove` once to each direct peer so they will deliver room events to it. Its events are signed by its own wallet, so it cannot act as anyone else, and `room.audit()` keeps a bounded log of what it sent. This does not hide it from the transport: direct WebRTC peers and relays see the connection, and every event it sends names its wallet.
+- **Private presence** (`P2PRoom` option `privateMode`): the participant joins and receives authorized room events and may send signed actions, but never sends `peer/hello`, `peer/heartbeat`, `peer/goodbye` or `presence/cursor` (the room refuses to), never answers a hello, and is never listed in a peer's presence list. In a restricted room it attaches its membership proof to each event it sends and sends `membership/prove` on every data-channel open, on room start and on each new direct peer (`onPeerJoin`) so they will deliver room events to it. Its events are signed by its own wallet, so it cannot act as anyone else, and `room.audit()` keeps a bounded log of what it sent. This does not hide it from the transport: direct WebRTC peers and relays see the connection, and every event it sends names its wallet.
 - Specified, not yet implemented: carrying `instanceId` and descriptor digest in presence so peers can run clone detection without extra messages.
 
 Boundary: presence proves the key was recently live and (restricted) admitted. It does not prove the key is still authorized after a revocation this peer has not seen.
@@ -179,7 +192,7 @@ Protected operations (running tools, writing files, anything with side effects) 
 4. The membership grants `scope` (owners with `*` grant any).
 5. A live execution grant exists for the same membership id, with the current epoch, and lists `scope`.
 
-Otherwise it returns `{ allow: false, reason }` (for example `no-execution-grant`, `grant-expired`, `stale-epoch`, `revoked`, `missing-scope`). Any missing or invalid input denies.
+Otherwise it returns `{ allow: false, reason }` (for example `no-execution-grant`, `grant-expired`, `stale-epoch`, `revoked`, `scope-not-granted`). `missing-scope` is returned only when the scope string is missing or malformed; a well-formed scope absent from the membership or grant yields `scope-not-granted` (see `packages/p2p/membership.js`). Any missing or invalid input denies.
 
 **Execution grant**: `ai-auth-execution-grant` v1, domain `ai-auth-execution-grant/v1\n`. Fields: `id`, `issuer`, `subject`, `origin`, `room`, `membershipId`, `scopes` (no `*`), `epoch`, `issuedAt`, `expiresAt`, `signature`. Lifetime at most 15 minutes (default 5). Renew by issuing a new grant (`renewExecutionGrant`); the issuer decides whether to renew. The grant TTL bounds how long a peer that missed a revocation can still act.
 
@@ -189,22 +202,26 @@ The human approval callback required by the in-page agent bridge is a separate, 
 
 ## 12. Runtime adapter contract (specified)
 
-An adapter lets a particular agent runtime (a CLI agent, an in-page agent, an MCP server) use AI Auth without the SDK knowing the runtime. The contract:
+An adapter lets a particular agent runtime (a CLI agent, an in-page agent, an MCP server) use AI Auth without the SDK knowing the runtime. This section is **specified**, not a tested compatibility guarantee. Bullets labelled _enforced_ are checked by code or a test in this repository; the rest are guidance for adapter authors and are not validated by protocol version 1.
 
-- The adapter holds or is handed a wallet and acts only as that identity.
-- It builds an agent descriptor (section 3), binds a stable instance id, and attaches the descriptor to the connect request when that path ships.
-- Its descriptor fields are claims.
-- It exposes tools only through capabilities the session approved, and gates each protected call through `authorizeProtected` plus the site's human approval.
-- It releases the instance on disconnect and surfaces `clone-suspected` diagnostics to its host.
-- It never receives private keys it did not create, and never forwards credentials or private page data into a room.
+- _Guidance._ The adapter holds or is handed a wallet and acts only as that identity. (The MCP server does validate `wallet.id` and `wallet.sign` in `packages/mcp/index.js`.)
+- _Enforced in the SDK, not by the adapter packages._ Descriptors are built by `approvePermissionRequest(..., { agent })` and attached to `connect/consent` as `agentDescriptor` (`packages/p2p/connect.js`). The agent and MCP packages do not create descriptors or bind instance ids themselves.
+- _Enforced._ Descriptor fields are claims; `authorizeProtected` never consults them.
+- _Enforced in part._ `buildAgentActions` registers only tools whose capability the site requested (`packages/mcp/bridge.js`), and `provideTools` requires `tools.invoke`. Gating each protected call through `authorizeProtected` plus the site's human approval is guidance for the adapter's host.
+- _Guidance._ It releases the instance on disconnect and surfaces `clone-suspected` diagnostics to its host. `createCloneDetector` exists in the wallet SDK, but forwarding its diagnostics is adapter-specific.
+- _Guidance._ It never receives private keys it did not create, and never forwards credentials or private page data into a room.
 
 No adapter code is added by protocol version 1; existing adapters (`agent-connect`, the runtime and MCP packages) keep their current behavior.
 
 ## Compatibility and migration from 0.4.x
 
-- Additions only. All 0.4.x exports and signed formats are unchanged. The wallet envelope (`docs/WIRE_FORMAT.md`) is untouched.
+The statements below are source-reading notes against the `v0.4.0` and `v0.4.1`
+release tags, **not** results of running 0.4.x code with this release. No
+cross-version runtime test was performed; treat these as untested statements.
+
+- _Untested (read from tags)._ "Additions only": 0.4.x exports and signed formats appear unchanged, and the core wallet envelope in `docs/WIRE_FORMAT.md` keeps its shape. This was checked by reading the tags, not by running a 0.4.x build.
 - 0.4.x peers do not know membership, revocation, grants or descriptors. They have no handler for event types such as `revocation/gossip` and cannot enforce restricted-room rules or revocations; open rooms behave as before. Interoperability of 0.4.x peers with the new event types has not been tested.
-- A consent carrying `agentDescriptor` still verifies on 0.4.x verifiers: they do not check for unknown payload fields, so they ignore it (this was checked by reading `verifyPermissionConsent`, not by running a 0.4.x build). Membership proofs without `epoch` and `durationKind` stay valid byte for byte and count as epoch 0, so an epoch bump invalidates them. Proofs that carry the new optional fields are rejected as `malformed` by verifiers older than 0.5.0 (this release line); issue them only to 0.5.0+ verifiers.
+- _Untested (read from tags)._ A consent carrying `agentDescriptor` appears to verify on 0.4.x verifiers: `verifyPermissionConsent` at `v0.4.0` has no unknown-payload-field check, so it should ignore the field. This was not run against a 0.4.x build. Membership proofs without `epoch` and `durationKind` stay valid byte for byte and count as epoch 0, so an epoch bump invalidates them. Proofs that carry the new optional fields are rejected as `malformed` by verifiers older than 0.5.0; issue them only to 0.5.0+ verifiers.
 - To adopt: keep open rooms as they are; for restricted rooms issue memberships (preferably with `duration` and `epoch`), add `createRevocationGossip(room)`, and gate protected operations with `authorizeProtected` plus execution grants.
 - Unknown `v` values must be rejected, not downgraded. A change to signed semantics needs a new `v`.
 

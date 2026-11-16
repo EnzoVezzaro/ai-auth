@@ -82,8 +82,7 @@ export function createReport() {
       );
       return lines.join("\n");
     },
-    passed: () =>
-      rows.every((row) => row.status === "PASS" || row.status === "PENDING"),
+    passed: () => rows.every((row) => row.status === "PASS"),
     async write(extra = {}) {
       const dir = resolve(root, "test-results");
       await mkdir(dir, { recursive: true });

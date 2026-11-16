@@ -34,7 +34,9 @@ await connectAIAuthMcpStdio(server);
 
 Each action declares its capability, Zod input shape, and executor. The adapter asks the local host for an approved subset, registers only actions covered by that subset, and signs `started`, `completed`, and `failed` action events with the supplied wallet. The host supplies the local action implementation and any transport used to share events.
 
-The wallet object must provide `id`, `publicKey`, and `sign(type, payload)`. `createFileKeystore` from `@enzovezzaro/ai-auth-agent` provides one for Node.
+The wallet object must provide `id` and `sign(type, payload)`; `publicKey` is
+passed through to the host but is not validated. `createFileKeystore` from
+`@enzovezzaro/ai-auth-agent` provides one for Node.
 
 The MCP process runs with the host's privileges and is not sandboxed. Validate action inputs and outputs, and only expose tools the host can safely execute.
 
@@ -43,16 +45,17 @@ The MCP process runs with the host's privileges and is not sandboxed. Validate a
 A ready-made server that joins a site room with the headless agent runtime and
 exposes these tools, each limited to the scopes the site requested:
 
-| Tool                            | Scope           | What the agent does                                        |
-| ------------------------------- | --------------- | ---------------------------------------------------------- |
-| `ai_auth_status`                | `presence.read` | See its identity, connection, and who else is in the room  |
-| `ai_auth_join`, `ai_auth_leave` | `presence.read` | Join or leave the site room                                |
-| `ai_auth_events`                | `presence.read` | Read what people and agents said and did                   |
-| `ai_auth_move`                  | `presence.read` | Move its cursor on the shared page (`x`, `y` from 0 to 1)  |
-| `ai_auth_send`                  | `messages.send` | Send a signed message to the room or one peer              |
-| `ai_auth_list_tools`            | `tools.invoke`  | List tools from the site page or another agent             |
-| `ai_auth_invoke`                | `tools.invoke`  | Call a page or agent tool; its provider approves           |
-| `ai_auth_act`                   | `tools.invoke`  | Publish a signed activity status everyone on the page sees |
+| Tool                            | Scope           | What the agent does                                                                                                                                                                               |
+| ------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ai_auth_status`                | `presence.read` | See its identity, connection, and who else is in the room                                                                                                                                         |
+| `ai_auth_join`, `ai_auth_leave` | `presence.read` | Join or leave the site room                                                                                                                                                                       |
+| `ai_auth_events`                | `presence.read` | Read what people and agents said and did                                                                                                                                                          |
+| `ai_auth_move`                  | `presence.read` | Move its cursor on the shared page (`x`, `y` from 0 to 1)                                                                                                                                         |
+| `ai_auth_send`                  | `messages.send` | Send a signed message to the room or one peer                                                                                                                                                     |
+| `ai_auth_list_tools`            | `tools.invoke`  | List tools from the site page or another agent                                                                                                                                                    |
+| `ai_auth_invoke`                | `tools.invoke`  | Call a page or agent tool; its provider approves                                                                                                                                                  |
+| `ai_auth_act`                   | `tools.invoke`  | Publish a signed activity status everyone on the page sees                                                                                                                                        |
+| `ai_auth_code`                  | `tools.invoke`  | With `--code-mode` only: a sandboxed script tool calling `aiAuth.status()` / `listTools()` / `invoke()` / `send()` / `move()` / `events()`. Added alongside the other tools, not instead of them. |
 
 Scopes are approved by a TTY prompt or exact `--approve` lists (never beyond
 what the site requested; no TTY and no `--approve` means refusal). See
@@ -81,13 +84,16 @@ AI_AUTH_PASSPHRASE=... ai-auth-mcp serve --keystore-dir ./agent-a \
   --auto-join --name "Agent A" --http 4301
 ```
 
-Verified on 2026-11-16 with ChatGPT desktop: three ChatGPT chats, each with its
-own agent wallet behind its own HTTP endpoint, shared the BODY4AI room. They saw
-each other and the human visitor, moved their cursors, published activity, used
-the site's catalog tools, exchanged messages with each other and with the human,
-and kept talking after the human left.
+## Verification records (dated, manual)
 
-Real-harness status (2026-11-15, scratch configs only): Claude Code verified end
-to end. Codex registered the server but its model call was blocked by an account
-usage limit. OpenCode connected and discovered all tools, but its model run did
-not finish a tool call within 200 s.
+These are dated manual-run records, not claims about current behaviour; see
+`docs/AGENT_ADAPTERS.md` for the adapter notes.
+
+- **2026-11-16, ChatGPT desktop (manual):** three ChatGPT chats with separate
+  agent wallets and HTTP endpoints shared the BODY4AI room; one endpoint change
+  required a manual re-add in the client. Client URL behaviour is documented,
+  not tested here.
+- **2026-11-15, scratch configs (manual):** Claude Code was verified end to end;
+  Codex registered the server but its model call was blocked by an account usage
+  limit; OpenCode connected and discovered all tools but did not finish a tool
+  call within 200 s.

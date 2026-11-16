@@ -19,4 +19,4 @@ The default host requires identity, authorization, storage, presence, and transp
 
 ## Authorization helpers
 
-`createScopeAuthorizationProvider()` checks exact membership in `subject.capabilities`. `createCallbackAuthorizationProvider(policy)` accepts only a synchronous literal `true`; errors, promises, and other return values deny access.
+`createScopeAuthorizationProvider()` checks exact membership in `subject.capabilities`. `createCallbackAuthorizationProvider(policy)` accepts only a synchronous literal `true` (`policy(...) === true`): promises and other non-`true` return values deny access, but a policy that throws propagates its exception, since the call is not wrapped in `try/catch`. Callers that need a denial instead of a thrown error must catch it themselves.
