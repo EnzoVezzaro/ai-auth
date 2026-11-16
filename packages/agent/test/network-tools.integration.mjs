@@ -41,7 +41,10 @@ test("an agent process without a browser serves tools to another agent over the 
   const providerLines = [];
   provider.stdout.on("data", (d) =>
     providerLines.push(
-      ...String(d).split("\n").filter(Boolean).map((l) => JSON.parse(l)),
+      ...String(d)
+        .split("\n")
+        .filter(Boolean)
+        .map((l) => JSON.parse(l)),
     ),
   );
   provider.stderr.on("data", (d) => process.stderr.write(d));
