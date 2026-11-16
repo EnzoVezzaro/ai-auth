@@ -11,8 +11,32 @@ const { version } = JSON.parse(
 await rm(output, { recursive: true, force: true });
 await mkdir(resolve(output, "wallet"), { recursive: true });
 await mkdir(resolve(output, "docs"), { recursive: true });
+await mkdir(resolve(output, "landing"), { recursive: true });
 await cp(resolve(root, "index.html"), resolve(output, "index.html"));
 await cp(resolve(root, "landing.css"), resolve(output, "landing.css"));
+
+// The landing page keeps its content in HTML and loads a small React island
+// for the 3D scenes. Split chunks keep WebGL code off the first paint and let
+// each scene load when it scrolls into view.
+await cp(
+  resolve(root, "node_modules/@designcodeio/threeui/lib-dist/style.css"),
+  resolve(output, "landing/threeui.css"),
+);
+await build({
+  entryPoints: [resolve(root, "src/landing/index.jsx")],
+  outdir: resolve(output, "landing"),
+  entryNames: "entry",
+  chunkNames: "chunks/[name]-[hash]",
+  bundle: true,
+  splitting: true,
+  format: "esm",
+  platform: "browser",
+  target: ["es2022"],
+  jsx: "automatic",
+  minify: true,
+  sourcemap: false,
+  define: { "process.env.NODE_ENV": '"production"' },
+});
 // Version the wallet assets by release, so a new deploy is never served from a
 // browser cache that still holds the previous stylesheet or script.
 const walletEntry = (
@@ -68,13 +92,19 @@ for (const name of [
 
 const landing = await readFile(resolve(output, "index.html"), "utf8");
 const wallet = await readFile(resolve(output, "wallet/index.html"), "utf8");
+const landingBundle = await readFile(
+  resolve(output, "landing/entry.js"),
+  "utf8",
+);
 if (
   !landing.includes('href="./wallet/"') ||
   !landing.includes('href="./docs/ARCHITECTURE.md"') ||
+  !landing.includes('src="./landing/entry.js"') ||
+  !landingBundle.includes("data-scene") ||
   !wallet.includes(`src="./app.js?v=${version}"`) ||
   !wallet.includes(`href="./styles.css?v=${version}"`)
 ) {
-  throw new Error("Wallet entry page has a broken static asset reference");
+  throw new Error("Static landing page has a broken asset reference");
 }
 await writeFile(
   resolve(output, "BUILD_INFO.json"),

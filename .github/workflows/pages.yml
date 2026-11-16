@@ -7,6 +7,7 @@ on:
       - "index.html"
       - "landing.css"
       - "styles.css"
+      - "src/landing/**"
       - "apps/p2p/**"
       - "packages/p2p/**"
       - "docs/ARCHITECTURE.md"
