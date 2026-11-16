@@ -4,6 +4,7 @@ import {
   EXTEND_MINUTES,
   WALLET_REQUIRED_MESSAGE,
   WALLET_SAVED_NOTICE,
+  INLINE_WALLET_NOTICE,
   NO_WALLET_NOTICE,
   capabilityCopy,
   connectionStatusLabel,
@@ -11,6 +12,8 @@ import {
   requestEndText,
   sessionEndText,
 } from "../../packages/p2p/copy.js";
+import { inlineCreateWalletForm } from "../../packages/p2p/wallet-setup-copy.js";
+import { canResumeSession } from "../../packages/p2p/resume-verification.js";
 import {
   appendActivity,
   approvePermissionRequest,
@@ -244,8 +247,9 @@ function externalPermissionView() {
   const request = state.externalRequest;
   const displayOrigin = request.audience;
   if (!state.wallet) {
-    return `${pageHead("SITE WALLET REQUEST", "Create or restore your wallet.", `${displayOrigin} wants to connect to your agent. Your wallet key stays in this browser.`)}
-      <section class="panel"><p class="mini-label">REQUESTING SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">Requested permissions: ${request.capabilities.map((capability) => esc(capabilityCopy(capability).title)).join(", ")}</p><p class="help">${NO_WALLET_NOTICE}</p>${setupFormError()}<button class="button" data-go-wallet>Continue to wallet setup</button></section>`;
+    return `${pageHead("SITE WALLET REQUEST", "Create your wallet to continue.", `${displayOrigin} wants to connect to your agent. Your wallet key stays in this browser.`)}
+      <section class="panel"><p class="mini-label">REQUESTING SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">Requested permissions: ${request.capabilities.map((capability) => esc(capabilityCopy(capability).title)).join(", ")}</p><p class="help">${INLINE_WALLET_NOTICE}</p></section>
+      ${inlineCreateWalletForm({ error: state.error })}`;
   }
   if (state.externalStatus === "sent") {
     const grant = state.consent?.body?.payload;
@@ -976,6 +980,89 @@ function externalSessionActive() {
   return state.externalStatus === "sent" && state.lease?.isActive() === true;
 }
 
+// The wallet remembers ended session ids so it can refuse a resume even after
+// its own page reloaded. Only public ids are stored here.
+const ENDED_SESSIONS_KEY = "ai-auth-ended-sessions";
+function endedSessionIds() {
+  try {
+    const ids = JSON.parse(sessionStorage.getItem(ENDED_SESSIONS_KEY) ?? "[]");
+    return new Set(Array.isArray(ids) ? ids : []);
+  } catch {
+    return new Set();
+  }
+}
+function markSessionEnded(id) {
+  if (typeof id !== "string") return;
+  try {
+    const ids = endedSessionIds();
+    ids.add(id);
+    sessionStorage.setItem(
+      ENDED_SESSIONS_KEY,
+      JSON.stringify([...ids].slice(-100)),
+    );
+  } catch {}
+}
+
+// A resume never re-grants a scope. It re-checks the stored, signed consent
+// against this wallet's key and the current time, then restarts the room.
+async function confirmSessionResume(event) {
+  const data = event.data;
+  const payload = data?.consent?.body?.payload;
+  const origin = data?.audience;
+  const valid =
+    event.source === externalHost &&
+    Boolean(state.wallet) &&
+    (await canResumeSession(data?.consent, {
+      audience: origin,
+      sessionId: data?.sessionId,
+      room: data?.room,
+      walletId: state.wallet?.id,
+      endedIds: endedSessionIds(),
+      lastActivity: data?.lastActivity,
+    }));
+  if (!valid) {
+    externalHost?.postMessage(
+      { type: "ai-auth/session-ended", reason: "revoked" },
+      origin,
+    );
+    return;
+  }
+  activateResumedSession(data, payload, origin);
+}
+
+function activateResumedSession(data, payload, origin) {
+  state.externalRequest = {
+    audience: origin,
+    room: data.room,
+    capabilities: [...payload.capabilities],
+    nonce: data.sessionId,
+    expiresAt: payload.challengeExpiresAt,
+  };
+  state.consent = data.consent;
+  state.lease = new SessionLease(payload);
+  state.externalStatus = "sent";
+  state.externalOrigin = origin;
+  state.externalSource = externalHost;
+  state.privateMode = false;
+  state.externalRoomReady = false;
+  clearTimeout(state.externalExpiryTimer);
+  scheduleSessionExpiry();
+  state.view = "connect";
+  render();
+  externalHost.postMessage(
+    {
+      type: "ai-auth/session-resumed",
+      sessionId: data.sessionId,
+      wallet: { id: state.wallet.id, name: state.wallet.name },
+      consent: state.consent,
+    },
+    origin,
+  );
+  void startRoom().catch(() => {
+    state.externalRoomReady = false;
+  });
+}
+
 // One timer follows the earlier of grant expiry and idle deadline and
 // re-checks the lease each time, so renewal and activity move it forward.
 function scheduleSessionExpiry() {
@@ -996,6 +1083,7 @@ function scheduleSessionExpiry() {
 function expireExternalSession(reason = "expired") {
   if (state.externalStatus !== "sent") return;
   clearTimeout(state.sessionTimer);
+  markSessionEnded(state.consent?.body?.payload?.requestNonce);
   state.lease?.revoke();
   state.renewal = null;
   if (externalHost && state.externalOrigin)
@@ -1270,6 +1358,10 @@ if (externalConnectMode) {
       state.renewal = renewal;
       state.view = "connect";
       render();
+      return;
+    }
+    if (event.data?.type === "ai-auth/session-resume") {
+      await confirmSessionResume(event);
       return;
     }
     if (
