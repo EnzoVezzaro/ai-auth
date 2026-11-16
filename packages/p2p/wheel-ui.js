@@ -104,6 +104,7 @@ export function createShell(doc, target) {
     previewWarn: $(".preview-warn"),
     previewTitle: $("#wheel-preview-title"),
     picker: $(".picker"),
+    pickerText: $(".picker p"),
     action: (name) => $(`[data-action="${name}"]`),
   };
   return refs;
