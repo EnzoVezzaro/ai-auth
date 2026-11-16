@@ -82,6 +82,14 @@ The panel then handles the full flow with no further wiring:
    countdown; DISCONNECTED / EXPIRED appear when the wallet closes or the
    grant lapses.
 
+The demo site in `site/` does not use the wallet modal. It keeps the wallet in
+the page and shows one approval dialog that lists the requested permissions;
+the visitor can untick any of them, and Escape or "Don't allow" cancels. The
+site draws its own panel so its status text and buttons use plain words (for
+example "Connected. Waiting for other visitors or agents."). Renewal is
+"Extend for 30 more minutes", and a declined extension keeps the current
+session until its end time.
+
 ## 4. Reflect the connection elsewhere in the page
 
 The panel is the source of truth. Its host element mirrors the live state as
