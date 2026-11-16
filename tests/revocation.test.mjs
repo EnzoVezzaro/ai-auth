@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { webcrypto } from "node:crypto";
 import {
+  CATCHUP_MAX_RECORDS,
+  createEpochRecord,
+  createRevokedLinkSet,
+  deriveLinkId,
+  randomNonce,
+  signEnvelope,
+  verifyEpochRecord,
   authorizeProtected,
   createParticipationPolicy,
   createRevocation,
@@ -463,11 +470,16 @@ function linkedRooms(n, policies) {
         listeners.add(l);
         return () => listeners.delete(l);
       },
-      async send(type, payload) {
+      async send(type, payload, options) {
         const envelope = { body: { type, issuer: `peer-${i}`, payload } };
-        sent.push({ from: i, type, id: payload.revocation?.id });
+        sent.push({
+          from: i,
+          type,
+          id: payload.revocation?.id,
+          to: options?.to,
+        });
         for (const [j, other] of rooms.entries())
-          if (j !== i)
+          if (j !== i && (!options?.to || options.to === `peer-${j}`))
             for (const l of [...other.listeners])
               l({ direction: "in", envelope });
         return envelope;
@@ -477,6 +489,13 @@ function linkedRooms(n, policies) {
   return { rooms, sent };
 }
 const settle = () => new Promise((r) => setTimeout(r, 25));
+// Signature checks are async; poll instead of guessing how long they take.
+async function until(condition, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition() && Date.now() < deadline)
+    await new Promise((r) => setTimeout(r, 5));
+  await settle();
+}
 
 async function gossipWorld(n = 3) {
   const w = await world();
@@ -558,5 +577,311 @@ test("a closed gossip instance stops applying revocations", async () => {
   assert.throws(
     () => createRevocationGossip(g.rooms[0], { policy: {} }),
     /applyRevocation/u,
+  );
+});
+
+// ---- epoch announcements, link revocations, and catch-up -------------------
+
+const DAY = 24 * 3600_000;
+
+async function linkRevocationEvent(wallet, now, resource = "/doc") {
+  const nonce = randomNonce();
+  const linkId = await deriveLinkId({
+    origin: ORIGIN,
+    walletId: wallet.id,
+    resource,
+    nonce,
+  });
+  const event = await signEnvelope(wallet, "ai-auth-link-revocation", {
+    type: "ai-auth-link-revocation",
+    v: 1,
+    linkId,
+    origin: ORIGIN,
+    resource,
+    walletId: wallet.id,
+    nonce,
+    revokedAt: now,
+  });
+  return { event, linkId };
+}
+
+test("epoch records: trusted issuer only, bound to origin and room, forward only", async () => {
+  const w = await world();
+  const opts = {
+    trustPolicy: { issuers: [w.host.publicKey] },
+    expectedOrigin: ORIGIN,
+    expectedRoom: ROOM,
+    now: w.clock.t,
+  };
+  const rec = await createEpochRecord(w.host, {
+    epoch: 3,
+    origin: ORIGIN,
+    room: ROOM,
+    now: w.clock.t,
+  });
+  assert.equal((await verifyEpochRecord(rec, opts)).ok, true);
+  const rogue = await makeWallet();
+  const forged = await createEpochRecord(rogue, {
+    epoch: 9,
+    origin: ORIGIN,
+    room: ROOM,
+    now: w.clock.t,
+  });
+  assert.equal(
+    (await verifyEpochRecord(forged, opts)).reason,
+    "untrusted-issuer",
+  );
+  assert.equal(
+    (await verifyEpochRecord({ ...rec, epoch: 99 }, opts)).reason,
+    "bad-signature",
+  );
+  assert.equal(
+    (await verifyEpochRecord(rec, { ...opts, expectedRoom: "other" })).reason,
+    "wrong-room",
+  );
+  assert.equal(
+    (await verifyEpochRecord(rec, { ...opts, expectedOrigin: undefined }))
+      .reason,
+    "expectations-required",
+  );
+  // A wallet may not announce an epoch for itself (unlike self-revocation).
+  const self = await createEpochRecord(w.alice, {
+    epoch: 4,
+    origin: ORIGIN,
+    room: ROOM,
+    now: w.clock.t,
+  });
+  assert.equal((await w.policy.applyEpoch(self)).reason, "untrusted-issuer");
+  assert.deepEqual(await w.policy.applyEpoch(rec), {
+    ok: true,
+    applied: true,
+    kind: "epoch",
+  });
+  assert.equal(w.policy.epoch, 3);
+  const older = await createEpochRecord(w.host, {
+    epoch: 2,
+    origin: ORIGIN,
+    room: ROOM,
+    now: w.clock.t,
+  });
+  assert.equal((await w.policy.applyEpoch(older)).applied, false);
+  assert.equal(w.policy.epoch, 3);
+  await assert.rejects(
+    createEpochRecord(w.host, { epoch: -1, origin: ORIGIN, room: ROOM }),
+    /epoch/u,
+  );
+});
+
+test("an epoch announcement gossips and invalidates older proofs at every peer", async (t) => {
+  const g = await gossipWorld(3);
+  t.after(() => g.gossips.forEach((x) => x.close()));
+  const { w } = g;
+  const m = await w.membership({ epoch: 0 });
+  for (const p of g.policies)
+    assert.equal((await p.admit(w.alice.id, m)).ok, true);
+  g.policies[0].bumpEpoch();
+  const rec = await createEpochRecord(w.host, {
+    epoch: 1,
+    origin: ORIGIN,
+    room: ROOM,
+    now: w.clock.t,
+  });
+  assert.equal((await g.gossips[0].publishEpoch(rec)).ok, true);
+  await settle();
+  for (const p of g.policies) {
+    assert.equal(p.epoch, 1);
+    assert.equal(p.isMember(w.alice.id), false);
+  }
+  assert.equal(
+    (await g.policies[2].admit(w.alice.id, m)).reason,
+    "stale-epoch",
+  );
+});
+
+test("link revocations flow through gossip into the policy and a site's revoked set", async (t) => {
+  const g = await gossipWorld(2);
+  const siteSet = createRevokedLinkSet();
+  const second = createRevocationGossip(g.rooms[1], {
+    revokedLinks: siteSet,
+    now: () => g.w.clock.t,
+  });
+  t.after(() => [...g.gossips, second].forEach((x) => x.close()));
+  const { event, linkId } = await linkRevocationEvent(g.w.alice, g.w.clock.t);
+  assert.equal((await g.gossips[0].publishLinkRevocation(event)).applied, true);
+  await settle();
+  assert.equal(g.policies[1].revokedLinks.has(linkId), true);
+  assert.equal(siteSet.has(linkId), true);
+  // A replay and a tampered event change nothing.
+  assert.equal(
+    (await g.gossips[0].publishLinkRevocation(event)).applied,
+    false,
+  );
+  const forgedEvent = {
+    ...event,
+    body: {
+      ...event.body,
+      payload: { ...event.body.payload, linkId: `link:${"b".repeat(64)}` },
+    },
+  };
+  assert.equal(
+    (await g.policies[1].applyLinkRevocation(forgedEvent)).ok,
+    false,
+  );
+  const wrongOrigin = await linkRevocationEvent(g.w.alice, g.w.clock.t);
+  wrongOrigin.event.body.payload.origin = "https://other.example";
+  assert.equal(
+    (await g.policies[1].applyLinkRevocation(wrongOrigin.event)).ok,
+    false,
+  );
+});
+
+async function revokeMany(w, n) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const target = (await makeWallet()).id;
+    out.push(
+      await createRevocation(w.host, {
+        kind: "wallet",
+        target,
+        origin: ORIGIN,
+        room: ROOM,
+        now: w.clock.t,
+      }),
+    );
+  }
+  return out;
+}
+
+test("a peer that was offline converges through a bounded, verified catch-up", async (t) => {
+  const g = await gossipWorld(2);
+  t.after(() => g.gossips.forEach((x) => x.close()));
+  const { w } = g;
+  // Peer 0 holds history that peer 1 never saw.
+  const rec = await createRevocation(w.host, {
+    kind: "wallet",
+    target: w.alice.id,
+    origin: ORIGIN,
+    room: ROOM,
+    now: w.clock.t,
+  });
+  await g.policies[0].applyRevocation(rec);
+  const { event, linkId } = await linkRevocationEvent(w.alice, w.clock.t);
+  await g.policies[0].applyLinkRevocation(event);
+  g.policies[0].bumpEpoch();
+  await g.policies[0].applyEpoch(
+    await createEpochRecord(w.host, {
+      epoch: 1,
+      origin: ORIGIN,
+      room: ROOM,
+      now: w.clock.t,
+    }),
+  );
+  assert.equal(g.policies[1].epoch, 0);
+  // Peer 1 comes online and announces itself: peer 0 pushes its state back.
+  await g.rooms[1].send("peer/hello", {});
+  await settle();
+  assert.equal(g.policies[1].isRevoked("wallet", w.alice.id), true);
+  assert.equal(g.policies[1].revokedLinks.has(linkId), true);
+  assert.equal(g.policies[1].epoch, 1);
+  // Throttled per peer: another hello right away does not trigger another push.
+  const syncs = () => g.sent.filter((s) => s.type === "revocation/sync").length;
+  const before = syncs();
+  await g.rooms[1].send("peer/hello", {});
+  await settle();
+  assert.equal(syncs(), before);
+});
+
+test("catch-up is bounded by count and age and rejects forged items", async (t) => {
+  const g = await gossipWorld(3);
+  t.after(() => g.gossips.forEach((x) => x.close()));
+  const { w } = g;
+  const stale = await createRevocation(w.host, {
+    kind: "wallet",
+    target: (await makeWallet()).id,
+    origin: ORIGIN,
+    room: ROOM,
+    now: w.clock.t - 30 * DAY,
+  });
+  await g.policies[0].applyRevocation(stale);
+  const many = await revokeMany(w, CATCHUP_MAX_RECORDS + 10);
+  for (const r of many) await g.policies[0].applyRevocation(r);
+  const recent = g.policies[0].recentRecords();
+  assert.equal(recent.revocations.length, CATCHUP_MAX_RECORDS);
+  assert.equal(
+    recent.revocations.some((r) => r.id === stale.id),
+    false,
+    "too old",
+  );
+  assert.equal(g.policies[0].recentRecords({ limit: 5 }).revocations.length, 5);
+  assert.equal(
+    g.policies[0].recentRecords({ limit: 10_000 }).revocations.length,
+    CATCHUP_MAX_RECORDS,
+  );
+  assert.equal(
+    g.policies[0].recentRecords({ maxAgeMs: 1 }).revocations.length,
+    CATCHUP_MAX_RECORDS,
+  );
+  // A hostile peer's sync mixes forged and replayed items with a valid one.
+  const rogue = await makeWallet();
+  const forged = await createRevocation(rogue, {
+    kind: "wallet",
+    target: w.alice.id,
+    origin: ORIGIN,
+    room: ROOM,
+    now: w.clock.t,
+  });
+  const valid = (await revokeMany(w, 1))[0];
+  await g.rooms[1].send("revocation/sync", {
+    epoch: null,
+    revocations: [forged, valid, valid, { junk: true }, null],
+    linkRevocations: "not-a-list",
+  });
+  await until(() => g.policies[2].isRevoked("wallet", valid.target));
+  assert.equal(g.policies[2].isRevoked("wallet", w.alice.id), false);
+  assert.equal(g.policies[2].isRevoked("wallet", valid.target), true);
+  assert.ok(
+    g.gossips[2].diagnostics().some((d) => d.reason === "untrusted-issuer"),
+  );
+  // Oversized item lists are truncated, not processed unboundedly.
+  const flood = await revokeMany(w, CATCHUP_MAX_RECORDS + 8);
+  await g.rooms[1].send("revocation/sync", {
+    epoch: null,
+    revocations: flood,
+    linkRevocations: [],
+  });
+  await until(
+    () =>
+      flood.filter((r) => g.policies[2].isRevoked("wallet", r.target)).length >=
+      CATCHUP_MAX_RECORDS,
+  );
+  const applied = flood.filter((r) =>
+    g.policies[2].isRevoked("wallet", r.target),
+  ).length;
+  assert.equal(applied, CATCHUP_MAX_RECORDS);
+});
+
+test("a private participant requests catch-up instead of announcing itself", async (t) => {
+  const g = await gossipWorld(2);
+  t.after(() => g.gossips.forEach((x) => x.close()));
+  g.rooms[1].privateMode = true;
+  const rec = await createRevocation(g.w.host, {
+    kind: "wallet",
+    target: g.w.alice.id,
+    origin: ORIGIN,
+    room: ROOM,
+    now: g.w.clock.t,
+  });
+  await g.policies[0].applyRevocation(rec);
+  // Peer 0 announces itself; the private peer asks for state, then converges.
+  await g.rooms[0].send("peer/hello", {});
+  await settle();
+  assert.equal(
+    g.sent.some((s) => s.from === 1 && s.type === "revocation/sync-request"),
+    true,
+  );
+  assert.equal(g.policies[1].isRevoked("wallet", g.w.alice.id), true);
+  assert.equal(
+    g.sent.some((s) => s.from === 1 && s.type === "revocation/sync"),
+    false,
   );
 });

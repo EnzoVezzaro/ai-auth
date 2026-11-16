@@ -191,6 +191,10 @@ export class P2PRoom {
     wallet: WalletIdentity,
     room: string,
     options?: {
+      /**
+       * Private presence: receive authorized room events and send signed,
+       * audited actions, but advertise no presence, heartbeat or cursor.
+       */
       privateMode?: boolean;
       origin?: string;
       capabilities?: string[] | null;
@@ -202,6 +206,18 @@ export class P2PRoom {
   );
   readonly participationMode: RoomMode;
   readonly disclosure: string | null;
+  readonly privateMode: boolean;
+  /** Bounded log of events this wallet signed and sent (no payloads). */
+  audit(): readonly Readonly<{
+    at: number;
+    type: string;
+    issuer: string;
+    session: string;
+    nonce: string;
+    private: boolean;
+  }>[];
+  /** Private participants only: prove room membership without presence. */
+  proveMembership(): Promise<void>;
   readonly wallet: WalletIdentity;
   readonly session: string;
   readonly peers: Map<
@@ -280,25 +296,52 @@ export interface AIAuthPageConnection {
     room?: string;
   }>;
   readonly capabilities: readonly string[];
+  /** True only after the wallet reported it signs targets into messages. */
+  readonly supportsTargets: boolean;
+  readonly supportsReceipts: boolean;
   readonly transfers: {
-    sendText(text: string): Promise<void>;
-    sendElement(metadata: Record<string, unknown>): Promise<void>;
+    sendText(
+      text: string,
+      options?: { messageId?: string; target?: string },
+    ): Promise<void>;
+    sendElement(
+      metadata: Record<string, unknown>,
+      options?: { messageId?: string; target?: string },
+    ): Promise<void>;
     sendAttachment(
       blob: Blob,
-      options: { kind: "screenshot" | "recording"; name: string },
+      options: {
+        kind: "screenshot" | "recording";
+        name: string;
+        messageId?: string;
+        target?: string;
+      },
     ): Promise<void>;
     subscribe(
-      listener: (event: {
-        type: "text" | "element" | "attachment";
-        envelope: SignedEnvelope;
-        text?: string;
-        metadata?: Record<string, unknown>;
-        blob?: Blob;
-        kind?: string;
-        name?: string;
-        mime?: string;
-        size?: number;
-      }) => void,
+      listener: (
+        event:
+          | {
+              type: "text" | "element" | "attachment";
+              envelope: SignedEnvelope;
+              text?: string;
+              metadata?: Record<string, unknown>;
+              blob?: Blob;
+              kind?: string;
+              name?: string;
+              mime?: string;
+              size?: number;
+            }
+          | {
+              type: "receipt";
+              receipt: {
+                messageId: string;
+                sender: string;
+                receiver: string;
+                receivedAt: number;
+                nonce: string;
+              };
+            },
+      ) => void,
     ): () => void;
     close(): void;
   };
@@ -344,6 +387,14 @@ export interface AIAuthPageConnection {
   readonly identity: { readonly id: string; readonly name: string | null };
   /** Verified identity plus the agent's self-declared claims, or null. */
   readonly participant: VerifiedParticipant | null;
+  /** Present when connected with `participation`; null otherwise. */
+  readonly participation: {
+    readonly policy: import("./membership.js").ParticipationPolicy;
+    authorizeProtected(
+      walletId: string,
+      scope?: string,
+    ): import("./membership.js").ProtectedAuthorization;
+  } | null;
   onLifecycle(listener: (event: AIAuthLifecycleEvent) => void): () => void;
   onDisconnect(listener: () => void): () => void;
   close(reason?: "closed" | "expired"): void;
@@ -373,6 +424,17 @@ export function connectAIAuthModal(options: {
   origin?: string;
   timeoutMs?: number;
   windowObject?: Window;
+  sessionTtlMs?: number;
+  idleTimeoutMs?: number;
+  /**
+   * Enforce a participation policy: remote tool requests must pass
+   * `authorizeProtected` (membership, epoch, execution grant, revocation)
+   * before any listener sees them.
+   */
+  participation?: {
+    policy: import("./membership.js").ParticipationPolicy;
+    now?: number | (() => number);
+  };
 }): Promise<AIAuthPageConnection>;
 
 /** @deprecated Use connectAIAuthModal. */

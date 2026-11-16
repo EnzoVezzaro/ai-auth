@@ -510,17 +510,30 @@ test("activity history prunes oldest entries to its storage limit", async () => 
   assert.equal(history.at(-1).body.payload.index, 104);
 });
 
-test("private peer sessions refuse signed presence and shared messages", async () => {
+test("private peer sessions advertise no presence but still sign, audit, and receive", async (t) => {
   const wallet = await makeWallet("Private");
   const room = new P2PRoom(wallet, "private", {
     privateMode: true,
     origin: "https://wallet.example",
   });
+  t.after(() => room.close());
   await room.start();
-  await assert.rejects(
-    room.send("message/text", { text: "hidden" }),
-    /private or closed/,
+  for (const type of [
+    "peer/hello",
+    "peer/heartbeat",
+    "peer/goodbye",
+    "presence/cursor",
+  ])
+    await assert.rejects(room.send(type, {}), /do not advertise presence/);
+  // Actions are still signed by this wallet and recorded.
+  const sent = await room.send("message/text", { text: "visible" });
+  assert.equal(sent.body.issuer, wallet.id);
+  assert.equal(await verifyEnvelope(sent), true);
+  assert.deepEqual(
+    room.audit().map(({ type, issuer, private: p }) => [type, issuer, p]),
+    [["message/text", wallet.id, true]],
   );
+  // Authorized room events are received, but a presence-less peer is never listed.
   const remote = await makeWallet("Remote");
   const incoming = await remote.sign("message/text", {
     room: "private",
@@ -528,10 +541,10 @@ test("private peer sessions refuse signed presence and shared messages", async (
     session: "remote-session",
     nonce: randomNonce(),
     expiresAt: Date.now() + 30_000,
-    text: "hidden",
+    text: "hello",
   });
-  assert.equal(await room.receive(incoming), false);
-  await room.close();
+  assert.equal(await room.receive(incoming), true);
+  assert.equal(room.peers.size, 0);
 });
 
 test("expired peers notify subscribers so presence counts refresh", async () => {

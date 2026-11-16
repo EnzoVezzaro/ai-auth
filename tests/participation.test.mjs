@@ -585,3 +585,158 @@ test("a forged revocation over the wire changes nothing", async (t) => {
   assert.equal(bobP.room.policy.isMember(ctx.host.id), true);
   assert.equal(bobP.gossip.diagnostics()[0].reason, "untrusted-issuer");
 });
+
+// ---- private presence ------------------------------------------------------
+
+test("a private member joins a restricted room, receives events, and advertises no presence", async () => {
+  const hub = createHub();
+  const ctx = await setup();
+  const hostP = await joinRestricted(
+    hub,
+    ctx,
+    ctx.host,
+    await ctx.proofFor(ctx.host.id, { role: "owner", scopes: ["*"] }),
+  );
+  const aliceP = await join(hub, ctx.alice, {
+    privateMode: true,
+    participation: {
+      policy: ctx.policy(),
+      membership: await ctx.proofFor(ctx.alice.id),
+    },
+  });
+  await waitFor(
+    () => hostP.room.policy.isMember(ctx.alice.id),
+    "host admitted private alice",
+  );
+  await waitFor(
+    () => aliceP.room.policy.isMember(ctx.host.id),
+    "alice admitted host",
+  );
+  // No presence was advertised: the host has no peer entry for alice and the
+  // wire never carried hello/heartbeat/cursor from her.
+  assert.equal(
+    [...hostP.room.peers.values()].some((p) => p.id === ctx.alice.id),
+    false,
+  );
+  await tick(20);
+  const fromAlice = hostP.types(ctx.alice.id);
+  assert.equal(
+    fromAlice.some((t) => t.startsWith("peer/") || t === "presence/cursor"),
+    false,
+  );
+  // She receives authorized room events...
+  await hostP.room.send("collab/text", { text: "for members" });
+  await waitFor(
+    () => aliceP.types(ctx.host.id).includes("collab/text"),
+    "private alice receives",
+  );
+  // ...her actions are signed, attributed, and audited...
+  const sent = await aliceP.room.send("collab/text", { text: "from private" });
+  assert.equal(sent.body.issuer, ctx.alice.id);
+  await waitFor(
+    () => hostP.types(ctx.alice.id).includes("collab/text"),
+    "host receives private text",
+  );
+  assert.deepEqual(
+    aliceP.room.audit().filter((a) => a.type === "collab/text").length,
+    1,
+  );
+  // ...and she still cannot announce herself.
+  await assert.rejects(
+    aliceP.room.send("presence/cursor", { x: 0.1, y: 0.1 }),
+    /presence/,
+  );
+  await assert.rejects(aliceP.room.send("peer/hello", {}), /presence/);
+});
+
+test("a private participant cannot read a restricted room without a valid proof", async () => {
+  const hub = createHub();
+  const ctx = await setup();
+  const hostP = await joinRestricted(
+    hub,
+    ctx,
+    ctx.host,
+    await ctx.proofFor(ctx.host.id, { role: "owner", scopes: ["*"] }),
+  );
+  const malP = await join(hub, ctx.mallory, { privateMode: true });
+  await hostP.room.send("collab/text", { text: "members only" });
+  await tick(25);
+  assert.equal(JSON.stringify(malP.inbox()).includes("members only"), false);
+  // A stolen proof for another wallet does not admit her either.
+  const stolen = await join(hub, ctx.mallory, {
+    privateMode: true,
+    participation: {
+      policy: ctx.policy(),
+      membership: await ctx.proofFor(ctx.alice.id),
+    },
+  });
+  await hostP.room.send("collab/text", { text: "still members only" });
+  await tick(25);
+  assert.equal(hostP.room.policy.isMember(ctx.mallory.id), false);
+  assert.equal(
+    JSON.stringify(stolen.inbox()).includes("still members only"),
+    false,
+  );
+});
+
+test("a private participant cannot act under another identity", async () => {
+  const hub = createHub();
+  const ctx = await setup();
+  const open = await join(hub, ctx.host);
+  const priv = await join(hub, ctx.alice, { privateMode: true });
+  // A forged issuer in the payload is just data; the envelope issuer is the signer.
+  const env = await priv.room.send("collab/text", {
+    text: "hi",
+    issuer: ctx.host.id,
+    walletId: ctx.host.id,
+  });
+  assert.equal(env.body.issuer, ctx.alice.id);
+  await waitFor(
+    () => open.types(ctx.alice.id).includes("collab/text"),
+    "open peer got it",
+  );
+  assert.equal(open.types(ctx.host.id).includes("collab/text"), false);
+  assert.equal(
+    priv.room.audit().every((a) => a.issuer === ctx.alice.id),
+    true,
+  );
+});
+
+test("a private participant converges on revocations and epoch via catch-up", async (t) => {
+  const hub = createHub();
+  const ctx = await setup();
+  const hostP = await joinRestricted(
+    hub,
+    ctx,
+    ctx.host,
+    await ctx.proofFor(ctx.host.id, { role: "owner", scopes: ["*"] }),
+  );
+  const hostGossip = createRevocationGossip(hostP.room);
+  t.after(() => hostGossip.close());
+  // The host revokes mallory and bumps the epoch BEFORE alice (offline) joins.
+  const record = await createRevocation(ctx.host, {
+    kind: "wallet",
+    target: ctx.mallory.id,
+    origin: ORIGIN,
+    room: ROOM,
+  });
+  assert.equal((await hostGossip.publish(record)).applied, true);
+  const aliceP = await join(hub, ctx.alice, {
+    privateMode: true,
+    participation: {
+      policy: ctx.policy(),
+      membership: await ctx.proofFor(ctx.alice.id),
+    },
+  });
+  const aliceGossip = createRevocationGossip(aliceP.room);
+  t.after(() => aliceGossip.close());
+  await waitFor(
+    () => aliceP.room.policy.isMember(ctx.host.id),
+    "alice sees host",
+  );
+  await aliceGossip.requestSync();
+  await waitFor(
+    () => aliceP.room.policy.isRevoked("wallet", ctx.mallory.id),
+    "alice caught up",
+  );
+});
