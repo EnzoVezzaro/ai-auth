@@ -88,7 +88,7 @@ Rooms are `open` or `restricted`. Open rooms use the formats above unchanged.
 }
 ```
 
-The signature covers `"ai-auth-membership/v1\n"` followed by the RFC 8785 canonical JSON of every field except `signature`. Unknown fields are rejected. `expiresAt - issuedAt` must be positive and at most 24 hours. Verifiers require a trusted issuer, and exact matches for origin, room, and subject.
+The signature covers `"ai-auth-membership/v1\n"` followed by the RFC 8785 canonical JSON of every field except `signature`. Unknown fields are rejected. `expiresAt - issuedAt` must be positive and within the limit for its `durationKind` (short 1 hour, configured 24 hours, long 30 days, until-revoked 365 days); a proof without a `durationKind` is limited to 24 hours. Verifiers require a trusted issuer, and exact matches for origin, room, and subject.
 
 ### Presenting a proof
 
