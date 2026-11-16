@@ -86,6 +86,20 @@ export function approvePermissionRequest(
   wallet: WalletIdentity,
   request: PermissionRequest,
   approvedCapabilities: string[],
+  options?: {
+    sessionTtlMs?: number;
+    idleTimeoutMs?: number;
+    previousConsent?: SignedEnvelope;
+    /** Attach a signed agent descriptor (v2 requests only). Claims, not attestations. */
+    agent?: {
+      instanceId: string;
+      agentType: string;
+      runtime: { name: string; version?: string | null };
+      provider?: string | null;
+      model?: string | null;
+    };
+    now?: number;
+  },
 ): Promise<
   SignedEnvelope<{
     audience: string;
@@ -93,7 +107,30 @@ export function approvePermissionRequest(
     capabilities: string[];
     expiresAt: number;
     room?: string;
+    agentDescriptor?: import("./agent-identity.js").AgentDescriptor;
   }>
+>;
+export interface VerifiedParticipant {
+  /** Verified: the key that signed the consent. */
+  readonly identity: { readonly id: string };
+  readonly instanceId: string;
+  readonly sessionId: string;
+  /** Self-declared by the agent. Not attested; never use for authorization. */
+  readonly claims: Readonly<{
+    agentType: string;
+    runtime: Readonly<{ name: string; version: string | null }>;
+    provider: string | null;
+    model: string | null;
+  }>;
+  readonly claimsAttested: false;
+}
+export function verifyConsentAgent(
+  consent: SignedEnvelope,
+  request: PermissionRequest,
+  options: { expectedOrigin: string; expectedWallet: string; now?: number },
+): Promise<
+  | { ok: true; participant: VerifiedParticipant | null }
+  | { ok: false; reason: string }
 >;
 export function verifyPermissionRequest(
   request: PermissionRequest,
@@ -305,6 +342,8 @@ export interface AIAuthPageConnection {
     scroll?: number;
   }): void;
   readonly identity: { readonly id: string; readonly name: string | null };
+  /** Verified identity plus the agent's self-declared claims, or null. */
+  readonly participant: VerifiedParticipant | null;
   onLifecycle(listener: (event: AIAuthLifecycleEvent) => void): () => void;
   onDisconnect(listener: () => void): () => void;
   close(reason?: "closed" | "expired"): void;
@@ -320,6 +359,8 @@ export type AIAuthLifecycleEvent =
       type: "connected";
       label: string;
       identity: AIAuthWalletIdentity;
+      participant?: VerifiedParticipant | null;
+      diagnostics?: readonly import("./agent-identity.js").CloneDiagnostic[];
       capabilities: readonly string[];
       expiresAt: number;
     }
