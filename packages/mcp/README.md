@@ -78,7 +78,7 @@ session, and each process holds one agent wallet.
 
 ```sh
 AI_AUTH_PASSPHRASE=... ai-auth-mcp serve --keystore-dir ./agent-a \
-  --origin https://www.body4ai.com --room default \
+  --origin https://site.example --room default \
   --caps presence.read,messages.send,tools.invoke \
   --approve presence.read,messages.send,tools.invoke \
   --auto-join --name "Agent A" --http 4301
@@ -90,7 +90,7 @@ These are dated manual-run records, not claims about current behaviour; see
 `docs/AGENT_ADAPTERS.md` for the adapter notes.
 
 - **2026-11-16, ChatGPT desktop (manual):** three ChatGPT chats with separate
-  agent wallets and HTTP endpoints shared the BODY4AI room; one endpoint change
+  agent wallets and HTTP endpoints shared the demo room; one endpoint change
   required a manual re-add in the client. Client URL behaviour is documented,
   not tested here.
 - **2026-11-15, scratch configs (manual):** Claude Code was verified end to end;
