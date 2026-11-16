@@ -1,6 +1,6 @@
 # AI Auth
 
-AI Auth is a self-custodied identity wallet and collaboration SDK for AI agents. Agents keep signing keys in their own browser storage. A site requests specific capabilities, the wallet owner approves a subset, and the site remains responsible for enforcing access to its own resources.
+AI Auth is a self-custodied identity wallet and collaboration SDK for AI agents. Browser wallets keep signing keys in origin-scoped storage; headless agents keep identities in encrypted local keystores. A site requests specific capabilities, the wallet owner approves a subset, and the site remains responsible for enforcing access to its own resources.
 
 AI Auth operates no authentication server, database, or collaboration backend. The website is the logical collaboration hub: wallet-approved agents on the same site join its shared public space. Public Nostr relays coordinate discovery and WebRTC signaling; signed collaboration events travel over direct WebRTC data channels. No blockchain or cryptocurrency is involved.
 
@@ -8,12 +8,14 @@ AI Auth operates no authentication server, database, or collaboration backend. T
 
 | Package                        | Use it for                                                                               | Version |
 | ------------------------------ | ---------------------------------------------------------------------------------------- | ------- |
-| `@enzovezzaro/ai-auth-wallet`  | Browser SDK, wallet modal, collaboration, WebMCP bridge (this repository's root package) | 0.5.3   |
-| `@enzovezzaro/ai-auth-agent`   | Headless Node agents: encrypted per-instance keystore, room runtime, real WebRTC         | 0.1.1   |
-| `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local agent runtimes such as Claude Code         | 0.2.0   |
+| `@enzovezzaro/ai-auth-wallet`  | Browser SDK, wallet modal, collaboration, WebMCP bridge (this repository's root package) | 0.6.2   |
+| `@enzovezzaro/ai-auth-agent`   | Headless Node agents: encrypted per-instance keystore, room runtime, real WebRTC         | 0.1.3   |
+| `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local agent runtimes such as Claude Code         | 0.3.2   |
 | `@enzovezzaro/ai-auth-runtime` | Provider-neutral plugin host for local agent applications                                | 0.1.0   |
 
 `@enzovezzaro/ai-auth-server` is retired; use the wallet package instead. Every package works without an AI Auth-operated service.
+
+AI Auth is published on **GitHub Pages only**. See the [hosting policy](docs/HOSTING.md) for the CI guard and removal of the legacy Vercel GitHub App.
 
 ## Run the wallet
 
@@ -99,9 +101,9 @@ import {
 } from "@enzovezzaro/ai-auth-wallet";
 
 const instruction = createAIAuthConnectInstruction({
-  siteName: "BODY4AI",
-  siteOrigin: "https://www.body4ai.com",
-  walletUrl: "https://wallet.body4ai.com/wallet/",
+  siteName: "Example Workspace",
+  siteOrigin: "https://workspace.example",
+  walletUrl: "https://wallet.example/wallet/",
   capabilities: ["presence.read", "messages.send", "tools.invoke"],
 });
 
@@ -163,6 +165,12 @@ The full list is in [the changelog](CHANGELOG.md).
 ## Network limits
 
 Nostr relay operators can observe participation and timing metadata. The hashed room topic is not a secret or an authorization boundary. No TURN server is configured. Collaboration data uses direct WebRTC only, so peers behind restrictive NATs or firewalls may fail to connect.
+
+## Generic-site browser evidence
+
+The Playwright integration fixture in `scripts/test-browser-e2e.mjs` is an independent website, not Body4AI. It uses a real wallet handshake, peer discovery and direct WebRTC to exercise signed events, cursor updates, site-authorized `demo.echo` and `demo.increment` tool calls from a separate agent wallet, and approval/cancellation. Successful CI runs save unmodified browser screenshots as the `ai-auth-playwright-screenshots` artifact; failed runs attempt to capture the live test page before closing it. Screenshots prove the UI state seen by Chromium; the E2E assertions and CI logs separately establish functional behavior.
+
+See [generic integration review and test evidence](docs/GENERIC_INTEGRATION_REVIEW.md). Browser-only tools remain unavailable without a running browser provider. Body4AI is a separate consumer of the public SDK and owns its own catalog and tools.
 
 ## Development checks
 

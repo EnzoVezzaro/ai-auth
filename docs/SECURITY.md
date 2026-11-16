@@ -20,7 +20,7 @@ Public Nostr relays carry discovery and signaling metadata, not the signed colla
 
 Direct WebRTC uses public STUN servers to discover possible network paths. No TURN service or third-party data relay is configured. Some NATs and firewalls will prevent a direct connection; this MVP reports the failure and does not route application data through a relay.
 
-Private mode stops this wallet session from joining the public room. It cannot erase events already received by another peer or hide activity from the browser, extensions, operating system, or hosting provider.
+Private mode joins the shared room without broadcasting the wallet's presence or cursor; it can still receive authorized events and its signed actions remain auditable. It is not an anonymity guarantee: relays can observe connection metadata, and private mode cannot erase events already received by peers or hide activity from the browser, extensions, operating system, or hosting provider.
 
 ## Recovery and WebMCP
 

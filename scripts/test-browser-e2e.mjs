@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { once } from "node:events";
 import { resolve } from "node:path";
@@ -158,6 +158,7 @@ const siteServer = createHttpServer((request, response) => {
             connection.transfers.subscribe((event) => window.__transfers.push(event));
             connection.onDisconnect(() => { window.__connected = false; window.__disconnected = true; window.__removeWheel(); });
             window.__pendingActionApproval = null;
+            let demoCounter = 0;
             window.__pageActions = await mountAIAuthInPageAgent({
               connection,
               actions: [{
@@ -176,6 +177,22 @@ const siteServer = createHttpServer((request, response) => {
                     );
                   return { reviewed: text };
                 },
+              }, {
+                name: "demo.echo",
+                description: "Echo a message on an independent test website.",
+                inputSchema: {
+                  type: "object",
+                  properties: { message: { type: "string" } },
+                  required: ["message"],
+                },
+                requiredCapability: "tools.invoke",
+                execute: async ({ message }) => ({ echoed: message }),
+              }, {
+                name: "demo.increment",
+                description: "Increment the independent site's counter.",
+                inputSchema: { type: "object", properties: {} },
+                requiredCapability: "tools.invoke",
+                execute: async () => ({ count: ++demoCounter }),
               }],
               authorize: (action, input, context) => new Promise((resolve) => {
                 window.__pendingActionApproval = { action, input, context, resolve };
@@ -248,6 +265,7 @@ await new Promise((resolve, reject) => {
 const integrationSiteUrl = `http://localhost:${siteServer.address().port}/?debug=1`;
 let browser;
 const contexts = [];
+let evidencePage = null;
 
 function approveWallet(context, name, passphrase) {
   return approveWalletModal(context, {
@@ -349,6 +367,7 @@ try {
     /Tool invoked via (webmcp|javascript-fallback)/u,
   );
 
+  evidencePage = siteB;
   const agentPage = await contextA.newPage();
   await agentPage.goto(`${integrationSiteUrl.replace("/?debug=1", "/agent")}`);
   await agentPage.locator("#connect-agent").click();
@@ -407,6 +426,29 @@ try {
   );
   assert.ok(agentCatalog, "the agent discovered site A's wallet catalog");
   assert.ok(agentCatalog.tools.some((tool) => tool.name === "page.review"));
+  // These tools belong to this generic test website, not to AI Auth or BODY4AI.
+  assert.ok(agentCatalog.tools.some((tool) => tool.name === "demo.echo"));
+  assert.ok(agentCatalog.tools.some((tool) => tool.name === "demo.increment"));
+  const invokeDemoTool = async (name, input) => {
+    const response = agentPage.evaluate(
+      ({ catalog, name, input }) =>
+        window.__agent.client.callTool(catalog, name, input),
+      { catalog: agentCatalog, name, input },
+    );
+    await siteA
+      .locator("#approve-action")
+      .waitFor({ state: "visible", timeout: 60_000 });
+    await siteA.locator("#approve-action").click();
+    return response;
+  };
+  assert.deepEqual(
+    await invokeDemoTool("demo.echo", {
+      message: "hello from another agent wallet",
+    }),
+    { echoed: "hello from another agent wallet" },
+  );
+  assert.deepEqual(await invokeDemoTool("demo.increment", {}), { count: 1 });
+  assert.deepEqual(await invokeDemoTool("demo.increment", {}), { count: 2 });
   const agentCall = agentPage.evaluate(
     (catalog) =>
       window.__agent.client.callTool(catalog, "page.review", {
@@ -825,6 +867,22 @@ try {
   assert.equal(await siteA.evaluate(() => window.__connected), false);
   assert.equal(await siteA.locator("dialog iframe").count(), 0);
 
+  // Save unmodified browser screenshots as CI evidence after the real P2P,
+  // authorization, tool execution, and cursor assertions have passed.
+  const screenshots = resolve(root, "test-results/screenshots");
+  await mkdir(screenshots, { recursive: true });
+  await siteB.screenshot({
+    path: resolve(screenshots, "generic-site-verified-events.png"),
+    fullPage: true,
+  });
+  await agentPage.screenshot({
+    path: resolve(screenshots, "generic-agent-client-connected.png"),
+    fullPage: true,
+  });
+  console.log(
+    "Saved verified browser screenshots under test-results/screenshots/",
+  );
+
   if (process.env.AI_AUTH_CHECK_TOP_LEVEL_WALLET) {
     const contextC = await browser.newContext({ acceptDownloads: true });
     contexts.push(contextC);
@@ -901,6 +959,22 @@ try {
   console.log(
     "Browser E2E passed: two new wallets required consent; signed action, cursor, text and attachment crossed direct WebRTC; expired direct messages were rejected, attachment bytes were not persisted, and disconnect removed the modal.",
   );
+} catch (error) {
+  // A failure may happen before the normal evidence checkpoint. Capture the
+  // real page when one is available, without concealing the test failure.
+  try {
+    if (evidencePage && !evidencePage.isClosed()) {
+      const screenshots = resolve(root, "test-results/screenshots");
+      await mkdir(screenshots, { recursive: true });
+      await evidencePage.screenshot({
+        path: resolve(screenshots, "generic-site-failure.png"),
+        fullPage: true,
+      });
+    }
+  } catch {
+    // Browser/network failure can make screenshots impossible to capture.
+  }
+  throw error;
 } finally {
   await Promise.all(contexts.map((context) => context.close().catch(() => {})));
   await browser?.close().catch(() => {});

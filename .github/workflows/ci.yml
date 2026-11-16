@@ -33,12 +33,22 @@ jobs:
         run: npx playwright install --with-deps --only-shell chromium
       - name: Run protocol and browser E2E
         run: npm run test:e2e
+      - name: Preserve real Playwright screenshots (including on failure)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ai-auth-playwright-screenshots
+          path: test-results/screenshots/*.png
+          if-no-files-found: warn
+          retention-days: 14
       - name: Build static landing page, wallet, and browser SDK
         run: npm run build
       - name: Verify package contents
         run: npm pack --dry-run
       - name: Verify packed consumer imports
         run: npm run verify:packages
+      - name: Verify Pages-only hosting
+        run: node scripts/verify-pages-only.mjs
       - name: Check formatting
         run: npm run format:check
       - name: Check whitespace errors
