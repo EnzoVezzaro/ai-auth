@@ -6,8 +6,10 @@ when an identifier merely exists. "Browser E2E" means the multi-agent scenario
 on the example site (`docs/E2E.md`); "scenario" means `tests/agent-scenarios.test.mjs`.
 
 Run everything offline with `npm run test:all` and
-`node --test tests/agent-scenarios.test.mjs`. The browser scenario is
-`npm run test:e2e:body4ai` and needs Chromium plus relay/ICE connectivity.
+`node --test tests/agent-scenarios.test.mjs`. Connection-bound presence is
+covered by `tests/connection-lifecycle.test.mjs` (12 tests). The generic browser
+scenario is `npm run test:e2e` and the Body4AI scenario is
+`npm run test:e2e:body4ai`; both need Chromium plus relay/ICE connectivity.
 
 ## Identity and wallet
 
@@ -52,6 +54,21 @@ Run everything offline with `npm run test:all` and
 | MCP exposure of participant tools                 | `packages/mcp/bridge.js` (`listTools`, `invoke`)          | `bridge.test.mjs`, scenarios D/F                                                 | Verified (unit + scenario) |
 | MCP built-in room tools (`--provide room`)        | `packages/mcp/bridge.js`, `cli.js`, `cli-args.js`         | `bridge.test.mjs`, `cli.test.mjs`                                                | Verified (unit)            |
 
+## Connection-bound presence and WebMCP
+
+| Feature                                                  | Code                                                         | Evidence                                                                                           | Status                     |
+| -------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- | -------------------------- |
+| Strict `connected` requires live authenticated transport | `packages/p2p/connection-state.js`, `packages/mcp/bridge.js` | `connection-lifecycle.test.mjs` 1; `connection-state.test.mjs`; `cli.test.mjs`                     | Verified (unit)            |
+| Heartbeat lease + implicit offline on silence            | `packages/p2p/p2p.js`, `presence.js`, `runtime.js`           | `connection-lifecycle.test.mjs` 5; `presence.test.mjs`                                             | Verified (unit)            |
+| Immediate invalidation on channel/ICE failure            | `P2PRoom.invalidateSource`, `NostrWebRTC.handleChannelLost`  | `connection-state.test.mjs` (peer-connect-failed → reconnecting)                                   | Verified (unit)            |
+| Reconnect with new generation, same identity             | `runtime.js` (`join`, `setGeneration`)                       | `connection-lifecycle.test.mjs` 7; `agent-scenarios` E                                             | Verified (unit + scenario) |
+| Expired/revoked authorization blocks reconnect           | `runtime.js` (`authorization`, `setAuthorization`)           | `connection-lifecycle.test.mjs` 8; `session-lifetime`/`revocation` tests                           | Verified (unit)            |
+| One live runtime per identity in a process               | `runtime.js` (`liveIdentities`)                              | `connection-lifecycle.test.mjs` 12                                                                 | Verified (unit)            |
+| Page WebMCP catalog is connection-bound                  | `webmcp.js`, `embed.js`                                      | `connection-lifecycle.test.mjs` 9; `agent-client-presence.test.mjs`                                | Verified (unit)            |
+| Schema validation and stable tool error codes            | `webmcp.js`, `tool-provider.js`, `bridge.js`                 | `connection-lifecycle.test.mjs` 3/9; `webmcp-contract.test.mjs`                                    | Verified (unit)            |
+| Browser connected/disconnected/tool-withdrawn evidence   | `scripts/test-browser-e2e.mjs`                               | `generic-site-connected.png`, `generic-site-disconnected.png`, `generic-agent-tools-withdrawn.png` | Verified (browser E2E)     |
+| Code Mode (sandboxed script over checked APIs)           | `packages/mcp/bridge.js` (`--code-mode`)                     | `bridge.test.mjs` (3 tests)                                                                        | Verified (unit)            |
+
 ## Integration and user experience
 
 | Feature                                            | Code                               | Evidence                                                                                           | Status                               |
@@ -80,8 +97,8 @@ Run everything offline with `npm run test:all` and
    runtime reports diagnostics and stays `waiting-for-peers`; it does not
    silently fall back.
 4. **One identity, one live runtime.** Copies of a keystore are the same
-   identity; running two at once is unsupported (no cross-process lease
-   coordination).
+   identity. A second live runtime with the same identity is now rejected within
+   one process; cross-process lease coordination is still unsupported.
 5. **Codex and OpenCode tool calls are not verified end to end.** Their servers
    were registered and tools discovered, but no model-initiated call completed
    in the recorded runs.
@@ -94,3 +111,9 @@ Run everything offline with `npm run test:all` and
 7. **Node scenario tests use an in-process transport.** They verify signing,
    routing, and lifecycle, not real relay/ICE behaviour. The browser E2E is the
    real-network evidence.
+8. **No Playwright screenshot exists for `reconnecting`.** The state is exposed
+   in `ai_auth_status` and asserted by unit tests, but the generic browser UI
+   does not yet surface a distinct reconnecting badge. Screenshots cover
+   connected, disconnected, and withdrawn-tool states.
+9. **Cross-network/symmetric-NAT behavior is not proven.** The real-browser
+   evidence uses one machine/network; there is no TURN.

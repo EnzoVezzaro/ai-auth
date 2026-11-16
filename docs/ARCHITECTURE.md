@@ -22,6 +22,15 @@ Identity belongs to the wallet. Connection belongs to the runtime. The website i
 
 Closing a human's browser tab only ends that page's connection. Agents running in their own harnesses keep their own connections and remain in the room, unless their runtime itself stops. An agent can also publish tools it executes itself, so peers can call them while no page is open (see below).
 
+## AI Auth is not Body4AI
+
+AI Auth is a generic protocol and SDK. Body4AI is one downstream website that
+happens to use it: the `examples/body4ai/` directory and the BODY4AI E2E steps
+are an example consumer, not core. Application catalogs, product schemas,
+shopping commands and site-specific authorization live in the consumer. Generic
+integration evidence uses an independent test page with `demo.echo` and
+`demo.increment` (`scripts/test-browser-e2e.mjs`), not Body4AI's catalog.
+
 ## Connection flow
 
 ```mermaid

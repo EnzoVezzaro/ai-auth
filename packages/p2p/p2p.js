@@ -91,6 +91,9 @@ export class P2PRoom {
       origin = globalThis.location?.origin ?? "",
       capabilities = null,
       participation = null,
+      heartbeatMs = 8_000,
+      leaseMs = 24_000,
+      onChannelLost = null,
     } = {},
   ) {
     if (!ROOM_PATTERN.test(room))
@@ -124,6 +127,9 @@ export class P2PRoom {
     this.listeners = new Set();
     this.channels = new Set();
     this.directPeerCount = 0;
+    this.heartbeatMs = heartbeatMs;
+    this.leaseMs = leaseMs;
+    this.onChannelLost = onChannelLost;
     this.closed = false;
     this.auditEntries = [];
   }
@@ -230,7 +236,7 @@ export class P2PRoom {
     };
     if (this.privateMode) {
       // Private presence: receive authorized events, advertise nothing.
-      this.timer = setInterval(() => this.expire(), 8_000);
+      this.timer = setInterval(() => this.expire(), this.heartbeatMs);
       await this.proveMembership();
       return this;
     }
@@ -242,9 +248,9 @@ export class P2PRoom {
           label: this.wallet.name,
         });
         this.expire();
-      }, 8_000);
+      }, this.heartbeatMs);
     } else {
-      this.timer = setInterval(() => this.expire(), 8_000);
+      this.timer = setInterval(() => this.expire(), this.heartbeatMs);
     }
     return this;
   }
@@ -365,6 +371,7 @@ export class P2PRoom {
         session: payload.session,
         name: String(payload.label ?? envelope.body.issuer).slice(0, 60),
         publicKey: envelope.proof.publicKey,
+        source,
         seenAt: Date.now(),
       });
     }
@@ -476,12 +483,28 @@ export class P2PRoom {
   expire(now = Date.now()) {
     let expired = false;
     for (const [key, peer] of this.peers) {
-      if (now - peer.seenAt > 24_000) {
+      if (now - peer.seenAt > this.leaseMs) {
         this.peers.delete(key);
         expired = true;
       }
     }
     if (expired) this.notify({ direction: "state" });
+  }
+
+  // A closed or errored WebRTC data channel is not a healthy connection. Drop
+  // the providers that were reachable through it immediately, instead of
+  // waiting for the heartbeat lease to age out.
+  invalidateSource(source) {
+    if (!source) return;
+    let removed = false;
+    for (const [key, peer] of this.peers) {
+      if (peer.source === source) {
+        this.peers.delete(key);
+        removed = true;
+      }
+    }
+    if (removed) this.notify({ direction: "state", reason: "peer-lost" });
+    this.onChannelLost?.(source);
   }
 
   attach(channel, source = channel) {
@@ -536,15 +559,18 @@ export class P2PRoom {
       const attached = this.peerChannels.get(source);
       attached?.delete(channel);
       if (attached?.size === 0) this.peerChannels.delete(source);
+      if (!this.closed) this.invalidateSource(source);
     };
-    channel.onerror = () =>
+    channel.onerror = () => {
       this.notify({ direction: "error", message: "Peer data channel failed" });
+      if (!this.closed) this.invalidateSource(source);
+    };
     return channel;
   }
 
-  async close() {
+  async close({ goodbye = true } = {}) {
     if (this.closed) return;
-    if (!this.privateMode) {
+    if (goodbye && !this.privateMode) {
       try {
         await this.send("peer/goodbye", {});
       } catch {
@@ -661,8 +687,33 @@ export class NostrWebRTC {
     return this.lifecycle.subscribe(listener);
   }
 
+  // A data channel died under an active peer. Treat the transport as unhealthy
+  // immediately: online state must not survive a lost channel.
+  handleChannelLost(source) {
+    if (this.closed || !source) return;
+    let lost = false;
+    for (const [peerId, peerSource] of this.peerSources) {
+      if (peerSource !== source) continue;
+      this.peerSources.delete(peerId);
+      this.directPeers.delete(peerId);
+      this.lifecycle.removePeer(peerId);
+      if (this.invalidatingSource !== source) {
+        this.invalidatingSource = source;
+        this.coreRoom.invalidateSource?.(source);
+        this.invalidatingSource = null;
+      }
+      lost = true;
+    }
+    this.coreRoom.directPeerCount = this.directPeers.size;
+    if (lost && this.directPeers.size === 0) {
+      this.lifecycle.invalidate();
+      this.onStatus("Connection lost; trying to reconnect");
+    }
+  }
+
   async start() {
     if (this.closed) throw new Error("This collaboration room is closed");
+    this.coreRoom.onChannelLost = (source) => this.handleChannelLost(source);
     this.onStatus("Connecting to public Nostr relays");
     this.lifecycle.tryTransition("signaling");
     const [trystero, topic] = await Promise.all([
@@ -685,6 +736,7 @@ export class NostrWebRTC {
     );
     this.stopTransportError = this.transport.onError((error) => {
       this.lifecycle.recordError(error?.code ?? error?.message);
+      if (error?.code === "peer-connect-failed") this.lifecycle.invalidate();
       this.onStatus(
         error.code === "peer-connect-failed"
           ? error.turnConfigured

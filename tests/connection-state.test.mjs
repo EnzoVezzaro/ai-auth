@@ -142,15 +142,19 @@ test("transport: zero peers waits, join/leave track a real data channel, errors 
   assert.equal(adapter.connectionState.directPeerCount, 1);
   assert.equal(adapter.connectionState.peers[0].peerId, "peer-1");
 
+  assert.equal(adapter.connectionState.connected, true);
   transport.error({ code: "peer-connect-failed" });
   assert.equal(
     adapter.connectionState.diagnostics.lastIceError,
     "peer-connect-failed",
   );
-  assert.equal(adapter.connectionState.status, "direct-peer-connected");
+  // A terminal transport failure invalidates connectivity immediately.
+  assert.equal(adapter.connectionState.status, "reconnecting");
+  assert.equal(adapter.connectionState.connected, false);
+  assert.equal(adapter.connectionState.directPeerCount, 0);
 
   transport.leave_({ peerId: "peer-1" });
-  assert.equal(adapter.connectionState.status, "waiting-for-peers");
+  assert.equal(adapter.connectionState.status, "reconnecting");
   assert.equal(adapter.connectionState.directPeerCount, 0);
 
   await adapter.close();

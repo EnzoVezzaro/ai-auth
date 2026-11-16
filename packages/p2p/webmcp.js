@@ -11,6 +11,67 @@ function actionCapability(type) {
 
 const MAX_REMOTE_TOOL_COUNT = 32;
 const MAX_TOOL_JSON_BYTES = 8_192;
+
+/** Machine-readable reasons a WebMCP call can fail. Harnesses can branch on these. */
+export const TOOL_ERROR_CODES = Object.freeze({
+  TOOL_UNAVAILABLE: "TOOL_UNAVAILABLE",
+  SITE_DISCONNECTED: "SITE_DISCONNECTED",
+  CATALOG_EXPIRED: "CATALOG_EXPIRED",
+  AUTH_EXPIRED: "AUTH_EXPIRED",
+  CANCELLED: "CANCELLED",
+  TIMEOUT: "TIMEOUT",
+});
+
+function toolError(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+function validateInput(input, schema) {
+  if (!schema || schema.type !== "object" || input === undefined) return input;
+  if (!input || typeof input !== "object" || Array.isArray(input))
+    throw toolError(
+      TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
+      "Tool input must be an object",
+    );
+  const properties = schema.properties ?? {};
+  for (const key of schema.required ?? []) {
+    if (!(key in input))
+      throw toolError(
+        TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
+        `Missing required input: ${key}`,
+      );
+  }
+  const isType = (value, expected) => {
+    if (expected === "array") return Array.isArray(value);
+    if (expected === "integer") return Number.isInteger(value);
+    if (expected === "null") return value === null;
+    return typeof value === expected;
+  };
+  for (const [key, value] of Object.entries(input)) {
+    const spec = properties[key];
+    if (!spec) {
+      if (schema.additionalProperties === false)
+        throw toolError(
+          TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
+          `Unexpected input: ${key}`,
+        );
+      continue;
+    }
+    if (spec.enum && !spec.enum.includes(value))
+      throw toolError(
+        TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
+        `Invalid value for ${key}`,
+      );
+    if (spec.type && !isType(value, spec.type))
+      throw toolError(
+        TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
+        `Invalid type for ${key}`,
+      );
+  }
+  return input;
+}
 const TOOL_NAME = /^[a-z][a-z0-9._-]{0,63}$/u;
 const TOOL_EVENT_KINDS = new Set([
   "tool-catalog",
@@ -297,6 +358,11 @@ export async function registerAIAuthPageActions({
         `Blocked ${action.name}: not authorized`,
       );
       return refuse("This requester is not authorized to run this tool");
+    }
+    try {
+      validateInput(input, action.inputSchema);
+    } catch (error) {
+      return refuse(error.message);
     }
     // Actions start only after an explicit human decision. The site supplies
     // this gate; without a positive decision nothing is announced or run.
@@ -598,6 +664,17 @@ function wireAgentBridge(
   const refreshTimer = setInterval(publishCatalog, catalogRefreshMs);
   refreshTimer.unref?.();
   const stopRefresh = () => clearInterval(refreshTimer);
+  const withdrawCatalog = () => {
+    try {
+      if (
+        connection.walletSession &&
+        connection.capabilities.includes("tools.invoke")
+      )
+        connection.publishAgentEvent({ kind: "tool-catalog", tools: [] });
+    } catch {
+      /* the provider is already gone; expiry still bounds the catalog */
+    }
+  };
   const stopRefreshOnClose = onVerifiedPageConnectionClose(
     connection,
     stopRefresh,
@@ -607,6 +684,7 @@ function wireAgentBridge(
     tools: api.tools,
     execute: api.execute,
     stop: () => {
+      withdrawCatalog();
       stopEvents();
       stopRoomReady();
       stopPeerDiscovery();
@@ -615,6 +693,7 @@ function wireAgentBridge(
       api.close();
     },
     close: () => {
+      withdrawCatalog();
       stopEvents();
       stopRoomReady();
       stopPeerDiscovery();
@@ -754,6 +833,34 @@ export function createAIAuthAgentClient(
         payload.session,
         payload.targetNonce,
       ].join(":");
+      // An empty catalog is an explicit withdrawal from the provider.
+      if (payload.tools.length === 0) {
+        for (const [catalogKey, existing] of catalogs)
+          if (
+            existing.wallet === envelope.body.issuer &&
+            existing.session === payload.session
+          ) {
+            catalogs.delete(catalogKey);
+            seenAt.delete(catalogKey);
+          }
+        for (const [requestId, request] of pending) {
+          if (
+            request.catalog.wallet !== envelope.body.issuer ||
+            request.catalog.session !== payload.session
+          )
+            continue;
+          clearTimeout(request.timer);
+          request.signal?.removeEventListener("abort", request.abortHandler);
+          pending.delete(requestId);
+          request.reject(
+            toolError(
+              TOOL_ERROR_CODES.SITE_DISCONNECTED,
+              "The site disconnected and withdrew its tools",
+            ),
+          );
+        }
+        return;
+      }
       for (const [catalogKey, existing] of catalogs)
         if (existing.expiresAt <= Date.now()) catalogs.delete(catalogKey);
       if (catalogs.size >= 128 && !catalogs.has(key))
@@ -812,6 +919,12 @@ export function createAIAuthAgentClient(
 
   return Object.freeze({
     get catalogs() {
+      const t = Date.now();
+      for (const [key, catalog] of catalogs)
+        if (catalog.expiresAt <= t) {
+          catalogs.delete(key);
+          seenAt.delete(key);
+        }
       return Object.freeze([...catalogs.values()]);
     },
     onCatalog(listener) {
@@ -885,9 +998,15 @@ export function createAIAuthAgentClient(
           [catalog?.wallet, catalog?.session, catalog?.requestNonce].join(":"),
         )
       )
-        throw new TypeError("The target site tool catalog is not active");
+        throw toolError(
+          TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
+          "The target site tool catalog is not active",
+        );
       if (!catalog.tools.some((tool) => tool.name === name))
-        throw new TypeError("The tool is not advertised by this site");
+        throw toolError(
+          TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
+          "The tool is not advertised by this site",
+        );
       if (
         goneAfterPresence(catalog.wallet) &&
         Date.now() -
@@ -896,9 +1015,15 @@ export function createAIAuthAgentClient(
           ) ?? 0) >
           absentGraceMs
       )
-        throw new Error("The site is no longer connected to this room");
+        throw toolError(
+          TOOL_ERROR_CODES.SITE_DISCONNECTED,
+          "The site is no longer connected to this room",
+        );
       if (catalog.expiresAt <= Date.now())
-        throw new TypeError("The target site tool catalog has expired");
+        throw toolError(
+          TOOL_ERROR_CODES.CATALOG_EXPIRED,
+          "The target site tool catalog has expired",
+        );
       if (signal?.aborted)
         throw new DOMException("The tool request was cancelled", "AbortError");
       const safeInput = boundedJson(input);
@@ -944,7 +1069,12 @@ export function createAIAuthAgentClient(
         request.timer = setTimeout(() => {
           cleanup();
           void request.cancelRemote();
-          reject(new Error("The site tool request timed out"));
+          reject(
+            toolError(
+              TOOL_ERROR_CODES.TIMEOUT,
+              "The site tool request timed out",
+            ),
+          );
         }, timeoutMs);
         request.abortHandler = () => {
           if (!pending.has(requestId)) return;

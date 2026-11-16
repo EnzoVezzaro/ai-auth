@@ -929,6 +929,15 @@ export async function connectAIAuthModal({
       },
       close(reason = "closed") {
         if (closed) return;
+        // Withdraw the site's WebMCP catalog while the signed connection is
+        // still usable. Peers drop its tools at once instead of waiting for
+        // expiry or inferring from a later absence.
+        try {
+          if (connection.capabilities.includes("tools.invoke"))
+            connection.publishAgentEvent({ kind: "tool-catalog", tools: [] });
+        } catch {
+          /* the provider is already gone; expiry still bounds the catalog */
+        }
         closed = true;
         closedReason = ["expired", "idle", "revoked"].includes(reason)
           ? reason

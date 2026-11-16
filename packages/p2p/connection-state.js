@@ -6,21 +6,40 @@ export const CONNECTION_STATUSES = Object.freeze([
   "idle",
   "approval-pending",
   "wallet-authorized",
+  "connecting",
   "signaling",
   "waiting-for-peers",
   "direct-peer-connected",
+  "reconnecting",
   "degraded",
   "expired",
+  "revoked",
   "disconnected",
 ]);
 
 const table = {
-  idle: ["approval-pending", "wallet-authorized", "signaling", "disconnected"],
+  idle: [
+    "approval-pending",
+    "wallet-authorized",
+    "connecting",
+    "signaling",
+    "disconnected",
+  ],
   "approval-pending": ["wallet-authorized", "expired", "disconnected"],
-  "wallet-authorized": ["signaling", "expired", "disconnected"],
+  "wallet-authorized": ["connecting", "signaling", "expired", "disconnected"],
+  connecting: [
+    "signaling",
+    "waiting-for-peers",
+    "direct-peer-connected",
+    "reconnecting",
+    "degraded",
+    "expired",
+    "disconnected",
+  ],
   signaling: [
     "waiting-for-peers",
     "direct-peer-connected",
+    "reconnecting",
     "degraded",
     "expired",
     "disconnected",
@@ -28,25 +47,47 @@ const table = {
   "waiting-for-peers": [
     "signaling",
     "direct-peer-connected",
+    "reconnecting",
     "degraded",
     "expired",
     "disconnected",
   ],
   "direct-peer-connected": [
     "waiting-for-peers",
+    "reconnecting",
     "degraded",
     "expired",
+    "revoked",
+    "disconnected",
+  ],
+  reconnecting: [
+    "connecting",
+    "signaling",
+    "waiting-for-peers",
+    "direct-peer-connected",
+    "degraded",
+    "expired",
+    "revoked",
     "disconnected",
   ],
   degraded: [
     "signaling",
     "waiting-for-peers",
     "direct-peer-connected",
+    "reconnecting",
     "expired",
+    "revoked",
     "disconnected",
   ],
   expired: ["idle", "disconnected"],
-  disconnected: ["idle", "approval-pending", "signaling"],
+  revoked: ["idle", "disconnected"],
+  disconnected: [
+    "idle",
+    "approval-pending",
+    "wallet-authorized",
+    "connecting",
+    "signaling",
+  ],
 };
 
 export const CONNECTION_TRANSITIONS = Object.freeze(
@@ -62,6 +103,15 @@ export function canTransition(from, to) {
 function freezeSnapshot(state) {
   return Object.freeze({
     status: state.status,
+    // Strict connectivity: never true from a saved identity, grant, room,
+    // registration, discovery event or HTTP endpoint. It requires a live
+    // transport peer plus an authorization that has not expired or been revoked.
+    connected:
+      state.status === "direct-peer-connected" &&
+      state.peers.length > 0 &&
+      state.authorization === "active",
+    generation: state.generation,
+    authorization: state.authorization,
     directPeerCount: state.peers.length,
     peers: Object.freeze(state.peers.map((peer) => Object.freeze({ ...peer }))),
     diagnostics: Object.freeze({
@@ -84,6 +134,8 @@ export function createConnectionState(options = {}) {
     relaysConnected: null,
     lastIceError: undefined,
     waitingSince: 0,
+    generation: null,
+    authorization: "active",
     updatedAt: now(),
     now,
   };
@@ -110,7 +162,11 @@ export function createConnectionState(options = {}) {
     if (status === "direct-peer-connected") {
       state.lastIceError = undefined;
     }
-    if (["expired", "disconnected", "idle"].includes(status)) {
+    if (
+      ["expired", "revoked", "reconnecting", "disconnected", "idle"].includes(
+        status,
+      )
+    ) {
       state.peers = [];
     }
   }
@@ -177,6 +233,45 @@ export function createConnectionState(options = {}) {
     return snapshot;
   }
 
+  // A generation identifies one authenticated transport session. Peers must
+  // reject signed events whose session is not the current generation.
+  function setGeneration(id) {
+    if (id !== null && (typeof id !== "string" || !id)) {
+      throw new TypeError("generation must be a non-empty string or null");
+    }
+    state.generation = id;
+    publish();
+    return snapshot;
+  }
+
+  function setAuthorization(value) {
+    if (!["active", "expired", "revoked"].includes(value))
+      throw new TypeError("authorization must be active, expired or revoked");
+    state.authorization = value;
+    if (value !== "active" && state.status !== "revoked") {
+      if (!tryTransition("revoked")) {
+        // Revocation/expiry always invalidates presence, even from a state
+        // whose transition table forbids a direct move to `revoked`.
+        enter("revoked");
+      }
+    }
+    publish();
+    return snapshot;
+  }
+
+  // A transport failure is not a healthy connection. It immediately drops the
+  // live flag and clears peers; recovery must reauthenticate before `connected`
+  // can be true again.
+  function invalidate({ terminal = false } = {}) {
+    state.lastIceError = state.lastIceError ?? "transport-lost";
+    if (!tryTransition(terminal ? "disconnected" : "reconnecting")) {
+      enter(terminal ? "disconnected" : "reconnecting");
+    }
+    state.peers = [];
+    publish();
+    return snapshot;
+  }
+
   function setRelaysConnected(count) {
     if (count !== null && (!Number.isInteger(count) || count < 0))
       throw new TypeError(
@@ -196,6 +291,9 @@ export function createConnectionState(options = {}) {
     addPeer,
     removePeer,
     recordError,
+    setGeneration,
+    setAuthorization,
+    invalidate,
     setRelaysConnected,
     subscribe(listener) {
       if (typeof listener !== "function")

@@ -1,5 +1,9 @@
+import vm from "node:vm";
 import { z } from "zod";
-import { createAIAuthAgentClient } from "@enzovezzaro/ai-auth-wallet";
+import {
+  createAIAuthAgentClient,
+  TOOL_ERROR_CODES,
+} from "@enzovezzaro/ai-auth-wallet";
 
 const MAX_EVENTS = 200;
 const MAX_PAGE = 50;
@@ -54,7 +58,7 @@ export function createAgentBridge({
 
   const catalogs = () => (client ?? getClient()).catalogs ?? [];
 
-  return Object.freeze({
+  const api = {
     status() {
       const state = runtime.connectionState;
       return {
@@ -63,6 +67,12 @@ export function createAgentBridge({
         room: runtime.room,
         capabilities: [...runtime.capabilities],
         connection: state.status,
+        // Strict liveness. MCP endpoint reachability, a saved room, a grant or
+        // a discovered catalog can never make this true.
+        connected: state.connected === true,
+        connectionGeneration: state.generation,
+        authorization: state.authorization,
+        joinedRoom: state.connected ? runtime.room : null,
         directPeerCount: state.directPeerCount,
         peers: runtime
           .peers()
@@ -133,7 +143,7 @@ export function createAgentBridge({
         })),
       };
     },
-    async invoke({ name, input = {}, wallet }) {
+    async invoke({ name, input = {}, wallet }, { signal } = {}) {
       const matching = catalogs().filter(
         (c) =>
           (!wallet || c.wallet === wallet) &&
@@ -142,12 +152,14 @@ export function createAgentBridge({
       if (matching.length === 0)
         return {
           ok: false,
+          code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
           rejected: false,
           reason: `No participant advertises "${name}" right now. A page tool needs the site's page open; an agent tool needs the providing agent online.`,
         };
       if (matching.length > 1)
         return {
           ok: false,
+          code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
           rejected: false,
           reason:
             "Ambiguous: several participants advertise this tool; pass wallet",
@@ -155,11 +167,14 @@ export function createAgentBridge({
       try {
         return {
           ok: true,
-          result: await getClient().callTool(matching[0], name, input),
+          result: await getClient().callTool(matching[0], name, input, {
+            signal,
+          }),
         };
       } catch (error) {
         return {
           ok: false,
+          code: error?.code ?? TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
           rejected: true,
           reason: String(
             error?.message ?? "The site rejected the request",
@@ -167,10 +182,76 @@ export function createAgentBridge({
         };
       }
     },
+    // Code Mode (Cloudflare's pattern): expose one tool that runs a small,
+    // sandboxed script which calls the same connection-checked APIs. The script
+    // has no network, no filesystem, no process and no imported modules; every
+    // side effect goes through `aiAuth`, which revalidates the live connection.
+    async runCode({ code }, { signal } = {}) {
+      if (typeof code !== "string" || !code.trim())
+        throw new TypeError("code must be a non-empty string");
+      if (code.length > 8_000)
+        throw new RangeError("code exceeds the 8 KB sandbox limit");
+      const logs = [];
+      const format = (value) => {
+        if (typeof value === "string") return value;
+        try {
+          return JSON.stringify(value ?? null);
+        } catch {
+          return String(value);
+        }
+      };
+      const sandbox = Object.freeze({
+        console: Object.freeze({
+          log: (...parts) => {
+            if (logs.length < 50) logs.push(parts.map(format).join(" "));
+          },
+        }),
+        aiAuth: Object.freeze({
+          status: () => api.status(),
+          listTools: () => api.listTools(),
+          events: (options) => api.events(options),
+          send: (input) => api.send(input),
+          move: (input) => api.move(input),
+          invoke: (name, input = {}, wallet) =>
+            api.invoke({ name, input, wallet }, { signal }),
+        }),
+      });
+      const context = vm.createContext(sandbox, {
+        codeGeneration: { strings: false, wasm: false },
+      });
+      const script = new vm.Script(
+        `"use strict";\n(async () => {\n${code}\n})()`,
+        { timeout: 2_000 },
+      );
+      let timer;
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("Code Mode timed out")),
+          2_000,
+        );
+      });
+      try {
+        const value = await Promise.race([
+          Promise.resolve(script.runInContext(context, { timeout: 2_000 })),
+          timeout,
+        ]);
+        return { ok: true, value: clip(value), logs };
+      } catch (error) {
+        return {
+          ok: false,
+          code: error?.code ?? "CODE_FAILED",
+          reason: String(error?.message ?? "Code failed").slice(0, 240),
+          logs,
+        };
+      } finally {
+        clearTimeout(timer);
+      }
+    },
     close() {
       client?.close?.();
     },
-  });
+  };
+  return Object.freeze(api);
 }
 
 const empty = {};
@@ -269,12 +350,26 @@ const SPECS = [
     },
     (b, i) => b.invoke(i),
   ],
+  [
+    "ai_auth_code",
+    "tools.invoke",
+    false,
+    "Code Mode: run a small sandboxed script that calls aiAuth.status/listTools/invoke/send. No network, filesystem, process or imports; every call revalidates the live connection.",
+    { code: z.string().min(1).max(8_000) },
+    (b, i, extra) => b.runCode(i, extra),
+  ],
 ];
 
 /** MCP actions, limited to the scopes the site actually requested. */
-export function buildAgentActions({ getBridge, siteCapabilities }) {
-  return SPECS.filter(([, capability]) =>
-    siteCapabilities.includes(capability),
+export function buildAgentActions({
+  getBridge,
+  siteCapabilities,
+  codeMode = false,
+}) {
+  return SPECS.filter(
+    ([name, capability]) =>
+      siteCapabilities.includes(capability) &&
+      (name !== "ai_auth_code" || codeMode),
   ).map(
     ([name, requiredCapability, readOnly, description, inputSchema, run]) => ({
       name,
@@ -282,9 +377,9 @@ export function buildAgentActions({ getBridge, siteCapabilities }) {
       inputSchema,
       requiredCapability,
       readOnly,
-      execute: async (input) => {
+      execute: async (input, extra) => {
         try {
-          return await run(getBridge(), input);
+          return await run(getBridge(), input, { signal: extra?.signal });
         } catch (error) {
           return {
             ok: false,

@@ -289,3 +289,39 @@ test("status reports tools this agent provides", () => {
   });
   assert.deepEqual(bridge.status().provides, ["agent.ping"]);
 });
+
+test("code mode runs sandboxed code against connection-checked aiAuth APIs", async () => {
+  const bridge = createAgentBridge({
+    runtime: fakeRuntime(),
+    clientFactory: () => ({ catalogs: [] }),
+  });
+  const out = await bridge.runCode({
+    code: "console.log(aiAuth.status().connection); return aiAuth.listTools().sites.length;",
+  });
+  assert.equal(out.ok, true);
+  assert.deepEqual(out.logs, ["idle"]);
+  assert.equal(out.value, 0);
+});
+
+test("code mode cannot reach Node globals", async () => {
+  const bridge = createAgentBridge({
+    runtime: fakeRuntime(),
+    clientFactory: () => ({ catalogs: [] }),
+  });
+  const out = await bridge.runCode({ code: "return typeof process;" });
+  assert.equal(out.ok, true);
+  assert.equal(out.value, "undefined");
+});
+
+test("ai_auth_code is opt-in and requires tools.invoke", () => {
+  const getBridge = () => null;
+  const names = (codeMode, caps) =>
+    buildAgentActions({
+      getBridge,
+      siteCapabilities: caps,
+      codeMode,
+    }).map((action) => action.name);
+  assert.ok(!names(true, ["presence.read"]).includes("ai_auth_code"));
+  assert.ok(!names(false, ["tools.invoke"]).includes("ai_auth_code"));
+  assert.ok(names(true, ["tools.invoke"]).includes("ai_auth_code"));
+});

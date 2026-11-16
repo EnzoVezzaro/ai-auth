@@ -48,6 +48,7 @@ function validateTools(tools) {
       );
     byName.set(tool.name, {
       handler: tool.handler,
+      inputSchema,
       descriptor: Object.freeze({
         name: tool.name,
         description,
@@ -56,6 +57,33 @@ function validateTools(tools) {
     });
   }
   return byName;
+}
+
+function validateInput(input, schema) {
+  if (!schema || schema.type !== "object" || input === undefined) return;
+  if (!input || typeof input !== "object" || Array.isArray(input))
+    throw new TypeError("Tool input must be an object");
+  const properties = schema.properties ?? {};
+  for (const key of schema.required ?? [])
+    if (!(key in input)) throw new TypeError(`Missing required input: ${key}`);
+  const isType = (value, expected) => {
+    if (expected === "array") return Array.isArray(value);
+    if (expected === "integer") return Number.isInteger(value);
+    if (expected === "null") return value === null;
+    return typeof value === expected;
+  };
+  for (const [key, value] of Object.entries(input)) {
+    const spec = properties[key];
+    if (!spec) {
+      if (schema.additionalProperties === false)
+        throw new TypeError(`Unexpected input: ${key}`);
+      continue;
+    }
+    if (spec.enum && !spec.enum.includes(value))
+      throw new TypeError(`Invalid value for ${key}`);
+    if (spec.type && !isType(value, spec.type))
+      throw new TypeError(`Invalid type for ${key}`);
+  }
 }
 
 function randomToken(bytesLength = 24) {
@@ -92,6 +120,7 @@ export function createToolProvider({
   const ownId = () => room.wallet?.id;
   const nonce = randomToken(24);
   const seen = new Map();
+  const runningRequests = new Map();
   let running = 0;
   let closed = false;
 
@@ -139,7 +168,7 @@ export function createToolProvider({
       .catch(() => {});
   };
 
-  async function execute(requester, request) {
+  async function execute(requester, request, controller) {
     const entry = byName.get(request.name);
     let allowed = false;
     try {
@@ -151,7 +180,11 @@ export function createToolProvider({
     }
     if (!allowed)
       return { error: "This agent did not allow that tool for you" };
-    const controller = new AbortController();
+    try {
+      validateInput(request.input, byName.get(request.name)?.inputSchema);
+    } catch (error) {
+      return { error: error.message };
+    }
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const value = await Promise.race([
@@ -179,6 +212,17 @@ export function createToolProvider({
     }
   }
 
+  function validCancel(payload) {
+    return (
+      payload?.kind === "tool-cancel" &&
+      payload.targetWallet === ownId() &&
+      payload.targetSession === room.session &&
+      payload.targetNonce === nonce &&
+      typeof payload.requestId === "string" &&
+      /^[A-Za-z0-9_-]{8,80}$/u.test(payload.requestId)
+    );
+  }
+
   function validRequest(payload) {
     return (
       payload?.kind === "tool-request" &&
@@ -203,6 +247,10 @@ export function createToolProvider({
       announce();
       return;
     }
+    if (type === "agent/action" && validCancel(payload) && issuer !== ownId()) {
+      runningRequests.get(payload.requestId)?.abort();
+      return;
+    }
     if (type !== "agent/action" || !validRequest(payload) || issuer === ownId())
       return;
     const now = Date.now();
@@ -210,12 +258,15 @@ export function createToolProvider({
     if (seen.has(payload.requestId) || running >= CONCURRENCY) return;
     seen.set(payload.requestId, now + REQUEST_MEMORY_MS);
     running += 1;
+    const controller = new AbortController();
+    runningRequests.set(payload.requestId, controller);
     const requester = { wallet: issuer, session: payload.session };
-    execute(requester, payload)
+    execute(requester, payload, controller)
       .then((outcome) =>
         respond(requester, { requestId: payload.requestId, ...outcome }),
       )
       .finally(() => {
+        runningRequests.delete(payload.requestId);
         running -= 1;
       });
   });
@@ -237,6 +288,8 @@ export function createToolProvider({
       if (closed) return;
       clearInterval(refresh);
       unsubscribe();
+      for (const controller of runningRequests.values()) controller.abort();
+      runningRequests.clear();
       const withdrawal = publish([]);
       closed = true;
       return withdrawal;

@@ -84,7 +84,12 @@ export async function step3(w, evidence) {
   const probe = w.p.probe;
   await probe.open(
     "index.html",
-    config(w, { label: "Probe", restricted: false }),
+    config(w, {
+      label: "Probe",
+      restricted: false,
+      // Session length defaults to Never; this step needs a finite expiry.
+      sessionTtlMs: 30 * 60_000,
+    }),
   );
   await probe.identity("Probe");
   const s = await probe.connect();

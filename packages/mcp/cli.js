@@ -79,6 +79,7 @@ async function serve(args) {
       actions: buildAgentActions({
         getBridge: () => bridge,
         siteCapabilities: requested,
+        codeMode: args.flags.has("code-mode"),
       }),
       approveCapabilities: async (asked) => {
         if (runtime) return [...runtime.capabilities];
@@ -111,8 +112,10 @@ async function serve(args) {
       },
     }).then(({ server }) => server);
   const server = await makeServer();
+  let http = null;
   const shutdown = async () => {
     bridge?.close();
+    await http?.close().catch(() => {});
     await runtime?.close().catch(() => {});
     process.exit(0);
   };
@@ -135,7 +138,7 @@ async function serve(args) {
       await writeFile(secretFile, `${secret}\n`, { mode: 0o600 });
       await chmod(secretFile, 0o600);
     }
-    const http = await serveAIAuthMcpHttp({
+    http = await serveAIAuthMcpHttp({
       port,
       secret,
       createMcpServer: () => {

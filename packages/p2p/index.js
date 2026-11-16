@@ -476,6 +476,7 @@ export {
   registerAIAuthPageActions,
   mountAIAuthInPageAgent,
   createAIAuthAgentClient,
+  TOOL_ERROR_CODES,
 } from "./webmcp.js";
 
 export { mountCollaborationWheel } from "./collaboration-wheel.js";
