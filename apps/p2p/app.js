@@ -3,6 +3,7 @@ import {
   appendActivity,
   approvePermissionRequest,
   createCapabilityGrant,
+  createInstanceId,
   createWallet,
   createPermissionRequest,
   downloadBackup,
@@ -33,6 +34,19 @@ const debug = (stage, details = "") => {
   if (debugMode) console.info("[AI Auth debug]", stage, details);
 };
 const renewalGuard = new NonceGuard();
+// One instance id per wallet tab. It is only a clone-detection hint, so a
+// blocked sessionStorage just yields a fresh id for this page load.
+const pageInstanceId = (() => {
+  try {
+    const stored = sessionStorage.getItem("ai-auth-instance-id");
+    if (/^inst:[A-Za-z0-9_-]{22}$/u.test(stored ?? "")) return stored;
+    const created = createInstanceId();
+    sessionStorage.setItem("ai-auth-instance-id", created);
+    return created;
+  } catch {
+    return createInstanceId();
+  }
+})();
 const state = {
   wallet: null,
   view: externalConnectMode ? "connect" : "overview",
@@ -193,7 +207,7 @@ function overviewView() {
   return `${pageHead("WALLET OVERVIEW", "Your agent, at a glance.", "Manage a local cryptographic identity, approve scoped requests, and connect directly with other wallets.")}
     ${identity}
     <div class="grid-main top-gap">
-      <section class="panel"><p class="mini-label">CURRENT SESSION</p><h2>${state.privateMode ? "Private" : "Public collaboration"}</h2><p class="panel-copy">${state.privateMode ? "Presence sharing is off until you turn it on." : "Wallets on this site's public space discover one another through Nostr."}</p><div class="metric-line"><span>Connected peers</span><strong id="overview-peer-count">${peers}</strong></div><div class="metric-line"><span>Stored activity</span><strong>${activityCount}</strong></div><div class="callout top-gap">The website is the collaboration hub. Nostr relays coordinate discovery; signed events travel directly between wallets over WebRTC. No AI Auth server is involved.</div></section>
+      <section class="panel"><p class="mini-label">CURRENT SESSION</p><h2>${state.privateMode ? "Private" : "Public collaboration"}</h2><p class="panel-copy">${state.privateMode ? "You receive room events but advertise no presence until you go public." : "Wallets on this site's public space discover one another through Nostr."}</p><div class="metric-line"><span>Connected peers</span><strong id="overview-peer-count">${peers}</strong></div><div class="metric-line"><span>Stored activity</span><strong>${activityCount}</strong></div><div class="callout top-gap">The website is the collaboration hub. Nostr relays coordinate discovery; signed events travel directly between wallets over WebRTC. No AI Auth server is involved.</div></section>
       <section class="panel"><p class="mini-label">QUICK ACTIONS</p><h2>What would you like to do?</h2><div class="overview-actions"><button class="button secondary" data-go-view="connect">Review a site request</button><button class="button secondary" data-go-view="permissions">Grant a capability</button><button class="button secondary" data-go-view="peer">Connect to an agent</button><button class="button quiet" data-go-view="activity">View signed activity</button></div></section>
     </div>`;
 }
@@ -300,7 +314,7 @@ function connectPeerView() {
       .join("") ||
     `<p class="help">No signed messages yet. Connect a peer to begin.</p>`;
   return `${pageHead("PEER CONNECTION", "Find agents on this site.", "Public Nostr relays coordinate discovery. Once paired, signed events travel over direct WebRTC data channels.")}
-    <div class="stack"><section class="panel"><div class="panel-head"><div><h2>Agent presence</h2><p class="panel-copy">Wallets connected to this site's public space can discover one another. Private mode stops presence and message sharing.</p></div><button class="button ${state.privateMode ? "" : "secondary"} small" id="toggle-private" aria-pressed="${state.privateMode}">${state.privateMode ? "Go public" : "Go private"}</button></div><div class="metric-line"><span>Local wallet</span><strong>${esc(state.wallet.name)}</strong></div><div class="metric-line"><span>Visibility</span><strong>${state.privateMode ? "Private" : "Public site space"}</strong></div><div class="metric-line"><span>Peer sessions</span><strong>${state.room?.peers.size ?? 0}</strong></div>${peerRows()}</section>
+    <div class="stack"><section class="panel"><div class="panel-head"><div><h2>Agent presence</h2><p class="panel-copy">Wallets connected to this site's public space can discover one another. Private mode receives room events but advertises no presence.</p></div><button class="button ${state.privateMode ? "" : "secondary"} small" id="toggle-private" aria-pressed="${state.privateMode}">${state.privateMode ? "Go public" : "Go private"}</button></div><div class="metric-line"><span>Local wallet</span><strong>${esc(state.wallet.name)}</strong></div><div class="metric-line"><span>Visibility</span><strong>${state.privateMode ? "Private" : "Public site space"}</strong></div><div class="metric-line"><span>Peer sessions</span><strong>${state.room?.peers.size ?? 0}</strong></div>${peerRows()}</section>
     <div class="grid-main"><section class="panel"><div class="panel-head"><div><h2>Signed messages</h2><p class="panel-copy">Received messages are accepted only after their signature, expiry, origin and replay nonce pass verification.</p></div></div><div class="message-list" id="message-list" aria-live="polite">${msgs}</div><form id="message-form" class="split-form"><div class="field"><label for="peer-message">Message to connected peers</label><input class="control" id="peer-message" maxlength="3000" required placeholder="Write a short message" ${state.privateMode ? "disabled" : ""}/></div><button class="button" type="submit" ${state.privateMode ? "disabled" : ""}>Send signed</button></form></section>
       <section class="panel"><div class="panel-head"><div><h2>Connection details</h2><p class="panel-copy">The browser exchanges discovery metadata through public Nostr relays, then opens a direct WebRTC channel for peer events.</p></div></div><div class="metric-line"><span>Discovery</span><strong>Nostr relays</strong></div><div class="metric-line"><span>Peer data</span><strong>Direct WebRTC</strong></div><div class="callout">No TURN relay is configured. Some restrictive networks may not establish a direct connection. Public relay operators can observe room participation and timing.</div></section></div></div>`;
 }
@@ -393,11 +407,6 @@ async function startRoom() {
     (externalConnectMode && state.consent && !externalSessionActive())
   )
     return;
-  if (state.privateMode) {
-    state.rtc = null;
-    state.room = null;
-    return;
-  }
   const external =
     externalConnectMode && state.externalRequest && state.consent;
   const roomName = external
@@ -407,8 +416,10 @@ async function startRoom() {
   const capabilities = external
     ? state.consent.body.payload.capabilities
     : ["presence.read", "messages.send", "tools.invoke"];
+  // Private mode joins as a silent participant: it receives room events but
+  // advertises no presence or cursor. Its actions stay signed and audited.
   state.room = new P2PRoom(state.wallet, roomName, {
-    privateMode: false,
+    privateMode: state.privateMode,
     origin: roomOrigin,
     capabilities,
   });
@@ -565,6 +576,9 @@ async function startRoom() {
           requestNonce: state.externalRequest.nonce,
           walletId: state.wallet.id,
           session: state.room.session,
+          // This wallet signs `target`/`messageId` into the payload and
+          // forwards verified receipts; older wallets do not say so.
+          features: { targets: true, receipts: true },
         },
         state.externalOrigin,
       );
@@ -732,6 +746,16 @@ function bindView() {
         state.externalRequest,
         approved,
         {
+          // The descriptor fields are self-declared claims, not attestations.
+          ...(state.externalRequest.version === 1
+            ? {}
+            : {
+                agent: {
+                  instanceId: pageInstanceId,
+                  agentType: "ai-auth-wallet",
+                  runtime: { name: "ai-auth-wallet-page" },
+                },
+              }),
           sessionTtlMs:
             state.externalRequest.version === 1
               ? undefined
@@ -908,7 +932,7 @@ function bindView() {
     render();
     toast(
       state.privateMode
-        ? "Private mode is on. Shared presence and messages are paused."
+        ? "Private mode is on. You receive room events but advertise no presence."
         : "Public site-space presence is on.",
     );
   });

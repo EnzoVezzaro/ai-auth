@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.2.0 - 2026-11-15
+
+- Add the `ai-auth-mcp` command: `init`, `whoami`, `preview`, `serve` and `unlink`. Connect input can be an instruction, JSON, a site URL, or a provisional `/.well-known/ai-auth.json` manifest.
+- Consent is required before any scope is granted: an interactive terminal shows a preview and prompts; a non-interactive run refuses unless `--approve` lists exact scopes, and never escalates beyond what the site requested.
+- Add `ai_auth_status`, `ai_auth_join`, `ai_auth_leave`, `ai_auth_send`, `ai_auth_events`, `ai_auth_list_tools` and `ai_auth_invoke`, backed by the headless agent runtime (`@enzovezzaro/ai-auth-agent`).
+- Claude Code was verified end to end. Codex and OpenCode registration is documented, but their tool calls are not yet verified.
 - Replace authenticated service sessions with locally approved wallet actions.
 - Sign action lifecycle events and allow the host to forward them through a locally chosen transport.
 - Remove AI Auth backend and tenant API dependencies.

@@ -119,6 +119,8 @@ export function issueMembership(
 export const EXECUTION_GRANT_TYPE: "ai-auth-execution-grant";
 export const MAX_EXECUTION_GRANT_TTL_MS: number;
 export const DEFAULT_EXECUTION_GRANT_TTL_MS: number;
+export const CATCHUP_MAX_RECORDS: number;
+export const CATCHUP_MAX_AGE_MS: number;
 export const DURATION_KINDS: readonly DurationKind[];
 export const DURATION_LIMITS: Readonly<Record<DurationKind, number>>;
 
@@ -199,6 +201,25 @@ export interface ParticipationPolicy {
     | { ok: true; applied: boolean; kind?: "membership" | "link" | "wallet" }
     | { ok: false; reason: string }
   >;
+  /** Verify and apply a wallet-signed `ai-auth-link-revocation` event. */
+  applyLinkRevocation(
+    event: unknown,
+  ): Promise<
+    { ok: true; applied: boolean; kind: "link" } | { ok: false; reason: string }
+  >;
+  /** Verify and apply a signed `ai-auth-epoch` announcement. */
+  applyEpoch(
+    record: unknown,
+  ): Promise<
+    | { ok: true; applied: boolean; kind: "epoch" }
+    | { ok: false; reason: string }
+  >;
+  /** Bounded, newest-first records for catch-up of offline peers. */
+  recentRecords(options?: { limit?: number; maxAgeMs?: number }): Readonly<{
+    epoch: unknown | null;
+    revocations: unknown[];
+    linkRevocations: unknown[];
+  }>;
   isRevoked(kind: "membership" | "link" | "wallet", target: string): boolean;
   inspect(walletId: string, now?: number): unknown;
   admit(

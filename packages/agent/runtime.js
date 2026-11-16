@@ -316,6 +316,21 @@ export function createAgentRuntime(options = {}) {
     get room() {
       return currentRoom;
     },
+    /**
+     * Stable room facade for createAIAuthAgentClient(). It follows reconnects:
+     * `session` always reflects the current P2PRoom session.
+     */
+    agentRoom: Object.freeze({
+      get wallet() {
+        return wallet ? Object.freeze({ id: wallet.id }) : undefined;
+      },
+      get session() {
+        return core?.session;
+      },
+      send: (type, payload, sendOptions) =>
+        api.send(type, payload, sendOptions),
+      subscribe: (fn) => api.onEvent(fn),
+    }),
     capabilities: caps,
     descriptor: meta,
     origin: site,

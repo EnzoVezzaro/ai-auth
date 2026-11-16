@@ -21,7 +21,7 @@ const MAX_TRACKED = 1024;
 const INSTANCE_PATTERN = /^inst:[A-Za-z0-9_-]{22}$/u;
 const NONCE_PATTERN = /^[A-Za-z0-9_-]{16,128}$/u;
 const SHORT_TEXT = /^[\x20-\x7E]{1,64}$/u;
-const CAPABILITY = /^[a-z*][a-z0-9._*-]{0,63}$/u;
+const CAPABILITY = /^[a-z*][a-z0-9._:/*-]{0,63}$/u;
 const KEYS = [
   "type",
   "v",

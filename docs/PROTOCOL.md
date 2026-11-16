@@ -53,7 +53,7 @@ Detection is advisory. It reports; it does not revoke or block. A wallet may hav
 
 ## 3. Agent descriptor (implemented)
 
-Signed self-description, `ai-auth-agent-descriptor` v1, domain `ai-auth-agent-descriptor/v1\n`, protocol version 1. A standalone object; a later release attaches it to the connect request.
+Signed self-description, `ai-auth-agent-descriptor` v1, domain `ai-auth-agent-descriptor/v1\n`, protocol version 1. Attached to the connect flow: when the wallet approves a v2 permission request it may add the descriptor to the signed `connect/consent` payload as `agentDescriptor`. Binding: `sessionId` and `nonce` are the request nonce, `origin` is the request audience, `room` is the request room, `capabilities` are a subset of the approved capabilities, and `expiresAt` is the challenge expiry. `verifyConsentAgent` (called by `verifyPermissionConsent` and `connectAIAuthModal`) rejects a descriptor whose wallet is not the consent issuer, whose binding differs, or whose signature fails; the whole connection is then refused. Consents without a descriptor (0.4.x wallets, legacy v1) still verify and yield no participant. A legacy v1 consent that carries a descriptor is rejected.
 
 | Field                          | Rule                                                                       |
 | ------------------------------ | -------------------------------------------------------------------------- |
@@ -114,6 +114,7 @@ Verified, live participation in a room, kept alive by a heartbeat lease.
 
 - Implemented: `peer/hello`, `peer/heartbeat` and `peer/goodbye` events, signed per event. In restricted rooms the first two carry the membership proof. A peer is listed only after verification and is dropped when the lease lapses (heartbeat every 8 s; a peer is dropped after 24 s without one).
 - Rule: presence requires a valid signature, and in restricted rooms a valid unrevoked membership. A display label in presence is a claim.
+- **Private presence** (`P2PRoom` option `privateMode`): the participant joins and receives authorized room events and may send signed actions, but never sends `peer/hello`, `peer/heartbeat`, `peer/goodbye` or `presence/cursor` (the room refuses to), never answers a hello, and is never listed in a peer's presence list. In a restricted room it attaches its membership proof to each event it sends and sends `membership/prove` once to each direct peer so they will deliver room events to it. Its events are signed by its own wallet, so it cannot act as anyone else, and `room.audit()` keeps a bounded log of what it sent. This does not hide it from the transport: direct WebRTC peers and relays see the connection, and every event it sends names its wallet.
 - Specified, not yet implemented: carrying `instanceId` and descriptor digest in presence so peers can run clone detection without extra messages.
 
 Boundary: presence proves the key was recently live and (restricted) admitted. It does not prove the key is still authorized after a revocation this peer has not seen.
@@ -158,7 +159,11 @@ Cursor events are ordinary signed room events: they inherit signature, session, 
 
 Trust: the signer must be a trusted issuer, except that a wallet may revoke itself (`kind: "wallet"`, target equal to its own id). Application: idempotent by `id`; a replay is a no-op. A revocation is permanent for the policy instance and has no expiry.
 
-**Propagation.** `createRevocationGossip(room)` publishes and receives `revocation/gossip` events through `room.send` and `room.subscribe`. Receivers verify, apply to the local policy, relay once, and ignore further copies by id. Invalid records are never relayed. There is no catch-up for peers that were offline; see `docs/SECURITY.md`.
+**Propagation.** `createRevocationGossip(room)` publishes and receives `revocation/gossip` events through `room.send` and `room.subscribe`. Receivers verify, apply to the local policy, relay once, and ignore further copies by id. Invalid records are never relayed. Link revocations (`ai-auth-link-revocation`, wallet-signed, see `links.js`) travel as `{ "linkRevocation": <envelope> }` in the same gossip event; receivers verify them with `verifyLinkRevocation` and update `policy.revokedLinks` (and an optional site `createRevokedLinkSet`).
+
+**Epoch announcements.** `ai-auth-epoch` v1, domain `ai-auth-epoch/v1\n`: `id`, `epoch`, `origin`, `room`, `issuer`, `issuedAt`, `signature`. Only a trusted issuer may sign one (no self-announcement). Applying it raises the epoch forward only (`policy.applyEpoch`). It travels as `{ "epoch": <record> }`.
+
+**Catch-up.** When a peer first announces itself (hello or heartbeat; throttled to once a minute per peer), a non-private peer pushes `revocation/sync` to it, and a private peer sends `revocation/sync-request` instead (a request is answered with a sync). `revocation/sync` carries the latest epoch record plus at most 32 recent revocation and link-revocation records no older than 7 days and under 48,000 characters in total. Every item is verified and deduplicated exactly like live gossip, a receiver processes at most 32 items per list, and nothing in a sync is relayed.
 
 ## 10. Authorization epoch (implemented)
 
@@ -177,6 +182,8 @@ Protected operations (running tools, writing files, anything with side effects) 
 Otherwise it returns `{ allow: false, reason }` (for example `no-execution-grant`, `grant-expired`, `stale-epoch`, `revoked`, `missing-scope`). Any missing or invalid input denies.
 
 **Execution grant**: `ai-auth-execution-grant` v1, domain `ai-auth-execution-grant/v1\n`. Fields: `id`, `issuer`, `subject`, `origin`, `room`, `membershipId`, `scopes` (no `*`), `epoch`, `issuedAt`, `expiresAt`, `signature`. Lifetime at most 15 minutes (default 5). Renew by issuing a new grant (`renewExecutionGrant`); the issuer decides whether to renew. The grant TTL bounds how long a peer that missed a revocation can still act.
+
+`connectAIAuthModal({ participation: { policy } })` enforces step 1 to 5 on the page: a remote `tool-request` that fails `authorizeProtected` is dropped before any listener sees it, and `connection.participation.authorizeProtected(walletId, scope)` exposes the same check to tool layers. Without a policy the connection behaves as in 0.4.x (the human approval gate is the only check); this is opt-in, not a default.
 
 The human approval callback required by the in-page agent bridge is a separate, additional gate. `authorizeProtected` does not replace it.
 
@@ -197,6 +204,10 @@ No adapter code is added by protocol version 1; existing adapters (`agent-connec
 
 - Additions only. All 0.4.x exports and signed formats are unchanged. The wallet envelope (`docs/WIRE_FORMAT.md`) is untouched.
 - 0.4.x peers do not know membership, revocation, grants or descriptors. They have no handler for event types such as `revocation/gossip` and cannot enforce restricted-room rules or revocations; open rooms behave as before. Interoperability of 0.4.x peers with the new event types has not been tested.
-- Membership proofs without `epoch` and `durationKind` stay valid byte for byte and count as epoch 0, so an epoch bump invalidates them. Proofs that carry the new optional fields are rejected as `malformed` by verifiers older than 0.5.0 (this release line); issue them only to 0.5.0+ verifiers.
+- A consent carrying `agentDescriptor` still verifies on 0.4.x verifiers: they do not check for unknown payload fields, so they ignore it (this was checked by reading `verifyPermissionConsent`, not by running a 0.4.x build). Membership proofs without `epoch` and `durationKind` stay valid byte for byte and count as epoch 0, so an epoch bump invalidates them. Proofs that carry the new optional fields are rejected as `malformed` by verifiers older than 0.5.0 (this release line); issue them only to 0.5.0+ verifiers.
 - To adopt: keep open rooms as they are; for restricted rooms issue memberships (preferably with `duration` and `epoch`), add `createRevocationGossip(room)`, and gate protected operations with `authorizeProtected` plus execution grants.
 - Unknown `v` values must be rejected, not downgraded. A change to signed semantics needs a new `v`.
+
+## Presence tracker and discovery (implemented in `presence.js`, `discovery.js`)
+
+`createPresenceTracker` keeps one entry per verified wallet and session. Cursors follow section 8: `pageKey` plus document coordinates (finite, 0 to 1,000,000), a per-peer monotonic `seq`, and an optional label claim. A peer is `online` while its lease is fresh, `offline` after 16 seconds without a heartbeat, and removed together with its cursor after 24 seconds or on `peer/goodbye`. Stale or repeated `seq` values and invalid fields are dropped without changing state. The tracker consumes events the room has already verified; it does not verify signatures itself. The optional discovery file is described in `DISCOVERY.md`.

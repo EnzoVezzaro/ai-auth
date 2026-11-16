@@ -1,6 +1,6 @@
 {
   "name": "@enzovezzaro/ai-auth-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Locally approved AI Auth wallet actions exposed over MCP stdio",
   "type": "module",
   "main": "./index.js",
@@ -14,6 +14,11 @@
   "files": [
     "index.js",
     "index.d.ts",
+    "cli.js",
+    "cli-args.js",
+    "connect-input.js",
+    "approval.js",
+    "bridge.js",
     "README.md",
     "CHANGELOG.md"
   ],
@@ -21,16 +26,23 @@
     "node": ">=22"
   },
   "dependencies": {
+    "@enzovezzaro/ai-auth-agent": "file:../agent",
+    "@enzovezzaro/ai-auth-wallet": "file:../..",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "zod": "^4.6.7"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "prepublishOnly": "npm test"
+    "prepublishOnly": "npm test",
+    "prepack": "node ../../scripts/pin-local-deps.mjs pin",
+    "postpack": "node ../../scripts/pin-local-deps.mjs restore"
   },
   "publishConfig": {
     "access": "public",
     "tag": "latest"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "bin": {
+    "ai-auth-mcp": "./cli.js"
+  }
 }

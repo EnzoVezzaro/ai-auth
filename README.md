@@ -4,6 +4,17 @@ AI Auth is a self-custodied identity wallet and collaboration SDK for AI agents.
 
 AI Auth operates no authentication server, database, or collaboration backend. The website is the logical collaboration hub: wallet-approved agents on the same site join its shared public space. Public Nostr relays coordinate discovery and WebRTC signaling; signed collaboration events travel over direct WebRTC data channels. No blockchain or cryptocurrency is involved.
 
+## Packages
+
+| Package                        | Use it for                                                                               | Version |
+| ------------------------------ | ---------------------------------------------------------------------------------------- | ------- |
+| `@enzovezzaro/ai-auth-wallet`  | Browser SDK, wallet modal, collaboration, WebMCP bridge (this repository's root package) | 0.5.0   |
+| `@enzovezzaro/ai-auth-agent`   | Headless Node agents: encrypted per-instance keystore, room runtime, real WebRTC         | 0.1.0   |
+| `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local agent runtimes such as Claude Code         | 0.1.0   |
+| `@enzovezzaro/ai-auth-runtime` | Provider-neutral plugin host for local agent applications                                | 0.1.0   |
+
+`@enzovezzaro/ai-auth-server` is retired; use the wallet package instead. Every package works without an AI Auth-operated service.
+
 ## Run the wallet
 
 Requirements: Node.js 22 or newer and npm.
@@ -118,7 +129,36 @@ The panel renders the instruction with a copy button, the handshake status (`idl
 
 ## Optional local integrations
 
-WebMCP is the primary in-page agent tool surface: the SDK discovers tools exposed by the connected page, advertises a bounded catalog to the shared public room, and accepts a call only after wallet scope checks and the page's explicit human approval. Signed requests, results, cursor, and action status are visible to connected peers; never send secrets or private page data through the shared room. The SDK feature-detects WebMCP and retains a JavaScript API fallback. WebMCP handles tool invocation; direct WebRTC carries peer collaboration. `@enzovezzaro/ai-auth-mcp` and `@enzovezzaro/ai-auth-runtime` are optional local integrations and are not required for a website or hosted service.
+WebMCP is the primary in-page agent tool surface: the SDK discovers tools exposed by the connected page, advertises a bounded catalog to the shared public room, and accepts a call only after wallet scope checks and the page's explicit human approval. Signed requests, results, cursor, and action status are visible to connected peers; never send secrets or private page data through the shared room. The SDK feature-detects WebMCP and retains a JavaScript API fallback. WebMCP handles tool invocation; direct WebRTC carries peer collaboration. `@enzovezzaro/ai-auth-mcp`, `@enzovezzaro/ai-auth-agent` and `@enzovezzaro/ai-auth-runtime` are optional local integrations and are not required for a website or hosted service.
+
+## Sessions
+
+A connection grants a bounded session. The default is 30 minutes, the hard cap is 60 minutes, and the session ends after 10 minutes without authorized activity. A site can ask for less through `sessionTtlMs` and `idleTimeoutMs`, but never more than the cap. Call `connection.renew()` to ask the wallet owner to approve again; renewal can keep or narrow capabilities, never widen them. The wallet shows the expiry countdown and lets the owner end the session. Expired, idle, or ended sessions stop authorized publishing, receiving, transfers and WebMCP calls.
+
+## Participation modes
+
+Rooms are `open` by default: anyone who knows the site origin and room name can join, and the SDK discloses that. A `restricted` room admits only peers that present a site-issued `ai-auth-membership` proof. Use `createParticipationPolicy`, `issueMembership` and `verifyMembership` on the site side. Membership can last a short time, a configured time, a long time, or until revoked. An until-revoked membership never runs protected operations on its own; each protected operation also needs a short-lived execution grant (`issueExecutionGrant`, checked by `authorizeProtected`). Revoke a membership or link with a signed `ai-auth-revocation` record; the record is shared between connected peers with `createRevocationGossip`.
+
+Revocation is not instant and not global. A peer that was offline or disconnected learns about it only when it reconnects and catches up, and an execution grant limits the damage in the meantime. See [the security boundaries](docs/SECURITY.md) and [the protocol contracts](docs/PROTOCOL.md).
+
+## Private presence
+
+Private mode joins a room silently. A private participant receives the room's authorized events but advertises no presence or cursor, and its actions are still signed and audited. Private mode does not bypass site authorization and does not hide metadata from relays.
+
+## Headless agents
+
+`@enzovezzaro/ai-auth-agent` lets an agent stay in a site's room without a browser tab. Each agent instance keeps its own wallet in an encrypted keystore (`0600` file, passphrase from `AI_AUTH_PASSPHRASE` or a terminal prompt). A corrupted keystore fails closed rather than creating a new identity. `createAgentRuntime` joins the room, sends heartbeat leases, reconnects with backoff, and resumes the saved room after a restart. The runtime reports `direct-peer-connected` only after a real WebRTC data channel is open. A worked example is `packages/agent/examples/peer.mjs`, and the design is in [the agent runtime notes](docs/AGENT_RUNTIME.md).
+
+Local agent runtimes can use `ai-auth-mcp`, which exposes `ai_auth_*` tools over MCP stdio. Connecting asks the owner for consent: an interactive terminal shows a preview and prompts, and a non-interactive run refuses unless `--approve` lists the exact scopes. Claude Code has been verified end to end. Codex and OpenCode registration is documented in [the adapter guide](docs/AGENT_ADAPTERS.md); their tool calls have not yet been verified.
+
+## Upgrading from 0.4.x
+
+- `registerAIAuthPageActions` now throws unless you pass `authorize`. Every page action needs a human approval step.
+- Denied and failed WebMCP tool calls reject on the agent side instead of resolving as success.
+- `privateMode` joins a room silently instead of being refused.
+- Deploy the SDK and wallet together. Older SDKs cannot verify the version 2 consent that carries long sessions.
+
+The full list is in [the changelog](CHANGELOG.md).
 
 ## Network limits
 
@@ -127,9 +167,13 @@ Nostr relay operators can observe participation and timing metadata. The hashed 
 ## Development checks
 
 ```sh
-npm test
+npm test                 # wallet SDK suite
+npm run test:all         # SDK, runtime, MCP and agent suites
+npm run test:types       # strict type check of the public declarations
 npm run build
+npm run verify:packages  # pack all packages and import them from a clean install
 npm run test:browser:e2e
+npm run test:e2e:body4ai # multi-agent BODY4AI scenario (see docs/E2E.md)
 ```
 
 The browser E2E uses two isolated wallets and public relay/WebRTC connectivity. It currently requires network paths that allow direct ICE; do not interpret peer discovery alone as a successful collaboration session. Release status and remaining work are tracked in [the implementation plan](docs/IMPLEMENTATION_PLAN.md).

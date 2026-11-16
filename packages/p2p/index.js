@@ -555,6 +555,16 @@ export {
   DEFAULT_DESCRIPTOR_TTL_MS,
 } from "./agent-identity.js";
 
+export { verifyConsentAgent } from "./connect.js";
+export {
+  createEpochRecord,
+  verifyEpochRecord,
+  EPOCH_TYPE,
+  EPOCH_VERSION,
+  REVOCATION_SYNC_REQUEST_EVENT,
+  REVOCATION_SYNC_EVENT,
+} from "./revocation.js";
+export { CATCHUP_MAX_RECORDS, CATCHUP_MAX_AGE_MS } from "./membership.js";
 export {
   RECEIPT_TYPE,
   RECEIPT_VERSION,
@@ -569,3 +579,19 @@ export {
   isSensitiveElement,
   extractSafeText,
 } from "./wheel-redaction.js";
+
+export {
+  CURSOR_TYPE,
+  CURSOR_VERSION,
+  createPresenceTracker,
+  buildCursorPayload,
+  parseCursorPayload,
+  validateCursor,
+} from "./presence.js";
+export {
+  DISCOVERY_PATH,
+  DISCOVERY_TYPE,
+  DISCOVERY_VERSION,
+  fetchDiscovery,
+  validateDiscovery,
+} from "./discovery.js";

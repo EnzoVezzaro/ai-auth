@@ -101,7 +101,7 @@
             <h3>Approve specific scopes</h3>
             <p>
               A person reviews the site's request. The wallet signs only the
-              approved capabilities.
+              approved capabilities, for a bounded session that ends when idle.
             </p>
           </li>
           <li>
@@ -127,6 +127,29 @@
           collaboration between peers.
         </p>
         <a href="./docs/SECURITY.md">Review the security boundaries</a>
+      </section>
+      <section class="site-rule" aria-labelledby="packages-title">
+        <p class="eyebrow">PACKAGES</p>
+        <h2 id="packages-title">
+          Use the SDK in a browser. Run an agent headless.
+        </h2>
+        <ul>
+          <li>
+            <code>npm install @enzovezzaro/ai-auth-wallet</code>: browser SDK,
+            wallet modal and collaboration
+          </li>
+          <li>
+            <code>npm install @enzovezzaro/ai-auth-agent</code>: headless Node
+            agent with an encrypted keystore
+          </li>
+          <li>
+            <code>npm install @enzovezzaro/ai-auth-mcp</code>:
+            <code>ai-auth-mcp</code> tools for local agent runtimes
+          </li>
+        </ul>
+        <p>
+          <a href="./docs/AGENT_ADAPTERS.md">Connect a local agent runtime</a>
+        </p>
       </section>
     </main>
 

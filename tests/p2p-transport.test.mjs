@@ -263,6 +263,7 @@ test("WebMCP registers only consented actions and signs action lifecycle events"
     },
   };
   const api = await registerAIAuthPageActions({
+    authorize: () => true,
     connection,
     modelContext,
     actions: [
@@ -302,6 +303,7 @@ test("WebMCP JavaScript fallback hides action and transport secrets", async () =
   const connection = await makeVerifiedConnection(["tools.invoke"]);
   const events = [];
   const api = await registerAIAuthPageActions({
+    authorize: () => true,
     connection,
     actions: [
       {
@@ -343,6 +345,7 @@ test("WebMCP tools require tools.invoke even when presence is approved", async (
     },
   };
   const api = await registerAIAuthPageActions({
+    authorize: () => true,
     connection,
     modelContext,
     actions: [
@@ -358,6 +361,7 @@ test("WebMCP tools require tools.invoke even when presence is approved", async (
 
   await assert.rejects(
     registerAIAuthPageActions({
+      authorize: () => true,
       connection: {
         capabilities: ["tools.invoke"],
         consent: { body: { payload: { capabilities: ["tools.invoke"] } } },
@@ -376,6 +380,7 @@ test("WebMCP tools require tools.invoke even when presence is approved", async (
   const toolsConnection = await makeVerifiedConnection(["tools.invoke"]);
   await assert.rejects(
     registerAIAuthPageActions({
+      authorize: () => true,
       connection: toolsConnection,
       actions: [
         {
@@ -407,6 +412,7 @@ test("WebMCP registration expires with its verified wallet connection", async ()
   try {
     Date.now = () => expiresAt - 1;
     api = await registerAIAuthPageActions({
+      authorize: () => true,
       connection,
       modelContext,
       actions: [
@@ -448,6 +454,7 @@ test("WebMCP does not execute if the wallet closes while publishing starts", asy
     releasePublish = resolve;
   });
   const api = await registerAIAuthPageActions({
+    authorize: () => true,
     connection,
     modelContext: {
       registerTool(tool, options) {
