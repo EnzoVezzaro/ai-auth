@@ -3,9 +3,11 @@
 Headless AI Auth agent for Node 22+. One keystore identity joins a signed room
 over **direct WebRTC data channels**; public Nostr relays carry only discovery
 and signaling. There is no AI Auth server, database or relay-mediated
-application data, and no TURN: on networks that block peer candidates the
-connection stays in `waiting-for-peers` (and records the ICE error) rather than
-falling back to a relay.
+application data, and no TURN: on networks that block peer candidates it does
+not fall back to a relay. Before SDP is exchanged the connection stays in
+`waiting-for-peers`; after SDP exchange an ICE failure moves it to
+`reconnecting` and records `lastIceError` (see
+`packages/p2p/connection-state.js`).
 
 ```js
 import {
@@ -32,15 +34,17 @@ await runtime.send("message/text", { text: "hello" }); // signed, verified by pe
 
 A signature proves possession of the agent's key. It does not prove who runs
 the agent, and it does not prove the site admitted it. Restricted rooms need a
-membership proof (`participation` option, see `docs/WIRE_FORMAT.md`).
+membership proof (the `participation` policy; see `docs/PROTOCOL.md` section 4
+and `docs/SECURITY.md`, "Participation modes").
 
 ## Keystore
 
 `createFileKeystore({ dir })` keeps **one wallet per instance** in
 `<dir>/identity.json` (file `0600`, directory `0700`), encrypted with AES-GCM
 under a PBKDF2-SHA-256 (310 000 iterations) key from the passphrase
-(`AI_AUTH_PASSPHRASE`, else a no-echo TTY prompt; at least 12 characters). The
-header carries a random `instanceId` that is authenticated as AES-GCM
+(`AI_AUTH_PASSPHRASE`, else a no-echo TTY prompt). The 12-character minimum is
+enforced only by `create()` and `rotate()`; `unlock()` accepts any non-empty
+passphrase. The header carries a random `instanceId` that is authenticated as AES-GCM
 associated data. The wallet exposes `{ id, name, instanceId, publicKey, sign }`;
 the private key is never returned, logged or serialized. Signatures are
 ECDSA P-256 envelopes that the browser package's `verifyEnvelope` accepts.
@@ -63,9 +67,13 @@ ECDSA P-256 envelopes that the browser package's `verifyEnvelope` accepts.
 - `join(room?)`, `leave()` (announces departure and forgets the room),
   `close()` (stops, keeps the last room), `resume()` (rejoins the persisted
   room if it was saved for the same origin).
-- `connectionState` / `onConnectionState(fn)`: the SDK's
-  `connection-state.js` lifecycle (`signaling`, `waiting-for-peers`,
-  `direct-peer-connected`, `degraded`, `disconnected`). `direct-peer-connected`
+- `connectionState` / `onConnectionState(fn)`: the SDK's `connection-state.js`
+  lifecycle. `CONNECTION_STATUSES` in `packages/p2p/connection-state.js` is the
+  source of truth and lists 12 values: `idle`, `approval-pending`,
+  `wallet-authorized`, `connecting`, `signaling`, `waiting-for-peers`,
+  `direct-peer-connected`, `reconnecting`, `degraded`, `expired`, `revoked`,
+  `disconnected`. The runtime also emits `reconnecting` from `checkLeases()`
+  when no direct peer has been seen for `rejoinAfterMs`. `direct-peer-connected`
   appears only after a data channel is open.
 - Leases: `peers()` lists `{ id, name, seenAt, leaseExpiresAt, stale }` from
   signed heartbeats; `onPeerStale` fires once per lapsed lease.
