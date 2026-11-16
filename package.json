@@ -77,16 +77,20 @@
     "test:browser:e2e": "node scripts/test-browser-e2e.mjs",
     "test:browser:wheel": "node scripts/test-wheel-browser.mjs",
     "verify:packages": "node scripts/verify-packed-set.mjs",
-    "format": "prettier --write \"packages/p2p/*.{js,d.ts}\" \"packages/runtime/**/*.{js,d.ts,mjs}\" packages/runtime/README.md packages/runtime/CHANGELOG.md \"packages/mcp/**/*.{js,d.ts,mjs}\" \"packages/agent/**/*.{js,d.ts,mjs}\" packages/agent/README.md \"scripts/*.mjs\" \"scripts/e2e/*.mjs\" \"tests/*.mjs\" \"docs/*.md\" README.md CHANGELOG.md index.html landing.css styles.css apps/p2p/app.js package.json",
-    "format:check": "prettier --check \"packages/p2p/*.{js,d.ts}\" \"packages/runtime/**/*.{js,d.ts,mjs}\" packages/runtime/README.md packages/runtime/CHANGELOG.md \"packages/mcp/**/*.{js,d.ts,mjs}\" \"packages/agent/**/*.{js,d.ts,mjs}\" packages/agent/README.md \"scripts/*.mjs\" \"scripts/e2e/*.mjs\" \"tests/*.mjs\" \"docs/*.md\" README.md CHANGELOG.md index.html landing.css styles.css apps/p2p/app.js package.json",
+    "format": "prettier --write \"packages/p2p/*.{js,d.ts}\" \"packages/runtime/**/*.{js,d.ts,mjs}\" packages/runtime/README.md packages/runtime/CHANGELOG.md \"packages/mcp/**/*.{js,d.ts,mjs}\" \"packages/agent/**/*.{js,d.ts,mjs}\" packages/agent/README.md \"scripts/*.mjs\" \"scripts/e2e/*.mjs\" \"tests/*.mjs\" \"docs/*.md\" README.md CHANGELOG.md index.html landing.css styles.css \"src/landing/**/*.{js,jsx}\" apps/p2p/app.js package.json",
+    "format:check": "prettier --check \"packages/p2p/*.{js,d.ts}\" \"packages/runtime/**/*.{js,d.ts,mjs}\" packages/runtime/README.md packages/runtime/CHANGELOG.md \"packages/mcp/**/*.{js,d.ts,mjs}\" \"packages/agent/**/*.{js,d.ts,mjs}\" packages/agent/README.md \"scripts/*.mjs\" \"scripts/e2e/*.mjs\" \"tests/*.mjs\" \"docs/*.md\" README.md CHANGELOG.md index.html landing.css styles.css \"src/landing/**/*.{js,jsx}\" apps/p2p/app.js package.json",
     "prepublishOnly": "npm test && npm run build",
     "test:e2e:body4ai": "npm run build && node scripts/test-body4ai-e2e.mjs"
   },
   "devDependencies": {
+    "@designcodeio/threeui": "^1.2.0",
     "esbuild": "^0.28.2",
     "fake-indexeddb": "^6.2.8",
     "playwright": "^1.64.1",
-    "prettier": "^3.10.1"
+    "prettier": "^3.10.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.180.0"
   },
   "license": "MIT",
   "dependencies": {

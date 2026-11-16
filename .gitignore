@@ -9,3 +9,6 @@ data/
 playwright-report/
 test-results/
 public/
+.agents/
+skills-lock.json
+screenshots/landing/

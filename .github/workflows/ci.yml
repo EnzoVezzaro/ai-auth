@@ -63,3 +63,37 @@ jobs:
         working-directory: packages/agent
       - name: Check types for public declarations
         run: npm run test:types
+
+  landing-visual:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium for landing screenshots
+        run: npx playwright install --with-deps --only-shell chromium
+      - name: Build the static landing page
+        run: npm run build
+      - name: Capture landing screenshots at four viewports
+        run: |
+          AI_AUTH_SKIP_BUILD=1 node scripts/serve.mjs > /tmp/ai-auth-landing-server.log 2>&1 &
+          echo $! > /tmp/ai-auth-landing-server.pid
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:4173/ > /dev/null && break
+            sleep 1
+          done
+          node scripts/visual-check-landing.mjs
+          kill "$(cat /tmp/ai-auth-landing-server.pid)"
+      - name: Upload landing screenshots and visual report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ai-auth-landing-visual
+          path: screenshots/landing/*
+          if-no-files-found: warn
+          retention-days: 14
