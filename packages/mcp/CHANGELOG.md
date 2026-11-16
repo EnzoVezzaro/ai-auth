@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.4 - 2026-11-16
+
+- Publish with semver ranges for the local workspace dependencies, so installing from npm resolves the real packages instead of `file:` paths.
+
 ## 0.3.3 - 2026-11-16
 
 - Add `--provide room`: the agent publishes two read-only tools from its own runtime (`agent.ping`, `agent.self`), so peers can call them while every browser is closed. Opt-in, needs `tools.invoke`.
