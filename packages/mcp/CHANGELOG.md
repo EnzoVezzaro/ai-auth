@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.1 - 2026-11-16
+
+- Fix the published dependencies: 0.2.0 shipped `file:../agent` and `file:../..` links that do not resolve after install. The package now depends on `@enzovezzaro/ai-auth-agent` `^0.1.1` and `@enzovezzaro/ai-auth-wallet` `^0.5.3`.
+
 ## 0.2.0 - 2026-11-15
 
 - Add the `ai-auth-mcp` command: `init`, `whoami`, `preview`, `serve` and `unlink`. Connect input can be an instruction, JSON, a site URL, or a provisional `/.well-known/ai-auth.json` manifest.
