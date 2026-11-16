@@ -3,6 +3,10 @@ import test from "node:test";
 import { webcrypto } from "node:crypto";
 import {
   approvePermissionRequest,
+  createParticipationPolicy,
+  createRevocation,
+  issueExecutionGrant,
+  issueMembership,
   connectAIAuthPopup,
   createAIAuthAgentClient,
   identityFor,
@@ -490,58 +494,47 @@ test("catalog descriptions are truncated and oversized names are rejected", asyn
   );
 });
 
-test(
-  "an oversized input schema does not silence the rest of the catalog",
-  {
-    todo: "BUG: one oversized schema throws while the catalog is built, so no tools are advertised",
-  },
-  async (t) => {
-    const counter = { runs: 0 };
-    // The room becomes ready after mounting: a room that is already ready
-    // makes the mount itself throw (see the leak note in the report).
-    const { connection, popupMessages, dispatch } =
-      await makeVerifiedConnection(["tools.invoke"]);
-    t.after(() => connection.close());
-    const oversized = {
-      type: "object",
-      properties: { blob: { type: "string", description: "x".repeat(5_000) } },
-    };
-    const api = await mountAIAuthInPageAgent({
-      connection,
-      actions: [
-        countAction(counter, { name: "site.big", inputSchema: oversized }),
-        countAction(counter),
-      ],
-      authorize: () => true,
-    });
-    t.after(() => api.close());
-    await dispatch(roomReady(connection, WALLET_SESSION));
-    assert.deepEqual(catalogNames(popupMessages), [["site.count"]]);
-  },
-);
+test("an oversized input schema does not silence the rest of the catalog", async (t) => {
+  const counter = { runs: 0 };
+  // The room becomes ready after mounting: a room that is already ready
+  // makes the mount itself throw (see the leak note in the report).
+  const { connection, popupMessages, dispatch } = await makeVerifiedConnection([
+    "tools.invoke",
+  ]);
+  t.after(() => connection.close());
+  const oversized = {
+    type: "object",
+    properties: { blob: { type: "string", description: "x".repeat(5_000) } },
+  };
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    actions: [
+      countAction(counter, { name: "site.big", inputSchema: oversized }),
+      countAction(counter),
+    ],
+    authorize: () => true,
+  });
+  t.after(() => api.close());
+  await dispatch(roomReady(connection, WALLET_SESSION));
+  assert.deepEqual(catalogNames(popupMessages), [["site.count"]]);
+});
 
-test(
-  "discovered WebMCP tool names peers cannot route are not advertised",
-  {
-    todo: "BUG: discovered tool names skip the wire name rule, so unroutable names are advertised",
-  },
-  async (t) => {
-    const { connection } = await makeVerifiedConnection(["tools.invoke"], {
-      roomSession: WALLET_SESSION,
-    });
-    t.after(() => connection.close());
-    const api = await mountAIAuthInPageAgent({
-      connection,
-      modelContext: {
-        getTools: () => [emptyTool("Site Search")],
-        executeTool: async () => "{}",
-      },
-      authorize: () => true,
-    });
-    t.after(() => api.close());
-    assert.deepEqual(api.tools, []);
-  },
-);
+test("discovered WebMCP tool names peers cannot route are not advertised", async (t) => {
+  const { connection } = await makeVerifiedConnection(["tools.invoke"], {
+    roomSession: WALLET_SESSION,
+  });
+  t.after(() => connection.close());
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    modelContext: {
+      getTools: () => [emptyTool("Site Search")],
+      executeTool: async () => "{}",
+    },
+    authorize: () => true,
+  });
+  t.after(() => api.close());
+  assert.deepEqual(api.tools, []);
+});
 
 test("the agent client drops catalogs above the 32-tool bound", async (t) => {
   const site = await makeWallet("Site wallet");
@@ -571,32 +564,26 @@ test("the agent client refuses requests above the shared-room size limit", async
   assert.equal(sent.length, 0, "nothing is sent for an oversized request");
 });
 
-test(
-  "an oversized tool in a received catalog is dropped instead of thrown",
-  {
-    todo: "BUG: an oversized tool in a received catalog throws out of the room listener",
-  },
-  async (t) => {
-    const site = await makeWallet("Site wallet");
-    const agent = await makeWallet("Agent wallet");
-    const { room, emit } = makeAgentRoom(agent);
-    const client = createAIAuthAgentClient(room);
-    t.after(() => client.close());
-    const oversized = {
-      name: "site.big",
-      description: "Too large.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          blob: { type: "string", description: "x".repeat(5_000) },
-        },
+test("an oversized tool in a received catalog is dropped instead of thrown", async (t) => {
+  const site = await makeWallet("Site wallet");
+  const agent = await makeWallet("Agent wallet");
+  const { room, emit } = makeAgentRoom(agent);
+  const client = createAIAuthAgentClient(room);
+  t.after(() => client.close());
+  const oversized = {
+    name: "site.big",
+    description: "Too large.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        blob: { type: "string", description: "x".repeat(5_000) },
       },
-    };
-    const envelope = await siteCatalog(site, [oversized]);
-    assert.doesNotThrow(() => emit(envelope));
-    assert.equal(client.catalogs.length, 0);
-  },
-);
+    },
+  };
+  const envelope = await siteCatalog(site, [oversized]);
+  assert.doesNotThrow(() => emit(envelope));
+  assert.equal(client.catalogs.length, 0);
+});
 
 test("actions default to not read-only and every action still needs approval", async (t) => {
   const registrations = [];
@@ -660,25 +647,19 @@ test("a throwing approval gate denies the action", async (t) => {
   assert.equal(counter.runs, 0);
 });
 
-test(
-  "registerAIAuthPageActions refuses to run actions without an approval gate",
-  {
-    todo: "BUG: registerAIAuthPageActions runs actions with no human approval when authorize is omitted",
-  },
-  async (t) => {
-    const counter = { runs: 0 };
-    const { connection } = await makeVerifiedConnection(["tools.invoke"]);
-    t.after(() => connection.close());
-    const api = await registerAIAuthPageActions({
+test("registerAIAuthPageActions refuses to run actions without an approval gate", async (t) => {
+  const counter = { runs: 0 };
+  const { connection } = await makeVerifiedConnection(["tools.invoke"]);
+  t.after(() => connection.close());
+  await assert.rejects(
+    registerAIAuthPageActions({
       connection,
       actions: [countAction(counter)],
-    });
-    t.after(() => api.close());
-    const result = await api.execute("site.count");
-    assert.ok(result.error, "an action without approval must not succeed");
-    assert.equal(counter.runs, 0);
-  },
-);
+    }),
+    /authorization gate/u,
+  );
+  assert.equal(counter.runs, 0);
+});
 
 test("a failed action publishes failed and does not leak its error", async (t) => {
   const { connection } = await makeVerifiedConnection(["tools.invoke"]);
@@ -817,61 +798,181 @@ test("an agent timeout cancels the site action, which reports cancelled", async 
   assert.equal(states.includes("completed"), false);
 });
 
-test(
-  "a denied tool call reaches the requesting peer as an error, not a result",
-  {
-    todo: "BUG: denied and failed tool calls are sent as tool-response.result {error}, which the agent client resolves as success",
-  },
-  async (t) => {
-    const { connection, popupMessages, dispatch } =
-      await makeVerifiedConnection(["tools.invoke"], {
-        roomSession: WALLET_SESSION,
-      });
-    t.after(() => connection.close());
-    const peer = await makeWallet("Peer agent");
-    const api = await mountAIAuthInPageAgent({
-      connection,
-      actions: [countAction({ runs: 0 })],
-      authorize: () => false,
-      publishAction: async () => {},
-    });
-    t.after(() => api.close());
-    await dispatch(
-      collaboration(
-        await peerEnvelope(peer, connection, { requestId: "denied-request-1" }),
-      ),
-    );
-    await waitFor(() => responsesIn(popupMessages).length === 1, "a response");
-    const [response] = responsesIn(popupMessages);
-    assert.equal(typeof response.error, "string");
-    assert.equal(response.result, undefined);
-  },
-);
+test("a denied tool call reaches the requesting peer as an error, not a result", async (t) => {
+  const { connection, popupMessages, dispatch } = await makeVerifiedConnection(
+    ["tools.invoke"],
+    {
+      roomSession: WALLET_SESSION,
+    },
+  );
+  t.after(() => connection.close());
+  const peer = await makeWallet("Peer agent");
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    actions: [countAction({ runs: 0 })],
+    authorize: () => false,
+    publishAction: async () => {},
+  });
+  t.after(() => api.close());
+  await dispatch(
+    collaboration(
+      await peerEnvelope(peer, connection, { requestId: "denied-request-1" }),
+    ),
+  );
+  await waitFor(() => responsesIn(popupMessages).length === 1, "a response");
+  const [response] = responsesIn(popupMessages);
+  assert.equal(typeof response.error, "string");
+  assert.equal(response.result, undefined);
+});
 
-test(
-  "aborting while the human decision is pending publishes cancelled",
-  {
-    todo: "BUG: aborting during the approval prompt returns silently without a cancelled event",
-  },
-  async (t) => {
-    const { connection } = await makeVerifiedConnection(["tools.invoke"]);
-    t.after(() => connection.close());
-    const states = [];
-    const api = await mountAIAuthInPageAgent({
-      connection,
-      actions: [countAction({ runs: 0 })],
-      authorize: () => new Promise(() => {}),
-      publishAction: (event) => states.push(event.state),
-    });
-    t.after(() => api.close());
-    const controller = new AbortController();
-    const running = api.execute(
-      "site.count",
-      {},
-      { signal: controller.signal },
+test("aborting while the human decision is pending publishes cancelled", async (t) => {
+  const { connection } = await makeVerifiedConnection(["tools.invoke"]);
+  t.after(() => connection.close());
+  const states = [];
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    actions: [countAction({ runs: 0 })],
+    authorize: () => new Promise(() => {}),
+    publishAction: (event) => states.push(event.state),
+  });
+  t.after(() => api.close());
+  const controller = new AbortController();
+  const running = api.execute("site.count", {}, { signal: controller.signal });
+  controller.abort();
+  await running;
+  assert.deepEqual(states, ["cancelled"]);
+});
+
+const timerCount = () =>
+  process.getActiveResourcesInfo().filter((name) => name === "Timeout").length;
+
+test("an oversized schema with a ready room mounts, leaks no timer, and the process can exit", async (t) => {
+  const before = timerCount();
+  const { connection, popupMessages } = await makeVerifiedConnection(
+    ["tools.invoke"],
+    { roomSession: WALLET_SESSION },
+  );
+  const oversized = {
+    type: "object",
+    properties: { blob: { type: "string", description: "x".repeat(5_000) } },
+  };
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    actions: [
+      countAction({ runs: 0 }, { name: "site.big", inputSchema: oversized }),
+      countAction({ runs: 0 }),
+    ],
+    authorize: () => true,
+  });
+  assert.deepEqual(catalogNames(popupMessages), [["site.count"]]);
+  api.close();
+  connection.close();
+  assert.ok(
+    timerCount() <= before + 1,
+    "closing releases the expiry timer so the event loop can drain",
+  );
+});
+
+// Restricted-room gate: a remote requester needs membership plus a live grant.
+async function gatedWorld(t) {
+  const host = await makeWallet("Site host");
+  const peer = await makeWallet("Peer agent");
+  const policy = createParticipationPolicy({
+    mode: "restricted",
+    trustPolicy: { issuers: [host.publicKey] },
+    origin: SITE_ORIGIN,
+    room: ROOM,
+  });
+  const membership = await issueMembership(host, {
+    subject: peer.id,
+    origin: SITE_ORIGIN,
+    room: ROOM,
+    scopes: ["tools.invoke"],
+  });
+  const grant = await issueExecutionGrant(host, {
+    subject: peer.id,
+    origin: SITE_ORIGIN,
+    room: ROOM,
+    membershipId: membership.id,
+    scopes: ["tools.invoke"],
+    epoch: policy.epoch,
+  });
+  const ctx = await makeVerifiedConnection(["tools.invoke"], {
+    roomSession: WALLET_SESSION,
+  });
+  t.after(() => ctx.connection.close());
+  const counter = { runs: 0 };
+  const api = await mountAIAuthInPageAgent({
+    connection: ctx.connection,
+    actions: [countAction(counter)],
+    authorize: () => true,
+    publishAction: async () => {},
+    policy,
+  });
+  t.after(() => api.close());
+  const call = async (requestId) => {
+    const seen = responsesIn(ctx.popupMessages).length;
+    await ctx.dispatch(
+      collaboration(await peerEnvelope(peer, ctx.connection, { requestId })),
     );
-    controller.abort();
-    await running;
-    assert.deepEqual(states, ["cancelled"]);
-  },
-);
+    await waitFor(
+      () => responsesIn(ctx.popupMessages).length > seen,
+      "a response",
+    );
+    return responsesIn(ctx.popupMessages).at(-1);
+  };
+  return { host, peer, policy, membership, grant, counter, call };
+}
+
+test("a protected tool is refused until membership and a grant exist, and again after revocation", async (t) => {
+  const w = await gatedWorld(t);
+  const stranger = await w.call("request-stranger-1");
+  assert.equal(typeof stranger.error, "string");
+  assert.equal(w.counter.runs, 0);
+
+  assert.equal((await w.policy.admit(w.peer.id, w.membership)).ok, true);
+  const noGrant = await w.call("request-nogrant-1");
+  assert.equal(
+    typeof noGrant.error,
+    "string",
+    "membership alone is not enough",
+  );
+  assert.equal(w.counter.runs, 0);
+
+  assert.equal((await w.policy.admitGrant(w.peer.id, w.grant)).ok, true);
+  const allowed = await w.call("request-allowed-1");
+  assert.equal(allowed.error, undefined);
+  assert.equal(w.counter.runs, 1);
+
+  const revocation = await createRevocation(w.host, {
+    kind: "wallet",
+    target: w.peer.id,
+    origin: SITE_ORIGIN,
+    room: ROOM,
+  });
+  assert.equal((await w.policy.applyRevocation(revocation)).ok, true);
+  const revoked = await w.call("request-revoked-1");
+  assert.equal(typeof revoked.error, "string");
+  assert.equal(w.counter.runs, 1, "the revoked identity cannot invoke");
+});
+
+test("an action marked protected fails closed when no policy is available", async (t) => {
+  const { connection, popupMessages, dispatch } = await makeVerifiedConnection(
+    ["tools.invoke"],
+    { roomSession: WALLET_SESSION },
+  );
+  t.after(() => connection.close());
+  const counter = { runs: 0 };
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    actions: [countAction(counter, { protected: true })],
+    authorize: () => true,
+    publishAction: async () => {},
+  });
+  t.after(() => api.close());
+  const peer = await makeWallet("Peer agent");
+  await dispatch(collaboration(await peerEnvelope(peer, connection)));
+  await waitFor(() => responsesIn(popupMessages).length === 1, "a response");
+  assert.equal(typeof responsesIn(popupMessages)[0].error, "string");
+  assert.equal(counter.runs, 0);
+});

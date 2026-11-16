@@ -1,3 +1,4 @@
+import { authorizeProtected } from "./membership.js";
 import {
   onVerifiedPageConnectionClose,
   readVerifiedPageConnection,
@@ -10,6 +11,7 @@ function actionCapability(type) {
 
 const MAX_REMOTE_TOOL_COUNT = 32;
 const MAX_TOOL_JSON_BYTES = 8_192;
+const TOOL_NAME = /^[a-z][a-z0-9._-]{0,63}$/u;
 const TOOL_EVENT_KINDS = new Set([
   "tool-catalog",
   "tool-request",
@@ -30,6 +32,15 @@ function boundedJson(value, maxBytes = MAX_TOOL_JSON_BYTES) {
   )
     throw new RangeError("Tool data exceeds the shared-room size limit");
   return JSON.parse(serialized);
+}
+
+// A tool whose descriptor cannot be bounded is skipped, never fatal.
+function safeToolDescriptor(action) {
+  try {
+    return toolDescriptor(action);
+  } catch {
+    return null;
+  }
 }
 
 function toolDescriptor(action) {
@@ -78,6 +89,16 @@ function validToolCancel(payload, { walletId, requestNonce, walletSession }) {
   );
 }
 
+function protectedGate(action, requester, policy) {
+  if (!requester) return { allow: true }; // local call, not a remote peer
+  if (!policy && action.protected !== true) return { allow: true };
+  return authorizeProtected({
+    policy,
+    walletId: requester.id,
+    scope: action.requiredCapability,
+  });
+}
+
 function validateAction(action) {
   if (
     !action ||
@@ -104,12 +125,13 @@ export async function registerAIAuthPageActions({
   signal,
   authorize,
   publishAction = async () => {},
+  policy,
 } = {}) {
   if (!Array.isArray(actions))
     throw new TypeError("Page actions must be an array");
-  if (authorize !== undefined && typeof authorize !== "function")
+  if (typeof authorize !== "function")
     throw new TypeError(
-      "The human authorization gate must be an async decision function",
+      "A human authorization gate (an async decision function) is required",
     );
   const verifiedConnection = readVerifiedPageConnection(connection);
   if (!verifiedConnection)
@@ -133,6 +155,7 @@ export async function registerAIAuthPageActions({
               !explicitNames.has(tool?.name) &&
               typeof modelContext.executeTool === "function" &&
               typeof tool?.name === "string" &&
+              TOOL_NAME.test(tool.name) &&
               typeof tool?.description === "string" &&
               tool?.inputSchema?.type === "object" &&
               tool?.inputSchema?.properties &&
@@ -169,6 +192,16 @@ export async function registerAIAuthPageActions({
   const handlers = new Map(
     allowedActions.map((action) => [action.name, action]),
   );
+  // Results created by refusal paths, so callers can tell failure from data.
+  const failures = new WeakSet();
+  const refuse = (error) => {
+    const result = { error };
+    failures.add(result);
+    return result;
+  };
+  // The participation policy may arrive as an option or through the connection.
+  const activePolicy = () =>
+    policy ?? connection?.participation?.policy ?? connection?.policy;
   const controller = new AbortController();
   const abortFromCaller = () => controller.abort(signal?.reason);
   if (signal?.aborted) abortFromCaller();
@@ -187,6 +220,8 @@ export async function registerAIAuthPageActions({
       armExpiry,
       Math.max(1, record.expiresAt - Date.now()),
     );
+    // The timer only watches for expiry; it must never keep a process alive.
+    expiryTimer?.unref?.();
   };
   armExpiry();
   const removeConnectionCloseListener = onVerifiedPageConnectionClose(
@@ -204,6 +239,19 @@ export async function registerAIAuthPageActions({
     controller.abort();
   };
 
+  async function announce(action, state, summary) {
+    try {
+      await publishAction({
+        name: action.name,
+        capability: action.requiredCapability,
+        state,
+        summary,
+      });
+    } catch {
+      // A failed announcement must not leak authorization details.
+    }
+  }
+
   async function execute(
     name,
     input,
@@ -217,7 +265,7 @@ export async function registerAIAuthPageActions({
       !action ||
       !activeConnection?.capabilities.includes(action.requiredCapability)
     )
-      return { error: "This action is not approved for this page" };
+      return refuse("This action is not approved for this page");
     // In-flight executions are tied to this controller so a page close,
     // capability expiry, or caller abort also stops the running action.
     const executionController = new AbortController();
@@ -239,9 +287,20 @@ export async function registerAIAuthPageActions({
       requestId,
       sharedPublicly: Boolean(requester),
     };
+    // Protected gate: a remote requester must hold a live membership and
+    // execution grant. Any missing policy or input denies (fail closed).
+    const gate = protectedGate(action, requester, activePolicy());
+    if (!gate.allow) {
+      await announce(
+        action,
+        "needs-human",
+        `Blocked ${action.name}: not authorized`,
+      );
+      return refuse("This requester is not authorized to run this tool");
+    }
     // Actions start only after an explicit human decision. The site supplies
     // this gate; without a positive decision nothing is announced or run.
-    if (authorize) {
+    {
       let approved = false;
       let removeAbortListener = () => {};
       try {
@@ -268,8 +327,10 @@ export async function registerAIAuthPageActions({
       } finally {
         removeAbortListener();
       }
-      if (executionController.signal.aborted)
-        return { error: "This action was stopped before it began" };
+      if (executionController.signal.aborted) {
+        await announce(action, "cancelled", `Stopped ${action.name}`);
+        return refuse("This action was stopped before it began");
+      }
       if (!approved) {
         try {
           await publishAction({
@@ -281,11 +342,11 @@ export async function registerAIAuthPageActions({
         } catch {
           // A failed announcement must not leak authorization details.
         }
-        return { error: "This action needs explicit human approval" };
+        return refuse("This action needs explicit human approval");
       }
     }
     if (executionController.signal.aborted || registrationSignal.aborted)
-      return { error: "This action was stopped before it began" };
+      return refuse("This action was stopped before it began");
     const event = {
       name: action.name,
       capability: action.requiredCapability,
@@ -301,7 +362,7 @@ export async function registerAIAuthPageActions({
         executionController.signal.aborted ||
         !stillAuthorized?.capabilities.includes(action.requiredCapability)
       )
-        return { error: "This action is not approved for this page" };
+        return refuse("This action is not approved for this page");
       const result = await action.execute(input ?? {}, executionContext);
       if (executionController.signal.aborted) {
         await publishAction({
@@ -309,7 +370,7 @@ export async function registerAIAuthPageActions({
           state: "cancelled",
           summary: `Stopped ${action.name}`,
         });
-        return { error: "The site action was stopped" };
+        return refuse("The site action was stopped");
       }
       await publishAction({
         ...event,
@@ -329,11 +390,11 @@ export async function registerAIAuthPageActions({
       } catch {
         // Page event transport errors may contain secrets; keep them out of tool results.
       }
-      return {
-        error: executionController.signal.aborted
+      return refuse(
+        executionController.signal.aborted
           ? "The site action was stopped"
           : "This page action failed. Check the site for details.",
-      };
+      );
     } finally {
       for (const [source, abort] of abortFollowers)
         source.removeEventListener("abort", abort);
@@ -373,6 +434,8 @@ export async function registerAIAuthPageActions({
     tools: Object.freeze(allowedActions.map(({ name }) => name)),
     actionsByName: handlers,
     execute,
+    isFailure: (result) =>
+      result !== null && typeof result === "object" && failures.has(result),
     close,
   });
 }
@@ -393,6 +456,7 @@ export async function mountAIAuthInPageAgent({
   signal,
   authorize,
   publishAction,
+  policy,
 } = {}) {
   if (typeof authorize !== "function")
     throw new TypeError(
@@ -404,6 +468,7 @@ export async function mountAIAuthInPageAgent({
     modelContext,
     signal,
     authorize,
+    policy,
     publishAction:
       publishAction ??
       (async (event) => {
@@ -416,6 +481,22 @@ export async function mountAIAuthInPageAgent({
         });
       }),
   });
+  try {
+    return wireAgentBridge(api, connection);
+  } catch (error) {
+    // Never leak the registration (and its expiry timer) when wiring fails.
+    api.close();
+    throw error;
+  }
+}
+
+function wireAgentBridge(api, connection) {
+  // Only tools with a bounded descriptor are advertised or callable by peers.
+  const advertised = new Map();
+  for (const name of api.tools) {
+    const descriptor = safeToolDescriptor(allowedActionByName(api, name));
+    if (descriptor) advertised.set(name, descriptor);
+  }
   const processedRequestIds = new Map();
   const runningRequests = new Map();
   const stopEvents = connection.onEvent((envelope) => {
@@ -445,7 +526,7 @@ export async function mountAIAuthInPageAgent({
       })
     )
       return;
-    if (!api.tools.includes(payload.name)) return;
+    if (!advertised.has(payload.name)) return;
     for (const [requestId, expiresAt] of processedRequestIds)
       if (expiresAt <= Date.now()) processedRequestIds.delete(requestId);
     if (processedRequestIds.has(payload.requestId)) return;
@@ -469,7 +550,10 @@ export async function mountAIAuthInPageAgent({
           requestId: payload.requestId,
           toWallet: envelope.body.issuer,
           toSession: envelope.body.payload.session,
-          result: boundedJson(result),
+          // Denials and failures are errors, never successful results.
+          ...(api.isFailure(result)
+            ? { error: String(result.error).slice(0, 240) }
+            : { result: boundedJson(result) }),
         }),
       )
       .catch(() =>
@@ -491,9 +575,7 @@ export async function mountAIAuthInPageAgent({
       return;
     connection.publishAgentEvent({
       kind: "tool-catalog",
-      tools: api.tools.map((name) =>
-        toolDescriptor(allowedActionByName(api, name)),
-      ),
+      tools: [...advertised.values()],
     });
   };
   const stopRoomReady = connection.onRoomReady(publishCatalog);
@@ -521,6 +603,20 @@ export async function mountAIAuthInPageAgent({
 
 function allowedActionByName(api, name) {
   return api.actionsByName?.get(name);
+}
+
+// Keep only well-formed, bounded tools; one bad tool never drops the rest.
+function boundedCatalogTools(tools) {
+  const kept = [];
+  for (const tool of tools) {
+    if (typeof tool?.name !== "string" || !TOOL_NAME.test(tool.name)) continue;
+    try {
+      kept.push(boundedJson(tool, 4_096));
+    } catch {
+      // Oversized or non-serializable tool: skip it.
+    }
+  }
+  return kept;
 }
 
 /**
@@ -566,14 +662,15 @@ export function createAIAuthAgentClient(room, { timeoutMs = 30_000 } = {}) {
         if (existing.expiresAt <= Date.now()) catalogs.delete(catalogKey);
       if (catalogs.size >= 128 && !catalogs.has(key))
         catalogs.delete(catalogs.keys().next().value);
+      const tools = boundedCatalogTools(payload.tools);
+      // Every tool was invalid or oversized: there is nothing safe to keep.
+      if (payload.tools.length > 0 && tools.length === 0) return;
       const catalog = Object.freeze({
         wallet: envelope.body.issuer,
         session: payload.session,
         requestNonce: payload.targetNonce,
         expiresAt: payload.expiresAt,
-        tools: Object.freeze(
-          payload.tools.map((tool) => boundedJson(tool, 4_096)),
-        ),
+        tools: Object.freeze(tools),
       });
       catalogs.set(key, catalog);
       for (const listener of listeners) {

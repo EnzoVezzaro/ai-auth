@@ -451,6 +451,8 @@ export interface AIAuthPageAction {
   inputSchema: Record<string, unknown> & { type: "object"; properties: object };
   requiredCapability: "tools.invoke";
   readOnly?: boolean;
+  /** When true, a remote requester always needs a participation policy that authorizes it. */
+  protected?: boolean;
   execute(
     input: unknown,
     context: {
@@ -493,11 +495,14 @@ export function registerAIAuthPageActions(options: {
     ) => Promise<unknown>;
   };
   signal?: AbortSignal;
-  authorize?: (
+  /** Required: the human decision gate. Registration throws without it. */
+  authorize: (
     action: AIAuthPageAction,
     input: unknown,
     context: AIAuthPageActionContext,
   ) => Promise<boolean | void> | boolean | void;
+  /** Participation policy used to gate remote requesters (see `authorizeProtected`). */
+  policy?: { inspect(walletId: string, now?: number): unknown };
   publishAction?: (event: {
     name: string;
     capability: string;
@@ -506,6 +511,8 @@ export function registerAIAuthPageActions(options: {
   }) => Promise<void> | void;
 }): Promise<{
   webMcpAvailable: boolean;
+  /** True for results created by a refusal (denied, stopped, failed). */
+  isFailure(result: unknown): boolean;
   tools: readonly string[];
   actionsByName: ReadonlyMap<string, AIAuthPageAction>;
   execute(
@@ -536,6 +543,8 @@ export function mountAIAuthInPageAgent(options: {
     input: unknown,
     context: AIAuthPageActionContext,
   ) => Promise<boolean | void> | boolean | void;
+  /** Participation policy used to gate remote requesters (see `authorizeProtected`). */
+  policy?: { inspect(walletId: string, now?: number): unknown };
   publishAction?: (event: {
     name: string;
     capability: string;
@@ -805,3 +814,24 @@ export class CollaborationTransfers {
     size: number;
   }>;
 }
+export {
+  CURSOR_TYPE,
+  CURSOR_VERSION,
+  createPresenceTracker,
+  buildCursorPayload,
+  parseCursorPayload,
+  validateCursor,
+} from "./presence.js";
+export type {
+  PresencePeer,
+  PresenceTracker,
+  VirtualCursor,
+} from "./presence.js";
+export {
+  DISCOVERY_PATH,
+  DISCOVERY_TYPE,
+  DISCOVERY_VERSION,
+  fetchDiscovery,
+  validateDiscovery,
+} from "./discovery.js";
+export type { DiscoveryDocument, DiscoveryResult } from "./discovery.js";
