@@ -17,6 +17,8 @@ const PUBLIC_WARNING =
   "Everyone in this public room can see and save what you send.";
 const TARGET_WARNING = (fp) =>
   `Addressed to ${fp} only. Other connected peers' apps are told to ignore it, but this is not encryption.`;
+const TOUCH_PICKING_REASON =
+  "Picking an element needs a mouse or keyboard, so it is unavailable on touch screens.";
 const SWEEP_MS = 5000;
 
 const STATE_LABEL = {
@@ -51,6 +53,7 @@ class Wheel {
     this.doc = target.ownerDocument;
     this.win = this.doc.defaultView;
     this.ui = createShell(this.doc, target);
+    this.pickerInstructions = this.ui.pickerText.textContent;
     this.capture = createMediaCapture(this.win, this.doc);
     this.ledger = createDeliveryLedger();
     this.selfId = options.room?.wallet?.id;
@@ -266,6 +269,14 @@ class Wheel {
     const { ui } = this;
     const busy = this.capture.isRecording();
     const why = (own) => own || block;
+    // A coarse pointer has no Tab/Enter/Escape, so the picker instructions
+    // would be a dead end. Explain that up front and block the action.
+    const coarsePointer = Boolean(
+      this.win?.matchMedia?.("(pointer: coarse)")?.matches,
+    );
+    ui.pickerText.textContent = coarsePointer
+      ? TOUCH_PICKING_REASON
+      : this.pickerInstructions;
     ui.input.disabled = Boolean(caps.message) || Boolean(block);
     ui.send.disabled = ui.input.disabled;
     const reasons = new Set(
@@ -273,8 +284,8 @@ class Wheel {
     );
     this.setDisabled(
       ui.action("element"),
-      Boolean(why(caps.share)),
-      why(caps.share),
+      Boolean(why(caps.share)) || coarsePointer,
+      coarsePointer ? TOUCH_PICKING_REASON : why(caps.share),
     );
     this.setDisabled(
       ui.action("screenshot"),
