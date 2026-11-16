@@ -9,16 +9,37 @@ import {
 
 const ROOM_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,99}$/u;
 const INBOUND_WINDOW_MS = 10_000;
-const MAX_INBOUND_EVENTS_PER_SOURCE_WINDOW = 32;
-const MAX_INBOUND_EVENTS_PER_PEER_WINDOW = 8;
-const MAX_INBOUND_EVENTS_PER_IDENTITY_WINDOW = 32;
+// Content (messages, actions, receipts, tool traffic) per 10 s. A host serving
+// several agents sends bursts of action updates and receipts; at 32, valid
+// events were dropped in the BODY4AI browser suite. The room cap still bounds
+// all content together.
+const MAX_INBOUND_EVENTS_PER_SOURCE_WINDOW = 64;
+const MAX_INBOUND_EVENTS_PER_PEER_WINDOW = 64;
+const MAX_INBOUND_EVENTS_PER_IDENTITY_WINDOW = 64;
 const MAX_INBOUND_EVENTS_PER_ROOM_WINDOW = 256;
+// Presence (heartbeats, hello, goodbye, cursors) has its own budget, so a
+// cursor stream cannot starve chat, actions, or receipts from the same peer.
+const MAX_PRESENCE_EVENTS_PER_SOURCE_WINDOW = 32;
+const MAX_PRESENCE_EVENTS_PER_PEER_WINDOW = 24;
+const MAX_PRESENCE_EVENTS_PER_IDENTITY_WINDOW = 32;
+const MAX_PRESENCE_EVENTS_PER_ROOM_WINDOW = 512;
+const PRESENCE_BUDGET_TYPES = new Set([
+  "peer/hello",
+  "peer/heartbeat",
+  "peer/goodbye",
+  "presence/cursor",
+]);
 const MAX_ATTACHED_PEERS = 16;
 const MAX_CHANNELS_PER_PEER = 4;
 const TRYSTERO_APP_ID = "ai-auth-wallet-v1";
 const TRYSTERO_ACTION = "ai-auth-signed-v1";
 const MAX_TRYSTERO_EVENT_BYTES = 64_000;
 const MAX_QUEUED_OUTBOUND_EVENTS = 128;
+// Trystero's broadcast silently skips a peer whose channel is not open at that
+// instant. Each send therefore targets one peer, and a peer that was not open
+// is retried until it reopens or the signed envelope expires.
+const DEFAULT_DELIVERY_RETRY_MS = 500;
+const MAX_PENDING_DELIVERIES = 512;
 const PRESENCE_ONLY_TYPES = new Set([
   "peer/hello",
   "peer/heartbeat",
@@ -92,7 +113,10 @@ export class P2PRoom {
     this.seen = new Map();
     this.inboundWindows = new WeakMap();
     this.inboundIssuerWindows = new Map();
+    this.inboundPresenceWindows = new WeakMap();
+    this.inboundPresenceIssuerWindows = new Map();
     this.inboundRoomWindow = null;
+    this.inboundPresenceRoomWindow = null;
     this.peerChannels = new Map();
     this.channelSources = new Map();
     this.peerConnectionWindow = null;
@@ -279,7 +303,10 @@ export class P2PRoom {
   }
 
   async receive(envelope, source = this.localInboundSource) {
-    if (!this.allowInbound(source)) return false;
+    const budget = PRESENCE_BUDGET_TYPES.has(envelope?.body?.type)
+      ? "presence"
+      : "content";
+    if (!this.allowInbound(source, Date.now(), budget)) return false;
     if (
       this.closed ||
       envelope?.body?.payload?.room !== this.room ||
@@ -322,9 +349,10 @@ export class P2PRoom {
     if (this.seen.has(replayKey) || this.seen.size >= MAX_SEEN_EVENTS)
       return false;
     const now = Date.now();
-    if (!this.canRoomInbound(now)) return false;
-    if (!this.allowIssuerInbound(envelope.body.issuer)) return false;
-    this.allowRoomInbound(now);
+    if (!this.canRoomInbound(now, budget)) return false;
+    if (!this.allowIssuerInbound(envelope.body.issuer, now, budget))
+      return false;
+    this.allowRoomInbound(now, budget);
     this.seen.set(replayKey, payload.expiresAt);
     const peerKey = `${envelope.body.issuer}:${payload.session}`;
     if (envelope.body.type === "peer/goodbye") this.peers.delete(peerKey);
@@ -353,57 +381,82 @@ export class P2PRoom {
       if (expiresAt <= now) this.seen.delete(key);
   }
 
-  allowInbound(source, now = Date.now()) {
+  allowInbound(source, now = Date.now(), budget = "content") {
     const peer = this.channelSources.get(source) ?? source;
-    const window = this.inboundWindows.get(peer);
+    const presence = budget === "presence";
+    const windows = presence
+      ? this.inboundPresenceWindows
+      : this.inboundWindows;
+    const window = windows.get(peer);
     if (!window || now - window.startedAt >= INBOUND_WINDOW_MS) {
-      this.inboundWindows.set(peer, { startedAt: now, count: 1 });
+      windows.set(peer, { startedAt: now, count: 1 });
       return true;
     }
-    const limit = this.peerChannels.has(peer)
-      ? MAX_INBOUND_EVENTS_PER_PEER_WINDOW
-      : MAX_INBOUND_EVENTS_PER_SOURCE_WINDOW;
+    const onChannel = this.peerChannels.has(peer);
+    const limit = presence
+      ? onChannel
+        ? MAX_PRESENCE_EVENTS_PER_PEER_WINDOW
+        : MAX_PRESENCE_EVENTS_PER_SOURCE_WINDOW
+      : onChannel
+        ? MAX_INBOUND_EVENTS_PER_PEER_WINDOW
+        : MAX_INBOUND_EVENTS_PER_SOURCE_WINDOW;
     if (window.count >= limit) return false;
     window.count += 1;
     return true;
   }
 
-  allowIssuerInbound(issuer, now = Date.now()) {
-    for (const [key, window] of this.inboundIssuerWindows) {
+  allowIssuerInbound(issuer, now = Date.now(), budget = "content") {
+    const presence = budget === "presence";
+    const windows = presence
+      ? this.inboundPresenceIssuerWindows
+      : this.inboundIssuerWindows;
+    const limit = presence
+      ? MAX_PRESENCE_EVENTS_PER_IDENTITY_WINDOW
+      : MAX_INBOUND_EVENTS_PER_IDENTITY_WINDOW;
+    for (const [key, window] of windows) {
       if (now - window.startedAt < INBOUND_WINDOW_MS) break;
-      this.inboundIssuerWindows.delete(key);
+      windows.delete(key);
     }
-    const window = this.inboundIssuerWindows.get(issuer);
+    const window = windows.get(issuer);
     if (!window || now - window.startedAt >= INBOUND_WINDOW_MS) {
-      this.inboundIssuerWindows.delete(issuer);
-      this.inboundIssuerWindows.set(issuer, { startedAt: now, count: 1 });
+      windows.delete(issuer);
+      windows.set(issuer, { startedAt: now, count: 1 });
       return true;
     }
-    if (window.count >= MAX_INBOUND_EVENTS_PER_IDENTITY_WINDOW) return false;
+    if (window.count >= limit) return false;
     window.count += 1;
     return true;
   }
 
-  allowRoomInbound(now = Date.now()) {
-    if (!this.canRoomInbound(now)) return false;
-    if (
-      !this.inboundRoomWindow ||
-      now - this.inboundRoomWindow.startedAt >= INBOUND_WINDOW_MS
-    ) {
-      this.inboundRoomWindow = { startedAt: now, count: 1 };
+  allowRoomInbound(now = Date.now(), budget = "content") {
+    if (!this.canRoomInbound(now, budget)) return false;
+    const presence = budget === "presence";
+    const key = presence ? "inboundPresenceRoomWindow" : "inboundRoomWindow";
+    const limit = presence
+      ? MAX_PRESENCE_EVENTS_PER_ROOM_WINDOW
+      : MAX_INBOUND_EVENTS_PER_ROOM_WINDOW;
+    const window = this[key];
+    if (!window || now - window.startedAt >= INBOUND_WINDOW_MS) {
+      this[key] = { startedAt: now, count: 1 };
       return true;
     }
-    if (this.inboundRoomWindow.count >= MAX_INBOUND_EVENTS_PER_ROOM_WINDOW)
-      return false;
-    this.inboundRoomWindow.count += 1;
+    if (window.count >= limit) return false;
+    window.count += 1;
     return true;
   }
 
-  canRoomInbound(now = Date.now()) {
+  canRoomInbound(now = Date.now(), budget = "content") {
+    const presence = budget === "presence";
+    const window = presence
+      ? this.inboundPresenceRoomWindow
+      : this.inboundRoomWindow;
+    const limit = presence
+      ? MAX_PRESENCE_EVENTS_PER_ROOM_WINDOW
+      : MAX_INBOUND_EVENTS_PER_ROOM_WINDOW;
     return (
-      !this.inboundRoomWindow ||
-      now - this.inboundRoomWindow.startedAt >= INBOUND_WINDOW_MS ||
-      this.inboundRoomWindow.count < MAX_INBOUND_EVENTS_PER_ROOM_WINDOW
+      !window ||
+      now - window.startedAt >= INBOUND_WINDOW_MS ||
+      window.count < limit
     );
   }
 
@@ -576,6 +629,7 @@ export class NostrWebRTC {
       onStatus = () => {},
       onDiagnostic = () => {},
       joinRoom: joinRoomOverride,
+      retryMs = DEFAULT_DELIVERY_RETRY_MS,
     } = {},
   ) {
     if (!coreRoom || typeof coreRoom.receive !== "function")
@@ -587,9 +641,13 @@ export class NostrWebRTC {
     this.onStatus = onStatus;
     this.onDiagnostic = onDiagnostic;
     this.joinRoomOverride = joinRoomOverride;
+    this.retryMs = retryMs;
     this.peerSources = new Map();
     this.directPeers = new Set();
     this.outbox = [];
+    // { envelope, peerId, expiresAt } for each peer a send did not reach.
+    this.pendingDeliveries = [];
+    this.retryTimer = null;
     this.flushingOutbox = false;
     this.closed = false;
     this.lifecycle = createConnectionState();
@@ -691,6 +749,7 @@ export class NostrWebRTC {
         this.coreRoom.directPeerCount = this.directPeers.size;
         this.onStatus("Connected to agent peers");
         void this.flushOutbox();
+        this.flushDeliveries(peerId);
         if (this.coreRoom.privateMode)
           void this.coreRoom
             .proveMembership()
@@ -736,16 +795,58 @@ export class NostrWebRTC {
     );
   }
 
+  // One send per recipient. Trystero's broadcast skips any peer whose channel
+  // is not open at that instant, so a peer could miss an event with no error.
+  // An explicit target throws instead, which lets the missed peer be retried.
   deliver(envelope, to) {
-    const targets = this.targetsFor(envelope, to);
-    // Trystero's action.send takes `(data, { target })`. Passing the peer list
-    // positionally is ignored and broadcasts, which would leak restricted
-    // events to wallets that hold no membership.
-    return targets === undefined
-      ? this.sendAction(envelope)
-      : targets.length
-        ? this.sendAction(envelope, { target: targets })
-        : null;
+    const targets = this.targetsFor(envelope, to) ?? [...this.directPeers];
+    return Promise.all(
+      targets.map((peerId) => this.deliverToPeer(envelope, peerId)),
+    );
+  }
+
+  deliverToPeer(envelope, peerId) {
+    return Promise.resolve()
+      .then(() => this.sendAction(envelope, { target: [peerId] }))
+      .catch(() => this.queueDelivery(envelope, peerId));
+  }
+
+  queueDelivery(envelope, peerId) {
+    const expiresAt = envelope?.body?.payload?.expiresAt;
+    if (this.closed || !Number.isFinite(expiresAt) || expiresAt <= Date.now())
+      return;
+    if (this.pendingDeliveries.length >= MAX_PENDING_DELIVERIES) return;
+    this.pendingDeliveries.push({ envelope, peerId, expiresAt });
+    this.scheduleDeliveryRetry();
+  }
+
+  scheduleDeliveryRetry() {
+    if (this.retryTimer || this.closed || this.pendingDeliveries.length === 0)
+      return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.flushDeliveries();
+    }, this.retryMs);
+  }
+
+  // Retries the missed sends whose peer is connected again, and drops events
+  // past their expiry. A peer that is still absent keeps its entry.
+  flushDeliveries(onlyPeerId) {
+    if (this.closed) return;
+    const now = Date.now();
+    const attempts = [];
+    const remaining = [];
+    for (const item of this.pendingDeliveries) {
+      if (item.expiresAt <= now) continue;
+      const due =
+        (onlyPeerId === undefined || item.peerId === onlyPeerId) &&
+        this.directPeers.has(item.peerId);
+      (due ? attempts : remaining).push(item);
+    }
+    this.pendingDeliveries = remaining;
+    for (const { envelope, peerId } of attempts)
+      void this.deliverToPeer(envelope, peerId);
+    this.scheduleDeliveryRetry();
   }
 
   forward(envelope, to) {
@@ -858,6 +959,9 @@ export class NostrWebRTC {
     this.directPeers.clear();
     this.coreRoom.directPeerCount = 0;
     this.outbox.length = 0;
+    clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    this.pendingDeliveries.length = 0;
     await this.transport?.leave();
     this.onStatus("Collaboration is off");
   }

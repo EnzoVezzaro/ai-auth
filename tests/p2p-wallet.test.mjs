@@ -389,7 +389,7 @@ test("P2P rooms rate-limit a signed identity across multiple inbound sources", a
       text: "rate limit",
     });
   const sources = Array.from({ length: 4 }, () => ({}));
-  for (let index = 0; index < 32; index += 1) {
+  for (let index = 0; index < 64; index += 1) {
     const envelope = await event(randomNonce());
     assert.equal(
       await room.receive(envelope, sources[index % sources.length]),
@@ -397,7 +397,7 @@ test("P2P rooms rate-limit a signed identity across multiple inbound sources", a
     );
   }
   assert.equal(await room.receive(await event(randomNonce()), {}), false);
-  assert.equal(room.seen.size, 32);
+  assert.equal(room.seen.size, 64);
   await room.close();
 });
 
@@ -419,33 +419,25 @@ test("P2P rooms cap aggregate verified traffic across self-created identities", 
       expiresAt: Date.now() + 60_000,
       text: "room budget",
     });
-  for (let senderIndex = 0; senderIndex < senders.length; senderIndex += 1) {
-    const firstMessage = senderIndex === 1 ? 1 : 0;
-    for (let message = firstMessage; message < 32; message += 1) {
-      const source = sources[senderIndex];
+  // Four identities at their per-identity cap fill the room's 256 events.
+  for (let senderIndex = 0; senderIndex < 4; senderIndex += 1)
+    for (let message = 0; message < 64; message += 1)
       assert.equal(
         await room.receive(
           await event(senders[senderIndex], randomNonce()),
-          source,
+          sources[senderIndex],
         ),
         true,
       );
-    }
-    if (senderIndex === 0) {
-      assert.equal(
-        await room.receive(await event(senders[0], randomNonce()), sources[0]),
-        false,
-      );
-      assert.equal(
-        await room.receive(await event(senders[1], randomNonce()), sources[1]),
-        true,
-      );
-    }
-  }
-  assert.equal(
-    await room.receive(await event(senders[0], randomNonce()), sources[0]),
-    false,
-  );
+  // A fifth and later identity is refused by the room-wide cap.
+  for (let senderIndex = 4; senderIndex < senders.length; senderIndex += 1)
+    assert.equal(
+      await room.receive(
+        await event(senders[senderIndex], randomNonce()),
+        sources[senderIndex],
+      ),
+      false,
+    );
   assert.equal(room.seen.size, 256);
   await room.close();
 });
@@ -475,7 +467,7 @@ test("direct peer channels and verification attempts have room limits", async ()
   );
   assert.equal(extraChannelClosed, true);
 
-  for (let index = 0; index < 8; index += 1)
+  for (let index = 0; index < 64; index += 1)
     assert.equal(room.allowInbound(source), true);
   assert.equal(room.allowInbound(source), false);
 

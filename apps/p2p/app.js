@@ -1104,21 +1104,34 @@ async function handleExternalSiteEvent(data) {
         agentEvent.toSession.length > 100
       )
         return;
-      await state.room.send("agent/action", {
-        kind: "tool-response",
-        requestId: agentEvent.requestId,
-        toWallet: agentEvent.toWallet,
-        toSession: agentEvent.toSession,
-        ...(Object.hasOwn(agentEvent, "result")
-          ? { result: agentEvent.result }
-          : {}),
-        ...(typeof agentEvent.error === "string"
-          ? { error: agentEvent.error.slice(0, 240) }
-          : {}),
-        targetWallet: state.wallet.id,
-        targetNonce: state.externalRequest.nonce,
-        targetSession: state.room.session,
-      });
+      try {
+        // Addressed to the requester only, so other agents in the room do not
+        // spend their inbound budget on a response that is not theirs.
+        await state.room.send(
+          "agent/action",
+          {
+            kind: "tool-response",
+            requestId: agentEvent.requestId,
+            toWallet: agentEvent.toWallet,
+            toSession: agentEvent.toSession,
+            ...(Object.hasOwn(agentEvent, "result")
+              ? { result: agentEvent.result }
+              : {}),
+            ...(typeof agentEvent.error === "string"
+              ? { error: agentEvent.error.slice(0, 240) }
+              : {}),
+            targetWallet: state.wallet.id,
+            targetNonce: state.externalRequest.nonce,
+            targetSession: state.room.session,
+          },
+          { to: agentEvent.toWallet },
+        );
+      } catch (error) {
+        // The requester is not a verified member of this room, so there is
+        // nobody to deliver the response to.
+        debug("tool-response-not-delivered", error?.message ?? "");
+        return;
+      }
       debug("wallet-signed-tool-response", agentEvent.requestId);
     }
   }

@@ -805,13 +805,17 @@ export function createAIAuthAgentClient(room, { timeoutMs = 30_000 } = {}) {
           if (!request.sent || request.cancelSent) return;
           request.cancelSent = true;
           try {
-            await room.send("agent/action", {
-              kind: "tool-cancel",
-              requestId,
-              targetWallet: catalog.wallet,
-              targetSession: catalog.session,
-              targetNonce: catalog.requestNonce,
-            });
+            await room.send(
+              "agent/action",
+              {
+                kind: "tool-cancel",
+                requestId,
+                targetWallet: catalog.wallet,
+                targetSession: catalog.session,
+                targetNonce: catalog.requestNonce,
+              },
+              { to: catalog.wallet },
+            );
           } catch {
             // The cancellation has already rejected the local call. If the
             // peer is unreachable, its page connection expiry still stops it.
@@ -834,15 +838,19 @@ export function createAIAuthAgentClient(room, { timeoutMs = 30_000 } = {}) {
         pending.set(requestId, request);
         signal?.addEventListener("abort", request.abortHandler, { once: true });
         void room
-          .send("agent/action", {
-            kind: "tool-request",
-            requestId,
-            name,
-            input: safeInput,
-            targetWallet: catalog.wallet,
-            targetSession: catalog.session,
-            targetNonce: catalog.requestNonce,
-          })
+          .send(
+            "agent/action",
+            {
+              kind: "tool-request",
+              requestId,
+              name,
+              input: safeInput,
+              targetWallet: catalog.wallet,
+              targetSession: catalog.session,
+              targetNonce: catalog.requestNonce,
+            },
+            { to: catalog.wallet },
+          )
           .then(() => {
             request.sent = true;
             if (request.cancelled) void request.cancelRemote();
