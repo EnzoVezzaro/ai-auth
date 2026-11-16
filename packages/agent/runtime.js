@@ -330,6 +330,15 @@ export function createAgentRuntime(options = {}) {
       send: (type, payload, sendOptions) =>
         api.send(type, payload, sendOptions),
       subscribe: (fn) => api.onEvent(fn),
+      // Live room presence, so the client can tell when a site has left.
+      get peers() {
+        return {
+          values: () =>
+            [...registry.values()].filter(
+              (peer) => now() <= peer.seenAt + leaseMs,
+            ),
+        };
+      },
     }),
     capabilities: caps,
     descriptor: meta,

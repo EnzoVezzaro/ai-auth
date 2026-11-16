@@ -624,7 +624,16 @@ function boundedCatalogTools(tools) {
  * Catalogs, requests, and results are broadcast to the public room; do not
  * send private page data through this API.
  */
-export function createAIAuthAgentClient(room, { timeoutMs = 30_000 } = {}) {
+export function createAIAuthAgentClient(
+  room,
+  {
+    timeoutMs = 30_000,
+    // A site whose presence has been gone this long is no longer connected:
+    // its catalogs are dropped and calls to it fail at once.
+    absentGraceMs = 10_000,
+    presenceCheckMs = 4_000,
+  } = {},
+) {
   if (
     !room ||
     typeof room.send !== "function" ||
@@ -634,10 +643,45 @@ export function createAIAuthAgentClient(room, { timeoutMs = 30_000 } = {}) {
   )
     throw new TypeError("An authenticated AI Auth P2P room is required");
   const catalogs = new Map();
+  const seenAt = new Map();
   const pending = new Map();
   const listeners = new Set();
   let closed = false;
+  // Only sites this room has actually seen in its presence list can go absent.
+  // A room that tracks no presence for a site (for example private presence)
+  // keeps that site's catalog, as before.
+  const presentWallets = new Set();
+  const sitePresent = (wallet) => {
+    const peers = room.peers;
+    if (!peers || typeof peers.values !== "function") return true;
+    for (const peer of peers.values())
+      if (peer?.id === wallet) {
+        presentWallets.add(wallet);
+        return true;
+      }
+    return false;
+  };
+  const goneAfterPresence = (wallet) =>
+    presentWallets.has(wallet) && !sitePresent(wallet);
+  const pruneAbsentSites = () => {
+    if (closed) return;
+    const now = Date.now();
+    for (const [key, catalog] of catalogs) {
+      if (sitePresent(catalog.wallet)) {
+        seenAt.set(key, now);
+      } else if (
+        goneAfterPresence(catalog.wallet) &&
+        now - (seenAt.get(key) ?? now) > absentGraceMs
+      ) {
+        catalogs.delete(key);
+        seenAt.delete(key);
+      }
+    }
+  };
+  const presenceTimer = setInterval(pruneAbsentSites, presenceCheckMs);
+  presenceTimer.unref?.();
   const unsubscribe = room.subscribe(({ direction, envelope }) => {
+    pruneAbsentSites();
     if (closed || direction !== "in" || envelope?.body?.type !== "agent/action")
       return;
     const payload = envelope.body.payload;
@@ -672,7 +716,10 @@ export function createAIAuthAgentClient(room, { timeoutMs = 30_000 } = {}) {
         expiresAt: payload.expiresAt,
         tools: Object.freeze(tools),
       });
+      // The site announced itself: note its presence before any later absence.
+      sitePresent(catalog.wallet);
       catalogs.set(key, catalog);
+      seenAt.set(key, Date.now());
       for (const listener of listeners) {
         try {
           listener(catalog);
@@ -777,6 +824,15 @@ export function createAIAuthAgentClient(room, { timeoutMs = 30_000 } = {}) {
         throw new TypeError("The target site tool catalog is not active");
       if (!catalog.tools.some((tool) => tool.name === name))
         throw new TypeError("The tool is not advertised by this site");
+      if (
+        goneAfterPresence(catalog.wallet) &&
+        Date.now() -
+          (seenAt.get(
+            [catalog.wallet, catalog.session, catalog.requestNonce].join(":"),
+          ) ?? 0) >
+          absentGraceMs
+      )
+        throw new Error("The site is no longer connected to this room");
       if (catalog.expiresAt <= Date.now())
         throw new TypeError("The target site tool catalog has expired");
       if (signal?.aborted)
@@ -867,8 +923,10 @@ export function createAIAuthAgentClient(room, { timeoutMs = 30_000 } = {}) {
     close() {
       if (closed) return;
       closed = true;
+      clearInterval(presenceTimer);
       unsubscribe();
       catalogs.clear();
+      seenAt.clear();
       listeners.clear();
       for (const request of pending.values()) {
         clearTimeout(request.timer);
