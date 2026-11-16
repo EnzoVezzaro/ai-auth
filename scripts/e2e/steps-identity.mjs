@@ -94,7 +94,7 @@ export async function step3(w, evidence) {
     "grant is longer than the 2 minute handshake",
   );
   assert.match(
-    await probe.page.locator("#session-countdown").innerText(),
+    await probe.page.locator("#session-expiry").innerText(),
     /Session ends at/u,
   );
   const setOffset = (ms) =>

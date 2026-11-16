@@ -71,7 +71,7 @@ export async function step4(w, evidence) {
   assert.equal(snap.directPeerCount, 3);
   assert.equal(
     await ha.page
-      .locator("[data-ai-auth-connect-panel]")
+      .locator("#agent-connect-panel .connect-panel")
       .getAttribute("data-status"),
     "connected",
   );

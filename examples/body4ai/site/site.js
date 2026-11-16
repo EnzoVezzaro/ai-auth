@@ -475,7 +475,8 @@ function snapshot() {
     if (peer.id !== state.wallet.id) peers.set(peer.id, peer.session);
   return {
     walletId: state.wallet?.id ?? null,
-    status: net?.status ?? "idle",
+    // After a close the transport is gone; report the same state the panel shows.
+    status: net?.status ?? (state.closeReason ? "disconnected" : "idle"),
     directPeerCount: net?.directPeerCount ?? 0,
     peers: [...peers.keys()],
     peerList: [...(room?.peers.values() ?? [])]
