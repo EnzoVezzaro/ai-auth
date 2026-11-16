@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.5.3 - 2026-11-16
+
+### Fixed
+
+- Agents drop a site's tool catalog once the site leaves the room. Before, a stale catalog stayed for up to a minute, and calls to a gone site timed out after 30 seconds. Calls to a site that has left now fail at once with "The site is no longer connected to this room". A room that tracks no presence for a site keeps its catalog, as before.
+- The static wallet shows its release version in the footer, and its stylesheet and script URLs are versioned per release, so a deploy is never served from a stale browser cache.
+
+### Changed
+
+- The agent runtime's room facade exposes live presence (`peers`), which the agent client uses. `@enzovezzaro/ai-auth-agent` 0.1.1.
+
 ## 0.5.2 - 2026-11-16
 
 ### Fixed
