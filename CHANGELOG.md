@@ -93,3 +93,8 @@ This release adds a source client for the local Worker prototype. It does not im
 - Wheel privacy: preview before sending, public-room warning, and default blocking of password, credential-autocomplete, `contenteditable`, `[data-private]`, and `[data-ai-auth-private]` regions.
 - Wheel accessibility: dialog role and labels, focus trap and restore, Escape to close, disabled controls with explanations, cancel-recording control, all capture tracks stopped on close, and safe-area aware positioning.
 - New additive exports: `verifyReceipt`, `createDeliveryLedger`, `buildReceiptPayload`, `isAddressedTo`, `isSensitiveElement`, `extractSafeText`, and related constants and types.
+- Attach a signed agent descriptor to the connect consent (`approvePermissionRequest(..., { agent })`); `connectAIAuthModal` verifies it and exposes `connection.participant` (verified identity plus claims, labelled as claims) and clone diagnostics. 0.4.x consents and the legacy v1 path are unchanged.
+- Gossip signed epoch announcements and wallet-signed link revocations; add bounded, verified catch-up (`revocation/sync`) so peers that were offline converge.
+- Add `connectAIAuthModal({ participation })`: remote tool requests must pass `authorizeProtected` or are dropped; `connection.participation` exposes the check.
+- Private presence: `privateMode` now joins a room silently (no presence or cursor, signed and audited actions) instead of being refused; `NostrWebRTC` no longer throws for private rooms. Behavior change: a private `P2PRoom` used to refuse to send or receive anything.
+- Forward `target` and `messageId` through the embed proxy (validated, bounded), forward bounded receipts, and expose `supportsTargets`/`supportsReceipts` only when the wallet reports them.

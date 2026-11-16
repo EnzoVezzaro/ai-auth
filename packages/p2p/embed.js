@@ -7,6 +7,8 @@ import {
 } from "./connect.js";
 import { createCloneDetector } from "./agent-identity.js";
 import { verifyEnvelope } from "./index.js";
+import { authorizeProtected } from "./membership.js";
+import { isMessageId, isWalletId } from "./receipts.js";
 import {
   markVerifiedPageConnection,
   renewVerifiedPageConnection,
@@ -62,6 +64,62 @@ function verifiedWalletIdentity(claim, consent) {
   });
 }
 
+const MAX_ADDRESSING_TEXT = 200;
+const RECEIPT_KEYS = ["messageId", "sender", "receiver", "receivedAt", "nonce"];
+
+// Keep only the addressing fields a transfer may carry. A malformed target or
+// message id is an error, never silently dropped: dropping a target would send
+// a private message to the whole room.
+function boundedAddressing(options, { attachment = false } = {}) {
+  if (options === undefined || options === null) return {};
+  if (typeof options !== "object" || Array.isArray(options))
+    throw new TypeError("Transfer options must be an object");
+  const out = {};
+  if (options.messageId !== undefined) {
+    if (!isMessageId(options.messageId))
+      throw new TypeError("Invalid message id");
+    out.messageId = options.messageId;
+  }
+  if (options.target !== undefined) {
+    if (!isWalletId(options.target))
+      throw new TypeError("Invalid target wallet id");
+    out.target = options.target;
+  }
+  if (attachment) {
+    for (const key of ["kind", "name"]) {
+      const value = options[key];
+      if (value === undefined) continue;
+      if (typeof value !== "string" || value.length > MAX_ADDRESSING_TEXT)
+        throw new TypeError(`Invalid attachment ${key}`);
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+// A receipt forwarded by the wallet is accepted only for this connection's own
+// wallet as sender and only in its plain, bounded shape.
+function boundedReceipt(receipt, senderId) {
+  if (!receipt || typeof receipt !== "object" || Array.isArray(receipt))
+    return null;
+  const keys = Object.keys(receipt);
+  if (
+    keys.length !== RECEIPT_KEYS.length ||
+    !RECEIPT_KEYS.every((key) => keys.includes(key)) ||
+    !isMessageId(receipt.messageId) ||
+    !isWalletId(receipt.sender) ||
+    !isWalletId(receipt.receiver) ||
+    receipt.sender !== senderId ||
+    !Number.isFinite(receipt.receivedAt) ||
+    typeof receipt.nonce !== "string" ||
+    receipt.nonce.length > MAX_ADDRESSING_TEXT
+  )
+    return null;
+  return Object.freeze(
+    Object.fromEntries(RECEIPT_KEYS.map((k) => [k, receipt[k]])),
+  );
+}
+
 function shortIssuerLabel(id) {
   return typeof id === "string" && id.length > 26
     ? `Agent ${id.slice(6, 26)}…`
@@ -93,7 +151,13 @@ export async function connectAIAuthModal({
   windowObject = globalThis.window,
   sessionTtlMs,
   idleTimeoutMs,
+  participation,
 } = {}) {
+  if (
+    participation !== undefined &&
+    typeof participation?.policy?.inspect !== "function"
+  )
+    throw new TypeError("participation needs a participation policy");
   if (!windowObject?.document?.body)
     throw new Error("AI Auth modal connections require a browser document");
   if (typeof origin !== "string")
@@ -147,6 +211,9 @@ export async function connectAIAuthModal({
   let pendingRenewal = null;
   let walletIdentity = null;
   let participant = null;
+  // What the wallet page says it can do. Never assumed: an older wallet ignores
+  // targets, and a silently public "private" message is worse than an error.
+  let walletFeatures = { targets: false, receipts: false };
   let cloneDiagnostics = Object.freeze([]);
   const cloneDetector = createCloneDetector();
   let walletSession = null;
@@ -239,6 +306,10 @@ export async function connectAIAuthModal({
       event.data.session.length >= 8
     ) {
       walletSession = event.data.session;
+      walletFeatures = {
+        targets: event.data.features?.targets === true,
+        receipts: event.data.features?.receipts === true,
+      };
       for (const listener of roomReadyListeners) {
         try {
           listener(walletSession);
@@ -357,7 +428,19 @@ export async function connectAIAuthModal({
       return;
     }
     if (consent && event.data?.type === "ai-auth/transfer-event") {
-      const transfer = event.data.transfer;
+      let transfer = event.data.transfer;
+      if (transfer?.type === "receipt") {
+        const receipt = walletFeatures.receipts
+          ? boundedReceipt(transfer.receipt, walletIdentity?.id)
+          : null;
+        if (!receipt) return;
+        for (const listener of transferListeners) {
+          try {
+            listener({ type: "receipt", receipt });
+          } catch {}
+        }
+        return;
+      }
       const capability =
         transfer?.type === "text" ? "messages.send" : "content.share";
       if (
@@ -469,6 +552,23 @@ export async function connectAIAuthModal({
       return;
     }
     seen.set(replayKey, payload.expiresAt);
+    // A remote tool request is a protected operation. With a participation
+    // policy it must pass the fail-closed check at the moment it arrives, so
+    // a revoked identity, stale epoch or lapsed grant never reaches a listener.
+    if (
+      participation &&
+      envelope.body.type === "agent/action" &&
+      payload.kind === "tool-request" &&
+      !authorizeProtected({
+        policy: participation.policy,
+        walletId: envelope.body.issuer,
+        scope: "tools.invoke",
+        now: participation.now,
+      }).allow
+    ) {
+      debug("sdk-rejected-unauthorized-tool-request", envelope.body.issuer);
+      return;
+    }
     // Passive presence traffic must not keep an idle session alive.
     if (!PASSIVE_EVENT_TYPES.has(envelope.body.type)) lease?.touch();
     debug("sdk-event-accepted", envelope.body.type);
@@ -538,12 +638,32 @@ export async function connectAIAuthModal({
         );
       });
     }
+    function sendAddressed(method, args, options, capability, attachment) {
+      let addressing;
+      try {
+        addressing = boundedAddressing(options, { attachment });
+        if (addressing.target !== undefined && !walletFeatures.targets)
+          throw new Error("This wallet cannot deliver targeted messages");
+      } catch (error) {
+        return Promise.reject(error);
+      }
+      return sendTransfer(method, [...args, addressing], capability);
+    }
     const transfers = Object.freeze({
-      sendText: (text) => sendTransfer("sendText", [text], "messages.send"),
-      sendElement: (metadata) =>
-        sendTransfer("sendElement", [metadata], "content.share"),
+      // Targets and message ids travel to the wallet, which signs them into
+      // the payload. They are validated and bounded here first.
+      sendText: (text, options) =>
+        sendAddressed("sendText", [text], options, "messages.send"),
+      sendElement: (metadata, options) =>
+        sendAddressed("sendElement", [metadata], options, "content.share"),
       sendAttachment: (blob, options) =>
-        sendTransfer("sendAttachment", [blob, options], "content.share"),
+        sendAddressed("sendAttachment", [blob], options, "content.share", true),
+      get supportsTargets() {
+        return walletFeatures.targets;
+      },
+      get supportsReceipts() {
+        return walletFeatures.receipts;
+      },
       subscribe(listener) {
         if (typeof listener !== "function")
           throw new TypeError("A transfer listener function is required");
@@ -557,6 +677,13 @@ export async function connectAIAuthModal({
     });
     const connection = Object.freeze({
       transfers,
+      // Read by the collaboration wheel before it offers targets or receipts.
+      get supportsTargets() {
+        return walletFeatures.targets;
+      },
+      get supportsReceipts() {
+        return walletFeatures.receipts;
+      },
       request,
       get consent() {
         return consent;
@@ -614,6 +741,22 @@ export async function connectAIAuthModal({
       identity: walletIdentity,
       /** Verified identity plus the agent's self-declared claims, or null. */
       participant,
+      /**
+       * The participation policy this connection enforces (or null), with the
+       * fail-closed check bound to it, for tool layers that gate execution.
+       */
+      participation: participation
+        ? Object.freeze({
+            policy: participation.policy,
+            authorizeProtected: (walletId, scope = "tools.invoke") =>
+              authorizeProtected({
+                policy: participation.policy,
+                walletId,
+                scope,
+                now: participation.now,
+              }),
+          })
+        : null,
       capabilities: Object.freeze([...consent.body.payload.capabilities]),
       onLifecycle(listener) {
         if (typeof listener !== "function")

@@ -114,3 +114,10 @@ Message ids and optional targets travel inside the signed payload of `collab/tex
 A sender accepts a receipt only if all of these hold: valid signature by the receiver key, issuer derived from that key, `receiver` equals the issuer and differs from the sender, `sender` is the local wallet, `room` and `origin` match exactly, the nonce is unused, the `messageId` is a message this sender sent, the receiver is the target (when the message was targeted), the receipt arrives within the three-minute receipt window, and that receiver has not already acknowledged the message. Receivers acknowledge only messages addressed to them, after accepting them.
 
 A receipt proves that the receiver's wallet key signed an acknowledgement of that message id in that room and origin. It does **not** prove that a human saw, read, or understood the content, and a receiver can sign without displaying it. Senders show "received-by-peer" only after a valid receipt and never otherwise; a lost receipt leaves the message at "sent-to-transport" and later "expired".
+
+## Protocol 1 additions (0.5.0, second part)
+
+- `connect/consent` v2 may carry `agentDescriptor` (an `ai-auth-agent-descriptor` v1, see `docs/PROTOCOL.md`). It is signed inside the consent payload.
+- `ai-auth-epoch` v1 announces the authorization epoch. Room events: `revocation/gossip` payload is one of `{ "revocation": ... }`, `{ "linkRevocation": <ai-auth-link-revocation envelope> }`, `{ "epoch": ... }`; `revocation/sync-request` has an empty payload; `revocation/sync` has `{ "epoch": record|null, "revocations": [...], "linkRevocations": [...] }` with at most 32 items per list.
+- `membership/prove` (empty payload plus the membership proof) is sent by private participants in restricted rooms instead of presence.
+- Page-to-wallet `ai-auth/room-ready` may carry `features: { targets, receipts }`; the page treats absence as unsupported. `ai-auth/transfer-request` args may end with an options object holding only `messageId`, `target` and, for attachments, `kind` and `name`.

@@ -23,7 +23,18 @@ const PRESENCE_ONLY_TYPES = new Set([
   "peer/hello",
   "peer/heartbeat",
   "peer/goodbye",
+  // Sent by private participants instead of presence: it proves membership to
+  // direct peers so they will deliver room events, but lists nobody.
+  "membership/prove",
 ]);
+// A private participant never advertises itself with these.
+const PRIVATE_BLOCKED_TYPES = new Set([
+  "peer/hello",
+  "peer/heartbeat",
+  "peer/goodbye",
+  "presence/cursor",
+]);
+const MAX_AUDIT_ENTRIES = 256;
 const MAX_MEMBERSHIP_WIRE_CHARS = 4096;
 const EVENT_CAPABILITY = new Map([
   ["peer/hello", "presence.read"],
@@ -90,6 +101,36 @@ export class P2PRoom {
     this.channels = new Set();
     this.directPeerCount = 0;
     this.closed = false;
+    this.auditEntries = [];
+  }
+
+  /**
+   * Bounded record of every event this wallet signed and sent, so a private
+   * participant's actions stay attributable. Entries carry no payloads.
+   */
+  audit() {
+    return Object.freeze([...this.auditEntries]);
+  }
+
+  recordAudit(envelope) {
+    if (this.auditEntries.length >= MAX_AUDIT_ENTRIES)
+      this.auditEntries.shift();
+    this.auditEntries.push(
+      Object.freeze({
+        at: Date.now(),
+        type: envelope.body.type,
+        issuer: envelope.body.issuer,
+        session: envelope.body.payload.session,
+        nonce: envelope.body.payload.nonce,
+        private: this.privateMode,
+      }),
+    );
+  }
+
+  /** Private participants prove membership to peers without any presence. */
+  async proveMembership() {
+    if (this.privateMode && this.restricted && this.membership && !this.closed)
+      await this.send("membership/prove", {});
   }
 
   subscribe(listener) {
@@ -123,7 +164,6 @@ export class P2PRoom {
     const proof = envelope.body.payload.membership;
     if (
       proof !== undefined &&
-      (type === "peer/hello" || type === "peer/heartbeat") &&
       JSON.stringify(proof ?? null).length <= MAX_MEMBERSHIP_WIRE_CHARS
     ) {
       const admitted = await this.policy.admit(issuer, proof);
@@ -157,13 +197,19 @@ export class P2PRoom {
   }
 
   async start() {
-    if (this.privateMode || this.closed) return this;
+    if (this.closed) return this;
     this.broadcast = new BroadcastChannel(
       `ai-auth:${this.origin}:${this.room}`,
     );
     this.broadcast.onmessage = ({ data }) => {
       void this.receive(data, this.broadcast);
     };
+    if (this.privateMode) {
+      // Private presence: receive authorized events, advertise nothing.
+      this.timer = setInterval(() => this.expire(), 8_000);
+      await this.proveMembership();
+      return this;
+    }
     if (!this.capabilities || this.capabilities.has("presence.read")) {
       await this.send("peer/hello", { label: this.wallet.name });
       if (this.closed) return this;
@@ -178,8 +224,9 @@ export class P2PRoom {
   }
 
   async send(type, payload = {}, { to = null } = {}) {
-    if (this.privateMode || this.closed)
-      throw new Error("This wallet session is private or closed");
+    if (this.closed) throw new Error("This wallet session is closed");
+    if (this.privateMode && PRIVATE_BLOCKED_TYPES.has(type))
+      throw new Error("Private participants do not advertise presence");
     if (this.restricted && to && !this.policy.isMember(to))
       throw new Error("Recipient is not a member of this restricted room");
     const capability = EVENT_CAPABILITY.get(type);
@@ -187,7 +234,9 @@ export class P2PRoom {
       throw new Error(`This wallet session did not approve ${capability}`);
     const envelope = await signEnvelope(this.wallet, type, {
       ...payload,
-      ...(this.membership && PRESENCE_ONLY_TYPES.has(type)
+      // Private participants attach their proof to every event: they send no
+      // presence for peers to learn it from.
+      ...(this.membership && (this.privateMode || PRESENCE_ONLY_TYPES.has(type))
         ? { membership: this.membership }
         : {}),
       room: this.room,
@@ -203,6 +252,7 @@ export class P2PRoom {
       if (channel.readyState === "open" && this.mayDeliver(channel, type, to))
         channel.send(wire);
     }
+    this.recordAudit(envelope);
     this.notify({ direction: "out", envelope, ...(to ? { to } : {}) });
     return envelope;
   }
@@ -211,7 +261,6 @@ export class P2PRoom {
     if (!this.allowInbound(source)) return false;
     if (
       this.closed ||
-      this.privateMode ||
       envelope?.body?.payload?.room !== this.room ||
       envelope.body.payload.origin !== this.origin
     )
@@ -271,7 +320,7 @@ export class P2PRoom {
       });
     }
     this.notify({ direction: "in", envelope, peer: this.peers.get(peerKey) });
-    if (envelope.body.type === "peer/hello")
+    if (envelope.body.type === "peer/hello" && !this.privateMode)
       await this.send("peer/heartbeat", { label: this.wallet.name });
     return true;
   }
@@ -400,8 +449,9 @@ export class P2PRoom {
       }
     };
     channel.onopen = () => {
-      if (!this.privateMode && !this.closed)
-        void this.send("peer/hello", { label: this.wallet.name });
+      if (this.closed) return;
+      if (this.privateMode) void this.proveMembership().catch(() => {});
+      else void this.send("peer/hello", { label: this.wallet.name });
     };
     channel.onclose = () => {
       this.channels.delete(channel);
@@ -530,8 +580,6 @@ export class NostrWebRTC {
   }
 
   async start() {
-    if (this.coreRoom.privateMode)
-      throw new Error("Private wallets do not join public collaboration rooms");
     if (this.closed) throw new Error("This collaboration room is closed");
     this.onStatus("Connecting to public Nostr relays");
     this.lifecycle.tryTransition("signaling");
@@ -610,7 +658,11 @@ export class NostrWebRTC {
         this.coreRoom.directPeerCount = this.directPeers.size;
         this.onStatus("Connected to agent peers");
         void this.flushOutbox();
-        if (
+        if (this.coreRoom.privateMode)
+          void this.coreRoom
+            .proveMembership()
+            .catch(() => this.onStatus("Could not prove room membership"));
+        else if (
           !this.coreRoom.capabilities ||
           this.coreRoom.capabilities.has("presence.read")
         )
