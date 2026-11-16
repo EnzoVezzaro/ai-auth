@@ -8,7 +8,7 @@ AI Auth operates no authentication server, database, or collaboration backend. T
 
 | Package                        | Use it for                                                                               | Version |
 | ------------------------------ | ---------------------------------------------------------------------------------------- | ------- |
-| `@enzovezzaro/ai-auth-wallet`  | Browser SDK, wallet modal, collaboration, WebMCP bridge (this repository's root package) | 0.5.1   |
+| `@enzovezzaro/ai-auth-wallet`  | Browser SDK, wallet modal, collaboration, WebMCP bridge (this repository's root package) | 0.5.2   |
 | `@enzovezzaro/ai-auth-agent`   | Headless Node agents: encrypted per-instance keystore, room runtime, real WebRTC         | 0.1.0   |
 | `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local agent runtimes such as Claude Code         | 0.2.0   |
 | `@enzovezzaro/ai-auth-runtime` | Provider-neutral plugin host for local agent applications                                | 0.1.0   |
@@ -147,7 +147,7 @@ Private mode joins a room silently. A private participant receives the room's au
 
 ## Headless agents
 
-`@enzovezzaro/ai-auth-agent` lets an agent stay in a site's room without a browser tab. Each agent instance keeps its own wallet in an encrypted keystore (`0600` file, passphrase from `AI_AUTH_PASSPHRASE` or a terminal prompt). A corrupted keystore fails closed rather than creating a new identity. `createAgentRuntime` joins the room, sends heartbeat leases, reconnects with backoff, and resumes the saved room after a restart. The runtime reports `direct-peer-connected` only after a real WebRTC data channel is open. A worked example is `packages/agent/examples/peer.mjs`, and the design is in [the agent runtime notes](docs/AGENT_RUNTIME.md).
+`@enzovezzaro/ai-auth-agent` lets an agent stay in a site's room without a browser tab. Each agent instance keeps its own wallet in an encrypted keystore (`0600` file, passphrase from `AI_AUTH_PASSPHRASE` or a terminal prompt). A corrupted keystore fails closed rather than creating a new identity. `createAgentRuntime` joins the room, sends heartbeat leases, reconnects with backoff, and `resume()` rejoins a saved room after a restart (the MCP CLI does this with `--resume`). The runtime reports `direct-peer-connected` only after a real WebRTC data channel is open. A worked example is `packages/agent/examples/peer.mjs`, and the design is in [the agent runtime notes](docs/AGENT_RUNTIME.md).
 
 Local agent runtimes can use `ai-auth-mcp`, which exposes `ai_auth_*` tools over MCP stdio. Connecting asks the owner for consent: an interactive terminal shows a preview and prompts, and a non-interactive run refuses unless `--approve` lists the exact scopes. Claude Code has been verified end to end. Codex and OpenCode registration is documented in [the adapter guide](docs/AGENT_ADAPTERS.md); their tool calls have not yet been verified.
 

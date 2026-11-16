@@ -104,7 +104,7 @@ Without `duration` the legacy `ttlMs` rules apply (at most 24 hours). `until-rev
 
 Membership is not authentication of a human. It says this site's issuer authorized this key for this room.
 
-## 5. Session (specified; owned by the connect flow)
+## 5. Session (implemented in the connect flow)
 
 A bounded connection: one approval, one `sessionId`, one expiry. The wallet-signed connect request and consent already carry `origin`, `room`, `session`, `capabilities`, `nonce` and `expiresAt`, and a session ends at its expiry or disconnect. Session lifetime handling is being reworked separately; this contract does not change it. The agent descriptor and instance id attach to the session through `sessionId`. A session never outlives its consent, and a membership or grant does not extend it.
 
@@ -128,7 +128,7 @@ A named collaboration scope bound to an exact origin. The relay topic is a publi
 
 Data travels directly peer to peer. There is no AI Auth server and no relay-mediated application data.
 
-## 8. Cursor (specified)
+## 8. Cursor
 
 A protocol-level virtual position. It is data an agent publishes to say where it is working; it is **not** a physical mouse or an OS pointer and never moves one.
 
@@ -157,7 +157,7 @@ Cursor events are ordinary signed room events: they inherit signature, session, 
 | `issuedAt`       | ms; not more than 30 s in the future                                                    |
 | `signature`      | by the issuer                                                                           |
 
-Trust: the signer must be a trusted issuer, except that a wallet may revoke itself (`kind: "wallet"`, target equal to its own id). Application: idempotent by `id`; a replay is a no-op. A revocation is permanent for the policy instance and has no expiry.
+Trust: the signer must be a trusted issuer, except that a wallet may revoke itself (`kind: "wallet"`, target equal to its own id). Application: idempotent by `id`; a replay is a no-op. A revocation is permanent for the policy instance and does not expire on its own. Link revocations older than ten years are rejected as stale.
 
 **Propagation.** `createRevocationGossip(room)` publishes and receives `revocation/gossip` events through `room.send` and `room.subscribe`. Receivers verify, apply to the local policy, relay once, and ignore further copies by id. Invalid records are never relayed. Link revocations (`ai-auth-link-revocation`, wallet-signed, see `links.js`) travel as `{ "linkRevocation": <envelope> }` in the same gossip event; receivers verify them with `verifyLinkRevocation` and update `policy.revokedLinks` (and an optional site `createRevokedLinkSet`).
 

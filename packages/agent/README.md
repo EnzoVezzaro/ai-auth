@@ -65,7 +65,7 @@ ECDSA P-256 envelopes that the browser package's `verifyEnvelope` accepts.
   room if it was saved for the same origin).
 - `connectionState` / `onConnectionState(fn)`: the SDK's
   `connection-state.js` lifecycle (`signaling`, `waiting-for-peers`,
-  `direct-peer-connected`, `degraded`, `disconnected`). `direct-peer-connected`
+  `direct-peer-connected`, `disconnected`; `degraded` is defined in the transition table but no code path enters it yet). `direct-peer-connected`
   appears only after a data channel is open.
 - Leases: `peers()` lists `{ id, name, seenAt, leaseExpiresAt, stale }` from
   signed heartbeats; `onPeerStale` fires once per lapsed lease.
