@@ -449,6 +449,9 @@ export async function registerAIAuthPageActions({
  * session and can be stopped through the returned stop()/close() or an abort
  * signal.
  */
+/** Minimum gap between state re-sends to the same newcomer. */
+const STATE_RESYNC_MIN_MS = 5_000;
+
 /** How often a connected page re-announces its tool catalog (well inside the 120 s event lifetime). */
 const CATALOG_REFRESH_MS = 45_000;
 
@@ -701,8 +704,36 @@ export function createAIAuthAgentClient(
   };
   const presenceTimer = setInterval(pruneAbsentSites, presenceCheckMs);
   presenceTimer.unref?.();
+  // The agent's current state (cursor and last activity) is sent once when it
+  // changes. A peer that arrives later would never see it, so the agent
+  // re-sends it to each newcomer. Throttled per peer so a chatty peer cannot
+  // flood the room with repeats.
+  let lastCursor = null;
+  let lastAction = null;
+  const agentId = room.wallet?.id;
+  const agentLabel = (r) =>
+    typeof r.wallet?.name === "string" && r.wallet.name.trim()
+      ? r.wallet.name.trim().slice(0, 60)
+      : "Agent " + r.wallet?.id?.slice(6, 26);
+  const stateSentAt = new Map();
+  const resyncFor = (peerId) => {
+    const now = Date.now();
+    if (now - (stateSentAt.get(peerId) ?? 0) < STATE_RESYNC_MIN_MS) return;
+    stateSentAt.set(peerId, now);
+    if (lastCursor) room.send("presence/cursor", lastCursor).catch?.(() => {});
+    if (lastAction) room.send("agent/action", lastAction).catch?.(() => {});
+  };
   const unsubscribe = room.subscribe(({ direction, envelope }) => {
     pruneAbsentSites();
+    if (
+      !closed &&
+      direction === "in" &&
+      envelope?.body?.type === "peer/hello" &&
+      envelope.body.issuer !== agentId
+    ) {
+      resyncFor(envelope.body.issuer);
+      return;
+    }
     if (closed || direction !== "in" || envelope?.body?.type !== "agent/action")
       return;
     const payload = envelope.body.payload;
@@ -806,6 +837,13 @@ export function createAIAuthAgentClient(
         throw new TypeError(
           "Agent cursor coordinates must be normalized to the page",
         );
+      lastCursor = {
+        x,
+        y,
+        visible,
+        label: agentLabel(room),
+        ...(scroll === undefined ? {} : { scroll }),
+      };
       return room.send("presence/cursor", {
         x,
         y,
@@ -837,6 +875,7 @@ export function createAIAuthAgentClient(
         throw new TypeError(
           "Agent activity needs a valid name, state, and short summary",
         );
+      lastAction = { name, state, summary };
       return room.send("agent/action", { name, state, summary });
     },
     async callTool(catalog, name, input = {}, { signal } = {}) {

@@ -169,3 +169,61 @@ test("an agent's cursor is labeled with its name when the room has one", async (
   other.publishCursor({ x: 0.1, y: 0.2 });
   assert.equal(sent[0].payload.label, "Agent " + named.id.slice(6, 26));
 });
+
+test("a new peer receives the agent's current cursor and last activity without the agent moving", async (t) => {
+  const agent = await makeWallet("Agent");
+  const newcomer = await makeWallet("Visitor");
+  const sent = [];
+  const listeners = new Set();
+  const room = {
+    wallet: { id: agent.id, name: "ChatGPT agent A" },
+    session: "agent-room-session",
+    peers: new Map(),
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    async send(type, payload) {
+      sent.push({ type, payload });
+    },
+  };
+  const deliver = (envelope) => {
+    for (const listener of [...listeners])
+      listener({ direction: "in", envelope });
+  };
+  const client = createAIAuthAgentClient(room);
+  t.after(() => client.close());
+  client.publishCursor({ x: 0.4, y: 0.7 });
+  client.publishAction({
+    name: "catalog.browse",
+    state: "progress",
+    summary: "Looking at glasses",
+  });
+  sent.length = 0;
+
+  const hello = await newcomer.sign("peer/hello", {
+    label: "Visitor",
+    session: "visitor-session",
+  });
+  deliver(hello);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const types = sent.map((m) => m.type);
+  assert.ok(
+    types.includes("presence/cursor"),
+    "the cursor is re-sent to the newcomer",
+  );
+  assert.ok(
+    types.includes("agent/action"),
+    "the last activity is re-sent to the newcomer",
+  );
+  assert.equal(sent.find((m) => m.type === "presence/cursor").payload.x, 0.4);
+
+  sent.length = 0;
+  deliver(hello);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(
+    sent.length,
+    0,
+    "a repeated hello within the throttle window does not re-send",
+  );
+});
