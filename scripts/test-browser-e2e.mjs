@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { once } from "node:events";
@@ -41,7 +42,7 @@ const siteServer = createHttpServer((request, response) => {
     response.end(sdkBundle);
     return;
   }
-  if (request.url === "/agent") {
+  if (request.url?.split("?")[0] === "/agent") {
     response.writeHead(200, {
       "Cache-Control": "no-store",
       "Content-Security-Policy": `default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' https: wss:; style-src 'unsafe-inline';`,
@@ -53,8 +54,52 @@ const siteServer = createHttpServer((request, response) => {
       <body>
         <button id="connect-agent">Register and connect agent</button>
         <output id="agent-status">Agent is not connected</output>
+        <section id="agent-catalog-state">
+          <h2>Agent's live view of site tools</h2>
+          <p>Connection: <output id="agent-connection">not connected</output></p>
+          <p>Visible tool count: <output id="agent-tool-count">0</output></p>
+          <ul id="agent-tool-list"></ul>
+          <p>Catalog changes: <output id="agent-catalog-history">no catalog yet</output></p>
+        </section>
         <script type="module">
           import { createWallet, P2PRoom, NostrWebRTC, createAIAuthAgentClient } from "/ai-auth.js";
+          const status = document.querySelector("#agent-status");
+          const connection = document.querySelector("#agent-connection");
+          const toolCount = document.querySelector("#agent-tool-count");
+          const toolList = document.querySelector("#agent-tool-list");
+          const history = document.querySelector("#agent-catalog-history");
+          const targetWallet = new URLSearchParams(location.search).get("site");
+          window.__targetSiteWallet = targetWallet;
+          let lastCount = -1;
+          const changes = [];
+          // Render the agent's live state into the DOM so a screenshot shows what
+          // the agent can actually see. Filter to the site under test: other
+          // peers in the room also publish tool catalogs.
+          const renderAgentState = () => {
+            const catalogs = (window.__agentCatalogs ?? []).filter(
+              (catalog) => !targetWallet || catalog.wallet === targetWallet,
+            );
+            const names = [...new Set(catalogs.flatMap((catalog) =>
+              (catalog.tools ?? []).map((tool) => tool.name),
+            ))].sort();
+            if (names.length !== lastCount) {
+              changes.push(\`\${lastCount < 0 ? "initial" : lastCount} -> \${names.length} tool(s)\`);
+              lastCount = names.length;
+            }
+            connection.textContent = window.__agentConnected ? "connected" : "not connected";
+            toolCount.textContent = String(names.length);
+            toolList.replaceChildren(...names.map((name) => {
+              const item = document.createElement("li");
+              item.textContent = name;
+              return item;
+            }));
+            history.textContent = changes.join(" | ");
+          };
+          window.__renderAgentState = renderAgentState;
+          // The catalog getter is live, but a withdrawal removes a catalog
+          // without firing onCatalog, so refresh the DOM on a timer as well.
+          setInterval(renderAgentState, 100);
+          renderAgentState();
           document.querySelector("#connect-agent").addEventListener("click", async () => {
             try {
               const wallet = await createWallet({ name: "Browser E2E agent", passphrase: "Temporary E2E agent passphrase" });
@@ -72,11 +117,13 @@ const siteServer = createHttpServer((request, response) => {
               });
               await transport.start();
               window.__agent = { wallet, room, transport, client };
-              document.querySelector("#agent-status").textContent = "Agent registered and connected";
+              status.textContent = "Agent registered and connected";
               window.__agentConnected = true;
+              renderAgentState();
             } catch (error) {
-              document.querySelector("#agent-status").textContent = error.message;
+              status.textContent = error.message;
               window.__agentError = error.message;
+              renderAgentState();
             }
           });
         </script>
@@ -380,8 +427,15 @@ try {
   evidencePage = siteB;
   const shots = resolve(root, "test-results/screenshots");
   await mkdir(shots, { recursive: true });
+  const targetSiteWallet = await siteA.evaluate(
+    () => window.__connection.identity.id,
+  );
   const agentPage = await contextA.newPage();
-  await agentPage.goto(`${integrationSiteUrl.replace("/?debug=1", "/agent")}`);
+  const agentPageErrors = [];
+  agentPage.on("pageerror", (error) => agentPageErrors.push(error.message));
+  await agentPage.goto(
+    `${integrationSiteUrl.replace("/?debug=1", "/agent")}?site=${encodeURIComponent(targetSiteWallet)}`,
+  );
   await agentPage.locator("#connect-agent").click();
   await agentPage.waitForFunction(
     () => window.__agentConnected === true,
@@ -390,6 +444,7 @@ try {
       timeout: 30_000,
     },
   );
+  await agentPage.evaluate(() => window.__renderAgentState());
   await siteA.screenshot({
     path: resolve(shots, "generic-site-connected.png"),
     fullPage: true,
@@ -398,9 +453,6 @@ try {
     path: resolve(shots, "generic-agent-connected.png"),
     fullPage: true,
   });
-  const targetSiteWallet = await siteA.evaluate(
-    () => window.__connection.identity.id,
-  );
   try {
     await agentPage.waitForFunction(
       (walletId) =>
@@ -433,6 +485,7 @@ try {
       siteBDiagnostics: siteDiagnosticsB,
       walletAErrors: popupErrorsA,
       walletBErrors: popupErrorsB,
+      agentPageErrors,
     };
     throw new Error(
       `The agent did not discover site A's wallet catalog: ${JSON.stringify(diagnostics)}`,
@@ -449,6 +502,45 @@ try {
   // These tools belong to this generic test website, not to AI Auth or BODY4AI.
   assert.ok(agentCatalog.tools.some((tool) => tool.name === "demo.echo"));
   assert.ok(agentCatalog.tools.some((tool) => tool.name === "demo.increment"));
+
+  // The agent page renders its live catalog into the DOM so screenshots and
+  // assertions both describe what the agent can actually see.
+  const readAgentDom = async () => {
+    await agentPage.evaluate(() => window.__renderAgentState());
+    return {
+      status: await agentPage.locator("#agent-status").innerText(),
+      connection: await agentPage.locator("#agent-connection").innerText(),
+      count: await agentPage.locator("#agent-tool-count").innerText(),
+      tools: await agentPage.locator("#agent-tool-list").innerText(),
+      history: await agentPage.locator("#agent-catalog-history").innerText(),
+    };
+  };
+  const domCatalogVisible = await readAgentDom();
+  console.log(`Agent DOM with catalog: ${JSON.stringify(domCatalogVisible)}`);
+  assert.match(
+    domCatalogVisible.tools,
+    /page\.review/u,
+    "agent DOM lists page.review",
+  );
+  assert.match(
+    domCatalogVisible.tools,
+    /demo\.echo/u,
+    "agent DOM lists demo.echo",
+  );
+  assert.match(
+    domCatalogVisible.tools,
+    /demo\.increment/u,
+    "agent DOM lists demo.increment",
+  );
+  assert.ok(
+    Number(domCatalogVisible.count) >= 3,
+    `agent DOM tool count is non-empty: ${domCatalogVisible.count}`,
+  );
+  await agentPage.screenshot({
+    path: resolve(shots, "generic-agent-client-connected.png"),
+    fullPage: true,
+  });
+
   const invokeDemoTool = async (name, input) => {
     const response = agentPage.evaluate(
       ({ catalog, name, input }) =>
@@ -738,6 +830,20 @@ try {
     targetSiteWallet,
     { timeout: 15_000 },
   );
+  const domToolsWithdrawn = await readAgentDom();
+  console.log(
+    `Agent DOM after withdrawal: ${JSON.stringify(domToolsWithdrawn)}`,
+  );
+  assert.equal(
+    domToolsWithdrawn.tools.trim(),
+    "",
+    "agent DOM tool list is empty after the site withdraws its tools",
+  );
+  assert.equal(
+    domToolsWithdrawn.count,
+    "0",
+    "agent DOM tool count is zero after the site withdraws its tools",
+  );
   await agentPage.screenshot({
     path: resolve(shots, "generic-agent-tools-withdrawn.png"),
     fullPage: true,
@@ -904,10 +1010,6 @@ try {
     path: resolve(shots, "generic-site-disconnected.png"),
     fullPage: true,
   });
-  await agentPage.screenshot({
-    path: resolve(shots, "generic-agent-tools-withdrawn.png"),
-    fullPage: true,
-  });
 
   // Save unmodified browser screenshots as CI evidence after the real P2P,
   // authorization, tool execution, and cursor assertions have passed.
@@ -917,12 +1019,42 @@ try {
     path: resolve(screenshots, "generic-site-verified-events.png"),
     fullPage: true,
   });
-  await agentPage.screenshot({
-    path: resolve(screenshots, "generic-agent-client-connected.png"),
-    fullPage: true,
-  });
   console.log(
     "Saved verified browser screenshots under test-results/screenshots/",
+  );
+
+  // Evidence integrity: every state screenshot must be a distinct image. A
+  // byte-identical agent shot would mean the page failed to show its live
+  // catalog, which is exactly the misleading evidence this guards against.
+  const md5Of = async (name) =>
+    createHash("md5")
+      .update(await readFile(resolve(shots, name)))
+      .digest("hex");
+  const agentShotNames = [
+    "generic-agent-connected.png",
+    "generic-agent-client-connected.png",
+    "generic-agent-tools-withdrawn.png",
+  ];
+  const screenshotMd5 = Object.fromEntries(
+    await Promise.all(
+      [
+        ...agentShotNames,
+        "generic-site-connected.png",
+        "generic-site-disconnected.png",
+      ].map(async (name) => [name, await md5Of(name)]),
+    ),
+  );
+  console.log(`Screenshot md5: ${JSON.stringify(screenshotMd5)}`);
+  const agentMd5s = agentShotNames.map((name) => screenshotMd5[name]);
+  assert.equal(
+    new Set(agentMd5s).size,
+    agentMd5s.length,
+    `agent screenshots must differ in md5: ${JSON.stringify(screenshotMd5)}`,
+  );
+  assert.notEqual(
+    screenshotMd5["generic-site-connected.png"],
+    screenshotMd5["generic-site-disconnected.png"],
+    "site connected and disconnected screenshots must differ in md5",
   );
 
   if (process.env.AI_AUTH_CHECK_TOP_LEVEL_WALLET) {
