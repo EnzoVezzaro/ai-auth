@@ -247,8 +247,11 @@ export async function approveWallet(
     undefined,
     { timeout: 10_000 },
   );
-  if (await popup.locator("[data-go-wallet]").count()) {
+  // A wallet page with no key now offers the create form inline on this same
+  // request screen. Keep the older redirect path working for older pages.
+  if (await popup.locator("[data-go-wallet]").count())
     await popup.locator("[data-go-wallet]").click();
+  if (await popup.locator("#create-wallet-form").count()) {
     await popup.locator("#wallet-name").fill(name);
     await popup.locator("#wallet-passphrase").fill(passphrase);
     await popup.locator("#wallet-passphrase-confirm").fill(passphrase);
