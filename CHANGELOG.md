@@ -2,7 +2,13 @@
 
 ## Unreleased
 
-## 0.5.1 - 2026-11-16
+## 0.5.2 - 2026-11-16
+
+### Fixed
+
+- The connect dialog places Cancel in its own 44px row above the wallet, instead of over the wallet header.
+- The wallet stacks its request and key panels below 900px, so the request text stays readable inside the 720px connect dialog.
+- Documentation matches the code: the session idle rule (local page activity counts), `resume()` on the agent runtime, the protocol section status labels, and the `degraded` state, which no code path enters yet.
 
 ### Fixed
 
