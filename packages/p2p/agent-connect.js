@@ -1,4 +1,5 @@
 import {
+  capabilityCopy,
   CONNECT_LABEL,
   DISCONNECTED_BY_USER_MESSAGE,
   EXTEND_LABEL,
@@ -524,7 +525,8 @@ export function mountAIAuthConnectPanel({
     for (const capability of capabilities) {
       const chip = document.createElement("li");
       chip.className = "chip";
-      chip.textContent = capability;
+      chip.textContent = capabilityCopy(capability).title;
+      chip.title = capability;
       chips.append(chip);
     }
     chips.hidden = capabilities.length === 0;
