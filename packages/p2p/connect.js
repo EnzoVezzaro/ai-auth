@@ -175,6 +175,9 @@ export async function approvePermissionRequest(
     now = Date.now(),
   } = {},
 ) {
+  // Check the wallet first: without a wallet there is nothing to sign with.
+  if (!wallet || typeof wallet.id !== "string")
+    throw new TypeError("Create your wallet first, then connect.");
   const approved = normalizeCapabilities(approvedCapabilities);
   const requestVerified = await verifyPermissionRequest(request, {
     expectedOrigin: request?.audience,

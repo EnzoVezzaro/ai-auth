@@ -1,4 +1,5 @@
 import { CollaborationTransfers } from "../../packages/p2p/collaboration.js";
+import { WALLET_REQUIRED_MESSAGE } from "../../packages/p2p/copy.js";
 import {
   appendActivity,
   approvePermissionRequest,
@@ -674,6 +675,7 @@ function bindView() {
     event.preventDefault();
     state.error = "";
     state.consent = null;
+    if (!state.wallet) return fail(new Error(WALLET_REQUIRED_MESSAGE));
     try {
       const originField = $("#request-origin");
       const origin = new URL(originField.value).origin;
@@ -726,8 +728,7 @@ function bindView() {
     event.preventDefault();
     state.error = "";
     try {
-      if (!state.wallet)
-        throw new Error("Create or restore a wallet before connecting");
+      if (!state.wallet) throw new Error(WALLET_REQUIRED_MESSAGE);
       if (state.externalStatus || !state.externalRequest)
         throw new Error("This wallet request is no longer active");
       if (!externalHost || state.externalSource !== externalHost)
@@ -801,6 +802,7 @@ function bindView() {
   $("#approve-renewal")?.addEventListener("click", async () => {
     const renewal = state.renewal;
     try {
+      if (!state.wallet) throw new Error(WALLET_REQUIRED_MESSAGE);
       if (!renewal || !externalSessionActive())
         throw new Error("This session is no longer active");
       const consent = await approvePermissionRequest(

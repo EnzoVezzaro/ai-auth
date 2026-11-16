@@ -563,3 +563,17 @@ test("expired peers notify subscribers so presence counts refresh", async () => 
   assert.deepEqual(updates, [{ direction: "state" }]);
   await room.close();
 });
+
+test("approving without a wallet fails with a plain message before any signing", async () => {
+  const request = await createPermissionRequest("https://example.test", [
+    "presence.read",
+  ]);
+  await assert.rejects(
+    approvePermissionRequest(null, request, ["presence.read"]),
+    (error) => error.message === "Create your wallet first, then connect.",
+  );
+  await assert.rejects(
+    approvePermissionRequest({}, request, ["presence.read"]),
+    (error) => error.message === "Create your wallet first, then connect.",
+  );
+});
