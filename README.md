@@ -15,6 +15,8 @@ AI Auth operates no authentication server, database, or collaboration backend. T
 
 `@enzovezzaro/ai-auth-server` is retired; use the wallet package instead. Every package works without an AI Auth-operated service.
 
+AI Auth is published on **GitHub Pages only**. See the [hosting policy](docs/HOSTING.md) for the CI guard and removal of the legacy Vercel GitHub App.
+
 ## Run the wallet
 
 Requirements: Node.js 22 or newer and npm.
