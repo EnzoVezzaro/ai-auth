@@ -64,8 +64,12 @@ const siteServer = createHttpServer((request, response) => {
               });
               const transport = new NostrWebRTC(room, { origin: location.origin, room: "default" });
               const client = createAIAuthAgentClient(room);
-              window.__agentCatalogs = [];
-              client.onCatalog((catalog) => window.__agentCatalogs.push(catalog));
+              // A live getter, so a provider withdrawal or expiry is
+              // observable without waiting for another catalog announcement.
+              Object.defineProperty(window, "__agentCatalogs", {
+                configurable: true,
+                get: () => client.catalogs,
+              });
               await transport.start();
               window.__agent = { wallet, room, transport, client };
               document.querySelector("#agent-status").textContent = "Agent registered and connected";
@@ -91,6 +95,7 @@ const siteServer = createHttpServer((request, response) => {
       <button id="connect">Connect AI Auth wallet</button>
       <button id="invoke-tool" disabled>Invoke page tool</button>
       <button id="publish-cursor" disabled>Publish cursor</button>
+      <button id="withdraw-tools" disabled>Withdraw page tools</button>
       <button id="approve-action" hidden>Approve agent action</button>
       <section id="share-target">Public workspace section for collaboration</section>
       <output id="status">Waiting for approval</output>
@@ -213,6 +218,11 @@ const siteServer = createHttpServer((request, response) => {
             });
             document.querySelector("#invoke-tool").disabled = false;
             document.querySelector("#publish-cursor").disabled = false;
+            document.querySelector("#withdraw-tools").disabled = false;
+            document.querySelector("#withdraw-tools").addEventListener("click", () => {
+              window.__pageActions.stop();
+              document.querySelector("#status").textContent = "Page tools withdrawn";
+            });
             document.querySelector("#status").textContent = "Wallet approved";
             window.__connected = true;
           } catch (error) {
@@ -368,6 +378,8 @@ try {
   );
 
   evidencePage = siteB;
+  const shots = resolve(root, "test-results/screenshots");
+  await mkdir(shots, { recursive: true });
   const agentPage = await contextA.newPage();
   await agentPage.goto(`${integrationSiteUrl.replace("/?debug=1", "/agent")}`);
   await agentPage.locator("#connect-agent").click();
@@ -378,6 +390,14 @@ try {
       timeout: 30_000,
     },
   );
+  await siteA.screenshot({
+    path: resolve(shots, "generic-site-connected.png"),
+    fullPage: true,
+  });
+  await agentPage.screenshot({
+    path: resolve(shots, "generic-agent-connected.png"),
+    fullPage: true,
+  });
   const targetSiteWallet = await siteA.evaluate(
     () => window.__connection.identity.id,
   );
@@ -709,6 +729,20 @@ try {
     /c2Vuc2l0aXZlLWltYWdlLXBheWxvYWQ=/u,
     "attachment bytes never enter activity history",
   );
+  // WebMCP lifecycle: the page is the tool provider. Withdrawing it while the
+  // signed session is still live must drop the catalog for every connected agent.
+  await siteA.locator("#withdraw-tools").click();
+  await agentPage.waitForFunction(
+    (walletId) =>
+      !window.__agentCatalogs.some((catalog) => catalog.wallet === walletId),
+    targetSiteWallet,
+    { timeout: 15_000 },
+  );
+  await agentPage.screenshot({
+    path: resolve(shots, "generic-agent-tools-withdrawn.png"),
+    fullPage: true,
+  });
+
   // Session lifetime: the handshake challenge is short, the signed session is
   // not. Both pages share one controllable clock so the test can cross the old
   // two-minute limit, renew explicitly, and then run past the session expiry
@@ -866,6 +900,14 @@ try {
   assert.equal(await siteA.evaluate(() => window.__disconnected), true);
   assert.equal(await siteA.evaluate(() => window.__connected), false);
   assert.equal(await siteA.locator("dialog iframe").count(), 0);
+  await siteA.screenshot({
+    path: resolve(shots, "generic-site-disconnected.png"),
+    fullPage: true,
+  });
+  await agentPage.screenshot({
+    path: resolve(shots, "generic-agent-tools-withdrawn.png"),
+    fullPage: true,
+  });
 
   // Save unmodified browser screenshots as CI evidence after the real P2P,
   // authorization, tool execution, and cursor assertions have passed.

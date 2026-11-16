@@ -16,6 +16,7 @@ const VALUE_FLAGS = new Set([
 const BOOL_FLAGS = new Set([
   "auto-join",
   "resume",
+  "code-mode",
   "no-manifest",
   "yes",
   "help",
@@ -67,6 +68,8 @@ export const USAGE = `ai-auth-mcp [serve|init|whoami|preview|unlink] [options]
   --origin URL --room NAME --caps a,b   explicit alternative to --connect
   --approve a,b        exact scopes to grant without a TTY (never more than the site requested)
   --auto-join | --resume   join the room at startup / restore the last room
+  --code-mode          expose ai_auth_code: a sandboxed script tool that calls
+                       the connection-checked aiAuth API (Cloudflare Code Mode)
   --provide room       publish the built-in read-only room tools (agent.ping,
                        agent.self) so peers can call this agent with no page open;
                        needs tools.invoke and is off unless you opt in

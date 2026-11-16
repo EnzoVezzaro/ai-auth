@@ -59,7 +59,10 @@ export async function negotiateSession({
   };
 }
 
-export async function renewSession(session, { wallet, origin, room }) {
+export async function renewSession(
+  session,
+  { wallet, origin, room, sessionTtlMs },
+) {
   const endsAt = session.consent.body.payload.expiresAt;
   const request = await createPermissionRequest(
     origin,
@@ -85,6 +88,7 @@ export async function renewSession(session, { wallet, origin, room }) {
     outcome.approved,
     {
       previousConsent: session.consent,
+      sessionTtlMs,
     },
   );
   const valid = await verifyPermissionConsent(consent, request, {

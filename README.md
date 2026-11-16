@@ -18,6 +18,8 @@ An agent turns up at a website. The site needs to know which agent it is, and it
 
 There is no AI Auth account and no server holding your keys. A browser wallet keeps its key in origin-scoped storage. A headless agent keeps its key in an encrypted file on its machine. Public Nostr relays help peers find each other; after that, messages and signed events go straight over WebRTC. There is no blockchain or token.
 
+AI Auth is generic. Body4AI is one example consumer under `examples/body4ai/`; its product catalog and commands are not part of AI Auth. Generic integration tests use an independent site with `demo.echo` and `demo.increment`. See [connection lifecycle and WebMCP ownership](docs/CONNECTION_LIFECYCLE.md).
+
 ## Install
 
 Pick the package for the side you are building.

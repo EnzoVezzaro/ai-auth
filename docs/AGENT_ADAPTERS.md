@@ -168,14 +168,31 @@ out of band rather than committed to this repository.
 
 ## Tools
 
-| Tool                             | Scope           | Notes                                                                       |
-| -------------------------------- | --------------- | --------------------------------------------------------------------------- |
-| `ai_auth_status`                 | `presence.read` | identity, room, connection state, peers, granted scopes                     |
-| `ai_auth_join` / `ai_auth_leave` | `presence.read` | `leave` also forgets the saved room                                         |
-| `ai_auth_events`                 | `presence.read` | bounded ring (200), `since` cursor, max 50 per page, `dropped` flag         |
-| `ai_auth_send`                   | `messages.send` | "sent" means submitted to the transport, not delivered                      |
-| `ai_auth_list_tools`             | `tools.invoke`  | tools advertised by connected participants (the site page or another agent) |
-| `ai_auth_invoke`                 | `tools.invoke`  | page or agent tool; a provider approves each call and a denial is explicit  |
+| Tool                             | Scope           | Notes                                                                                                 |
+| -------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------- |
+| `ai_auth_status`                 | `presence.read` | identity, intended room, strict `connected` flag, connection/generation, authorization, peers, scopes |
+| `ai_auth_join` / `ai_auth_leave` | `presence.read` | `leave` also forgets the saved room                                                                   |
+| `ai_auth_events`                 | `presence.read` | bounded ring (200), `since` cursor, max 50 per page, `dropped` flag                                   |
+| `ai_auth_send`                   | `messages.send` | "sent" means submitted to the transport, not delivered                                                |
+| `ai_auth_list_tools`             | `tools.invoke`  | tools advertised by connected participants (the site page or another agent)                           |
+| `ai_auth_invoke`                 | `tools.invoke`  | page or agent tool; a provider approves each call and a denial is explicit                            |
+
+### Code Mode
+
+`--code-mode` adds `ai_auth_code`, following Cloudflare's
+[Code Mode pattern](https://blog.cloudflare.com/code-mode): instead of exposing
+many tools to the model, the harness gets one tool that runs a short sandboxed
+script against `aiAuth.status()`, `listTools()`, `invoke()`, `send()`, `move()`
+and `events()`. The sandbox has no network, filesystem, process, imports or
+`eval`; every side effect goes through the same connection-checked bridge, so a
+lost site connection still produces `SITE_DISCONNECTED` / `TOOL_UNAVAILABLE`.
+This is an adapter option, not a hosted service and not part of WebMCP itself.
+
+`ai_auth_invoke` returns a machine-readable `code` alongside its reason:
+`TOOL_UNAVAILABLE`, `SITE_DISCONNECTED`, `CATALOG_EXPIRED`, `AUTH_EXPIRED`,
+`CANCELLED`, or `TIMEOUT`. A reachable stdio pipe or HTTP MCP URL only means
+the adapter is running; it is not evidence of a live site connection. See
+`docs/CONNECTION_LIFECYCLE.md` for the strict definition of `connected`.
 
 Joining is explicit (`ai_auth_join`), or pass `--auto-join` / `--resume`
 (restores the last room saved for the same origin).

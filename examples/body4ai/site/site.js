@@ -172,6 +172,7 @@ function makeAdapter() {
         wallet: state.wallet,
         origin: state.config.origin,
         room: state.config.room,
+        sessionTtlMs: state.config.sessionTtlMs,
       });
       renewVerifiedPageConnection(adapter, state.session.consent);
       refreshView();

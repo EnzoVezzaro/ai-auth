@@ -138,10 +138,8 @@ test("closing the provider withdraws the catalog", async (t) => {
     ),
   );
   provider.close();
-  await until(() =>
-    client.catalogs.some(
-      (c) => c.wallet === a.runtime.identity.id && c.tools.length === 0,
-    ),
+  await until(
+    () => !client.catalogs.some((c) => c.wallet === a.runtime.identity.id),
   );
 });
 

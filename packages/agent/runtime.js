@@ -20,6 +20,10 @@ const DEFAULT_BACKOFF = Object.freeze({
   maxAttempts: 8,
 });
 
+// Within one process, an identity can back only one live runtime. A keystore
+// copy must not silently become a second, simultaneous impersonation.
+const liveIdentities = new Map();
+
 function validateOrigin(origin) {
   let url;
   try {
@@ -106,6 +110,25 @@ export function createAgentRuntime(options = {}) {
   const joinRoom = withNodeRtc(options.joinRoom ?? trysteroJoinRoom);
 
   const state = createConnectionState({ now });
+  const instanceId = crypto.randomUUID();
+  const authorization = options.authorization ?? null;
+  let authStatus = "active";
+  const readAuthorization = () => {
+    if (!authorization || typeof authorization.check !== "function")
+      return authStatus;
+    const value = authorization.check();
+    if (value === true || value === "active") return "active";
+    if (value === "expired") return "expired";
+    return "revoked";
+  };
+  const refreshAuthorization = () => {
+    const next = readAuthorization();
+    if (next !== authStatus) {
+      authStatus = next;
+      state.setAuthorization(next);
+    }
+    return next;
+  };
   const listeners = { event: new Set(), error: new Set(), stale: new Set() };
   const registry = new Map();
   const providers = new Set();
@@ -151,6 +174,22 @@ export function createAgentRuntime(options = {}) {
   }
 
   function observe(message) {
+    if (message.direction === "state" && message.reason === "peer-lost") {
+      // A transport channel died. Everyone seen through it is immediately
+      // stale; recovery requires a new authenticated session.
+      for (const [id, peer] of registry) {
+        if (peer.flagged) continue;
+        peer.flagged = true;
+        emit(listeners.stale, {
+          id,
+          name: peer.name,
+          session: peer.session,
+          seenAt: peer.seenAt,
+          leaseExpiresAt: peer.seenAt + leaseMs,
+        });
+      }
+      noPeerSince ??= now();
+    }
     if (message.direction === "in" && message.envelope) {
       const { type, issuer } = message.envelope.body;
       if (type === "peer/goodbye") registry.delete(issuer);
@@ -174,9 +213,8 @@ export function createAgentRuntime(options = {}) {
     core = net = null;
     registry.clear();
     if (goodbye) await oldCore?.close().catch(() => {});
-    else if (oldCore) oldCore.closed = true;
+    else await oldCore?.close({ goodbye: false }).catch(() => {});
     await oldNet?.close().catch(() => {});
-    if (!goodbye) await oldCore?.close().catch(() => {});
   }
 
   async function startOnce(room) {
@@ -255,11 +293,22 @@ export function createAgentRuntime(options = {}) {
       );
       if (core) await teardown({ goodbye: true });
       wallet ??= await keystore.unlock();
-      if (["disconnected", "expired"].includes(state.snapshot.status))
+      const owner = liveIdentities.get(wallet.id);
+      if (owner && owner !== instanceId)
+        throw new Error("This wallet identity already has a live runtime");
+      if (refreshAuthorization() !== "active")
+        throw new Error(`Authorization is ${authStatus}; reconnect refused`);
+      liveIdentities.set(wallet.id, instanceId);
+      if (
+        ["disconnected", "expired", "revoked"].includes(state.snapshot.status)
+      )
         state.transition("idle");
-      state.tryTransition("wallet-authorized");
+      if (state.snapshot.status !== "reconnecting")
+        state.tryTransition("wallet-authorized");
+      state.tryTransition("connecting");
       currentRoom = room;
       await connect(room);
+      state.setGeneration(core?.session ?? null);
       await persist(room);
       // A provider's catalog is bound to the live room session, so a new
       // session (first join or reconnect) must be announced again.
@@ -282,6 +331,8 @@ export function createAgentRuntime(options = {}) {
     for (const provider of providers) provider.close();
     providers.clear();
     await teardown({ goodbye: true });
+    if (wallet && liveIdentities.get(wallet.id) === instanceId)
+      liveIdentities.delete(wallet.id);
     state.tryTransition("disconnected");
     if (forget && stateFile) await rm(stateFile, { force: true });
     if (final) closed = true;
@@ -289,6 +340,12 @@ export function createAgentRuntime(options = {}) {
 
   async function checkLeases() {
     const t = now();
+    if (refreshAuthorization() !== "active") {
+      state.setAuthorization(authStatus);
+      for (const provider of providers) provider.close();
+      providers.clear();
+      return;
+    }
     for (const [id, peer] of registry) {
       if (t > peer.seenAt + leaseMs && !peer.flagged) {
         peer.flagged = true;
@@ -308,7 +365,7 @@ export function createAgentRuntime(options = {}) {
       t - noPeerSince > rejoinAfterMs
     ) {
       noPeerSince = null;
-      state.tryTransition("degraded");
+      state.tryTransition("reconnecting");
       await join(currentRoom);
     }
   }
@@ -392,6 +449,8 @@ export function createAgentRuntime(options = {}) {
       );
     },
     async send(type, payload = {}, sendOptions = {}) {
+      if (refreshAuthorization() !== "active")
+        throw new Error(`Authorization is ${authStatus}; sending refused`);
       if (!core || core.closed) throw new Error("Join a room before sending");
       return core.send(type, payload, sendOptions);
     },
