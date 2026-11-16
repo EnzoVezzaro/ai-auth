@@ -12,6 +12,12 @@ import {
   renewalKeptText,
 } from "./copy.js";
 import { verifyEnvelope } from "./index.js";
+import {
+  createSessionStore,
+  listResumableSessions,
+  recordFromConsent,
+  verifyStoredConsent,
+} from "./session-store.js";
 import { authorizeProtected } from "./membership.js";
 import { isMessageId, isWalletId } from "./receipts.js";
 import {
@@ -66,6 +72,27 @@ function verifiedWalletIdentity(claim, consent) {
     // display name is site-controlled wallet data and must never be trusted
     // for authorization decisions.
     name: name || null,
+  });
+}
+
+// A resumed participant is rebuilt only from the stored, signed consent. The
+// descriptor claims were verified when the consent was first accepted.
+function participantFromRecord(record) {
+  const descriptor = record?.consent?.body?.payload?.agentDescriptor;
+  const claims = descriptor
+    ? {
+        agentType: descriptor.agentType,
+        runtime: descriptor.runtime,
+        provider: descriptor.provider,
+        model: descriptor.model,
+      }
+    : {};
+  return Object.freeze({
+    identity: Object.freeze({ id: record.walletId }),
+    instanceId: record.instanceId,
+    sessionId: record.sessionId,
+    claims: Object.freeze(claims),
+    claimsAttested: false,
   });
 }
 
@@ -166,6 +193,10 @@ export async function connectAIAuthModal({
   sessionTtlMs,
   idleTimeoutMs,
   participation,
+  sessionStore,
+  storage,
+  resumeRecord = null,
+  resumeTimeoutMs = 8_000,
 } = {}) {
   if (
     participation !== undefined &&
@@ -191,6 +222,11 @@ export async function connectAIAuthModal({
     expiresInMs: 120_000,
     ...sessionOptions,
   });
+  // Site-origin storage is optional in headless integrations. Without it there
+  // is no record to save or restore, and the normal consent flow is unchanged.
+  const store =
+    sessionStore ??
+    (globalThis.sessionStorage ? createSessionStore({ storage }) : null);
   const document = windowObject.document;
   const dialog = document.createElement("dialog");
   dialog.setAttribute("aria-label", "Connect AI Auth wallet");
@@ -241,7 +277,17 @@ export async function connectAIAuthModal({
   let rejectReady;
   let timeout;
   let expiryTimer;
+  let resumeTimer;
   let activeConnection;
+  let currentRecord = resumeRecord ?? null;
+  let agentKey = resumeRecord?.agentKey ?? null;
+  let resuming = Boolean(resumeRecord);
+  if (resumeRecord) {
+    consent = resumeRecord.consent;
+    lease = new SessionLease(consent.body.payload);
+    walletIdentity = verifiedWalletIdentity(null, consent);
+    participant = participantFromRecord(resumeRecord);
+  }
   const ready = new Promise((resolve, reject) => {
     resolveReady = resolve;
     rejectReady = reject;
@@ -273,10 +319,16 @@ export async function connectAIAuthModal({
       Math.max(1, lease.deadline - Date.now()),
     );
   };
+  const recordActivity = () => {
+    const active = lease?.touch();
+    if (active && store && agentKey) store.touch(origin, agentKey);
+    return active;
+  };
 
   const cleanup = () => {
     clearTimeout(timeout);
     clearTimeout(expiryTimer);
+    clearTimeout(resumeTimer);
     clearTimeout(pendingRenewal?.timer);
     windowObject.removeEventListener("message", onMessage);
     dialog.removeEventListener("cancel", onCancel);
@@ -302,6 +354,48 @@ export async function connectAIAuthModal({
     if (!consent && !activeConnection) cancelPending();
   };
 
+  // An explicit Resume is the only path that asks the wallet to restore. Any
+  // failure deletes just this agent's record and leaves the site to offer a
+  // fresh connect; no new scope is ever granted implicitly.
+  const failResume = (message) => {
+    resuming = false;
+    if (store && agentKey) store.remove(origin, agentKey);
+    cleanup();
+    rejectReady(new Error(message));
+  };
+  const finishResume = () => {
+    clearTimeout(resumeTimer);
+    resuming = false;
+    hideDialog();
+    clearTimeout(timeout);
+    timeout = undefined;
+    if (store && currentRecord) {
+      currentRecord = { ...currentRecord, lastActivity: Date.now() };
+      void store.save(origin, currentRecord);
+    }
+    resolveReady(createConnection());
+  };
+  async function validResumeResponse(data) {
+    const record = currentRecord;
+    const payload = data?.consent?.body?.payload;
+    if (!record || !payload || data.sessionId !== record.sessionId)
+      return false;
+    if (data.wallet?.id && data.wallet.id !== record.walletId) return false;
+    if (payload.requestNonce !== record.sessionId) return false;
+    const scopes = payload.capabilities;
+    if (
+      !Array.isArray(scopes) ||
+      scopes.length !== record.capabilities.length ||
+      !scopes.every((scope) => record.capabilities.includes(scope))
+    )
+      return false;
+    return verifyStoredConsent(data.consent, {
+      origin,
+      walletId: record.walletId,
+      room,
+    });
+  }
+
   const onMessage = async (event) => {
     if (event.source !== popup || event.origin !== walletPage.origin) return;
     if (lease && !lease.isActive()) {
@@ -309,11 +403,48 @@ export async function connectAIAuthModal({
       return;
     }
     debug("wallet-message", event.data?.type);
+    if (resuming && event.data?.type === "ai-auth/session-resumed") {
+      if (!(await validResumeResponse(event.data))) {
+        failResume("The saved session could not be re-verified");
+        return;
+      }
+      finishResume();
+      return;
+    }
+    if (
+      resuming &&
+      (event.data?.type === "ai-auth/session-ended" ||
+        event.data?.type === "ai-auth/session-resume-failed")
+    ) {
+      failResume("The wallet no longer holds this session");
+      return;
+    }
     if (event.data?.type === "ai-auth/wallet-setup") {
       clearTimeout(timeout);
       return;
     }
     if (event.data?.type === "ai-auth/connect-ready") {
+      if (resuming) {
+        clearTimeout(timeout);
+        popup.postMessage(
+          {
+            type: "ai-auth/session-resume",
+            sessionId: currentRecord.sessionId,
+            walletId: currentRecord.walletId,
+            audience: origin,
+            room,
+            capabilities: [...currentRecord.capabilities],
+            lastActivity: currentRecord.lastActivity,
+          },
+          walletPage.origin,
+        );
+        clearTimeout(resumeTimer);
+        resumeTimer = setTimeout(
+          () => failResume("The wallet did not confirm the saved session"),
+          resumeTimeoutMs,
+        );
+        return;
+      }
       if (consent) return;
       request = await createPermissionRequest(origin, capabilities, {
         room,
@@ -334,7 +465,8 @@ export async function connectAIAuthModal({
     if (
       event.data?.type === "ai-auth/room-ready" &&
       consent &&
-      event.data.requestNonce === request.nonce &&
+      (event.data.requestNonce === request.nonce ||
+        event.data.requestNonce === consent.body.payload.requestNonce) &&
       event.data.walletId === walletIdentity?.id &&
       typeof event.data.session === "string" &&
       event.data.session.length >= 8
@@ -391,6 +523,15 @@ export async function connectAIAuthModal({
       consent = candidate;
       lease = new SessionLease(consent.body.payload);
       walletIdentity = verifiedWalletIdentity(event.data.wallet, consent);
+      if (store) {
+        currentRecord = recordFromConsent(candidate, {
+          origin,
+          room,
+          participant,
+        });
+        agentKey = currentRecord.agentKey;
+        void store.save(origin, currentRecord);
+      }
       hideDialog();
       clearTimeout(timeout);
       timeout = undefined;
@@ -450,6 +591,17 @@ export async function connectAIAuthModal({
         return;
       }
       consent = candidate;
+      if (store && currentRecord) {
+        currentRecord = {
+          ...currentRecord,
+          consent: candidate,
+          expiresAt: candidate.body.payload.expiresAt,
+          idleTimeoutMs: candidate.body.payload.idleTimeoutMs ?? null,
+          capabilities: [...candidate.body.payload.capabilities],
+          lastActivity: Date.now(),
+        };
+        void store.save(origin, currentRecord);
+      }
       renewVerifiedPageConnection(activeConnection, consent);
       scheduleExpiry();
       onRenewed();
@@ -664,7 +816,7 @@ export async function connectAIAuthModal({
         return Promise.reject(
           new Error("This wallet did not approve this capability"),
         );
-      lease.touch();
+      recordActivity();
       const id = String(++transferSequence);
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
@@ -862,7 +1014,7 @@ export async function connectAIAuthModal({
             8_192
         )
           throw new TypeError("The shared agent event is invalid or too large");
-        lease.touch();
+        recordActivity();
         popup.postMessage(
           { type: "ai-auth/site-agent-event", event: agentEvent },
           walletPage.origin,
@@ -889,7 +1041,7 @@ export async function connectAIAuthModal({
           throw new TypeError(
             "Site action events need a valid name, state, and short summary",
           );
-        lease.touch();
+        recordActivity();
         popup.postMessage(
           { type: "ai-auth/site-action", action: { name, state, summary } },
           walletPage.origin,
@@ -913,7 +1065,7 @@ export async function connectAIAuthModal({
           (!Number.isFinite(scroll) || scroll < 0 || scroll > 1)
         )
           return;
-        lease.touch();
+        recordActivity();
         popup.postMessage(
           {
             type: "ai-auth/site-cursor",
@@ -942,6 +1094,9 @@ export async function connectAIAuthModal({
         closedReason = ["expired", "idle", "revoked"].includes(reason)
           ? reason
           : "closed";
+        // Deleting only this agent's record leaves every other agent's record
+        // in the same browser untouched.
+        if (store && agentKey) store.remove(origin, agentKey);
         lease?.revoke();
         revokeVerifiedPageConnection(connection);
         cleanup();
@@ -984,6 +1139,35 @@ export async function connectAIAuthModal({
 
 // Kept as an API alias for existing integrations; this now opens a modal.
 export const connectAIAuthPopup = connectAIAuthModal;
+
+/**
+ * Explicit resume, called only after the visitor clicks a Resume action.
+ * Returns null when there is no valid record so the site can show its normal
+ * Connect button. A wallet that cannot confirm makes the promise reject and
+ * drops that agent's record; it never starts a fresh approval silently.
+ */
+export async function resumeAIAuthSession(options = {}) {
+  const store =
+    options.sessionStore ??
+    (globalThis.sessionStorage
+      ? createSessionStore({ storage: options.storage })
+      : null);
+  if (!store) return null;
+  const records = options.record
+    ? [options.record]
+    : await listResumableSessions(store, {
+        origin: options.origin,
+        room: options.room,
+        capabilities: options.capabilities,
+        now: options.now,
+      });
+  if (records.length === 0) return null;
+  return connectAIAuthModal({
+    ...options,
+    sessionStore: store,
+    resumeRecord: records[0],
+  });
+}
 
 export function mountAIAuthCollaboration(
   connection,
