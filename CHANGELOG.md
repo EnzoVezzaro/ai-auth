@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.5.1 - 2026-11-16
+
+### Fixed
+
+- Presence no longer starves chat. Heartbeats, hello, goodbye and cursor events have their own inbound budgets per source, per identity and per room. Cursor movement can no longer drop a site's messages, actions or receipts.
+- Delivery is per recipient. A broadcast used to skip a peer whose channel was briefly not open, with no error and no retry, so a message could stay "waiting for a receipt" forever. Each send now targets one peer, and a missed send is retried until the peer reopens or the signed event expires.
+- Tool traffic is addressed. Tool requests and cancellations go to the serving site, and tool responses go to the requesting agent, instead of to every peer in the room.
+
+### Changed
+
+- Content budgets (messages, actions, receipts, tool traffic) per source and per identity rise from 32 to 64 events per 10 seconds. Bursts from a host serving several agents were being dropped. The room-wide content cap stays at 256 per 10 seconds.
+
 ## 0.5.0 - 2026-11-15
 
 ### Breaking changes
