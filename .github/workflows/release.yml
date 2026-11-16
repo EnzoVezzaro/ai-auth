@@ -37,6 +37,12 @@ jobs:
       - name: Install local MCP dependencies
         run: npm ci
         working-directory: packages/mcp
+      - name: Install agent runtime dependencies
+        run: npm ci
+        working-directory: packages/agent
+      - name: Install runtime dependencies
+        run: npm ci
+        working-directory: packages/runtime
       - name: Run wallet, runtime, and MCP suites
         run: npm run test:all
       - name: Install Chromium for browser collaboration E2E
@@ -56,14 +62,21 @@ jobs:
       - name: Audit MCP production dependencies
         run: npm audit --omit=dev
         working-directory: packages/mcp
-      - name: Publish the wallet SDK to npm
+      - name: Publish packages to npm in dependency order
         run: |
-          version="$(node -p 'require("./package.json").version')"
-          if npm view "@enzovezzaro/ai-auth-wallet@${version}" version >/dev/null 2>&1; then
-            echo "@enzovezzaro/ai-auth-wallet@${version} is already published"
-          else
-            npm publish --access public
-          fi
+          publish_if_new() {
+            name="$1"; dir="$2"
+            version="$(node -p "require('./${dir}/package.json').version")"
+            if npm view "${name}@${version}" version >/dev/null 2>&1; then
+              echo "${name}@${version} is already published"
+            else
+              (cd "$dir" && npm publish --access public)
+            fi
+          }
+          publish_if_new "@enzovezzaro/ai-auth-wallet" "."
+          publish_if_new "@enzovezzaro/ai-auth-runtime" "packages/runtime"
+          publish_if_new "@enzovezzaro/ai-auth-agent" "packages/agent"
+          publish_if_new "@enzovezzaro/ai-auth-mcp" "packages/mcp"
       - name: Package the static site for the GitHub release
         run: tar -czf "ai-auth-static-site-${GITHUB_REF_NAME}.tar.gz" -C dist-p2p .
       - name: Verify npm packages were published
@@ -71,6 +84,7 @@ jobs:
           npm view "@enzovezzaro/ai-auth-wallet@$(node -p 'require("./package.json").version')" version
           npm view "@enzovezzaro/ai-auth-runtime@$(node -p 'require("./packages/runtime/package.json").version')" version
           npm view "@enzovezzaro/ai-auth-mcp@$(node -p 'require("./packages/mcp/package.json").version')" version
+          npm view "@enzovezzaro/ai-auth-agent@$(node -p 'require("./packages/agent/package.json").version')" version
       - name: Create the GitHub release with the static site archive
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
