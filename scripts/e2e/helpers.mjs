@@ -243,7 +243,7 @@ export async function approveWallet(
     () =>
       document
         .querySelector("#view")
-        ?.innerText.includes("Requested capabilities"),
+        ?.innerText.includes("Requested permissions"),
     undefined,
     { timeout: 10_000 },
   );

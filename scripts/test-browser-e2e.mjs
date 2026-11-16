@@ -726,8 +726,8 @@ try {
     "session grant is longer than the 2 minute handshake",
   );
   assert.match(
-    await popupA.locator("#session-expiry").innerText(),
-    /left/u,
+    await popupA.locator("#session-countdown").innerText(),
+    /Session ends at/u,
     "wallet UI shows when the session expires",
   );
 
