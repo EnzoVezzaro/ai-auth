@@ -39,14 +39,23 @@ export async function negotiateSession({
     nonceGuard: guard,
   });
   if (!valid) throw new Error("The wallet consent could not be verified");
-  return { request, consent, guard, lease: new SessionLease(consent.body.payload) };
+  return {
+    request,
+    consent,
+    guard,
+    lease: new SessionLease(consent.body.payload),
+  };
 }
 
 export async function renewSession(session, { wallet, origin, room }) {
   const request = await createPermissionRequest(
     origin,
     session.consent.body.payload.capabilities,
-    { room, expiresInMs: HANDSHAKE_MS, renews: session.consent.body.payload.requestNonce },
+    {
+      room,
+      expiresInMs: HANDSHAKE_MS,
+      renews: session.consent.body.payload.requestNonce,
+    },
   );
   const approved = await askConsent({
     title: "Renew BODY4AI session",

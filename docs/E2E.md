@@ -13,7 +13,7 @@ npx playwright install chromium     # once
 npm run test:e2e:body4ai            # builds dist-p2p first
 ```
 
-Environment: `AI_AUTH_CHROMIUM_PATH` selects another Chromium. `B4A_STOP_AFTER=<n>` stops after step n (debugging). The whole run times out after 10 minutes. Output: a PASS / FAIL / KNOWN-BUG / PENDING / NETWORK line per step, a summary table, and `test-results/e2e-report.json` (gitignored) with each step's duration and evidence such as wallet ids and peer counts. The exit code is 0 only when every non-PENDING step passes. KNOWN-BUG steps fail the run so they stay visible.
+Environment: `AI_AUTH_CHROMIUM_PATH` selects another Chromium. `B4A_STOP_AFTER=<n>` stops after step n (debugging). The whole run times out after 10 minutes. Output: a PASS / FAIL / KNOWN-BUG / PENDING / NETWORK line per step, a summary table, and `test-results/e2e-report.json` (gitignored) with each step's duration and evidence such as wallet ids and peer counts. The exit code is 0 only when every step passes. A NETWORK result (ICE or relay failure) is reported as a network problem, not a product failure.
 
 ## Network requirements
 
@@ -45,7 +45,7 @@ Each step is named and asserted in `scripts/e2e/steps-*.mjs`. Steps run in depen
 3. Session grant: expiry is shown, the session outlives the 120 s handshake (controllable clock), renews without widening scopes, and an expired session cannot publish.
 4. Connection state: `waiting-for-peers` precedes `direct-peer-connected`; `directPeerCount` is read from `NostrWebRTC.connectionState`.
 5. Site link: `approveLink` (subset) then `verifyLink`; listed after a fresh page load; only approved scopes work.
-6. Restricted room: an uninvited agent cannot invoke tools or be admitted (see KNOWN-BUG below).
+6. Restricted room: an uninvited agent cannot invoke tools, receives no restricted events, and its forged membership is rejected.
 7. Presence: one cursor per verified identity, labels shown as claims.
 8. Wheel: broadcast chat, targeted message, receipt-driven state, password redaction, synthetic screenshot, oversized attachment rejected.
 9. Agent to agent: signed events in both directions.
@@ -58,19 +58,34 @@ Each step is named and asserted in `scripts/e2e/steps-*.mjs`. Steps run in depen
 16. Unlink: the wallet emits the revocation, the site applies it, link use fails.
 17. Disconnect: the cursor leaves within the lease.
 18. Cross-origin: a second origin rejects origin A's consent, link and membership and shares no room.
-19. Private presence: **PENDING** until the feature merges (feature check on the P2P source).
+19. Private presence: a private agent receives authorized events, advertises no presence or cursor, and its signed events are audited.
 20. Headless agent: visible to browsers, exchanges signed events with Agent 1.
 
 ## How the site uses the SDK
 
-The site is a static page. Because the in-page `registerAIAuthPageActions`/`mountAIAuthInPageAgent` host only accepts connections created by the wallet modal, and the wallet modal's room cannot join restricted rooms, the demo hosts tools through an in-page adapter that registers itself with `markVerifiedPageConnection` from `packages/p2p/session.js`. The wallet iframe flow itself is covered by `scripts/test-browser-e2e.mjs` and is not repeated here.
+The demo is a static page. Every protocol decision is made by the SDK:
 
-## Findings (KNOWN-BUG steps)
+- **Consent and session:** `createPermissionRequest` / `approvePermissionRequest` / `verifyPermissionConsent` / `SessionLease` (`examples/body4ai/site/session.js`).
+- **Room and transport:** `P2PRoom` (optionally `privateMode`) with `NostrWebRTC`, `CollaborationTransfers` and `mountCollaborationWheel`.
+- **Presence:** `createPresenceTracker` fed only with verified room events; cursors are protocol v1 (`buildCursorPayload`, document coordinates, per page).
+- **WebMCP tools:** `mountAIAuthInPageAgent` with `policy`, so every remote run passes the SDK membership and execution-grant gate (`authorizeProtected`). The site's `authorize` adds the human decision. Read-only tools need no click.
+- **Revocation:** `createRevocationGossip` on the room, applied to the site's participation policy.
+- **Links:** `approveLink` / `verifyLink` / `listLinks` / `unlink`, verified by the operator in `site-authority.mjs`.
 
-A KNOWN-BUG step keeps its assertion and fails the run; the observed and expected behavior are in the step output and report JSON.
+The wallet iframe flow (`apps/p2p`) is covered by `scripts/test-browser-e2e.mjs`; this scenario drives the same SDK functions directly from the demo page.
 
-- **Step 6, confidentiality.** `NostrWebRTC.deliver` calls Trystero's `action.send(envelope, targets)` with an array, but `@trystero-p2p/nostr` 0.27 takes `send(data, { target })`. The array is ignored, so restricted-room events are broadcast to every direct peer, including a wallet with no membership. Receivers' policies still drop what they are not allowed to act on (the uninvited agent could not run a tool), but it receives restricted content.
-- **Step 10, deny.** When the human denies a protected call the agent's `callTool` resolves with `{ error }` instead of rejecting (tracked in `tests/webmcp-contract.test.mjs` as a todo).
+## SDK defects this scenario found and fixed
+
+These were real product bugs. Each fix has a unit test that fails on the old code.
+
+- **Restricted-room confidentiality (step 6).** `NostrWebRTC.deliver` passed the peer list as a positional argument to Trystero's `action.send`. Trystero 0.27 reads `send(data, { target })`, so the list was ignored and restricted events were broadcast to every direct peer, including wallets with no membership. Fixed in `packages/p2p/p2p.js`; the test fakes (`tests/participation.test.mjs`, `packages/agent/test/fake-transport.mjs`) now follow the real contract, and a contract test pins it to the installed Trystero types.
+- **Denied tool calls (step 10).** A denied call resolved as success. Fixed on `integration/0.5.0` (refusals are now `tool-response.error`); the matching `webmcp-contract` todos are closed.
+- **Presence for private wallets (step 19).** Implemented on `integration/0.5.0` (private presence, `membership/prove`); the step now runs instead of reporting PENDING.
+- **Headless agent (step 20).** Implemented in `packages/agent`; the step runs against a real child process.
+
+## Post-release check (deferred)
+
+This run uses the workspace sources. After the release, the same scenario should be run against the published packages: install `@enzovezzaro/ai-auth-wallet` and `@enzovezzaro/ai-auth-agent` from npm in a clean directory, serve the published `body4ai` demo, and run the steps again. That check is not part of this change and has not been done.
 
 ## What this does not prove
 
@@ -78,4 +93,4 @@ A KNOWN-BUG step keeps its assertion and fails the run; the observed and expecte
 - Interoperability with an installed external coding agent harness.
 - Six-participant scale evidence from separate devices.
 - Human identity: signatures prove key possession only. Membership is the operator's decision.
-- The wallet iframe (`apps/p2p`) joining restricted rooms: it cannot today.
+- Publishing: this run does not publish, and does not verify the npm artifacts.

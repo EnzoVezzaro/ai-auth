@@ -435,7 +435,10 @@ async function callTool({ host, name, input, callId, giveUpMs }) {
     });
     return { ok: true, result };
   } catch (error) {
-    return { ...describeError(error), gaveUp: Boolean(giveUp) && controller.signal.aborted };
+    return {
+      ...describeError(error),
+      gaveUp: Boolean(giveUp) && controller.signal.aborted,
+    };
   } finally {
     clearTimeout(giveUp);
     if (callId) state.calls.delete(callId);
@@ -565,7 +568,10 @@ window.__b4a = {
       () => ({ ok: true }),
       (error) => describeError(error),
     ),
-  audit: () => state.room.audit().map(({ type, private: hidden }) => ({ type, private: hidden })),
+  audit: () =>
+    state.room
+      .audit()
+      .map(({ type, private: hidden }) => ({ type, private: hidden })),
   overlay: () =>
     [...document.querySelectorAll("#cursor-overlay .remote-cursor")].map(
       (node) => node.dataset.issuer,

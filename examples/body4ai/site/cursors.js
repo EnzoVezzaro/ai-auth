@@ -58,7 +58,10 @@ export function mountPresence({ list, overlay, room, pageKey }) {
     else if (type === "peer/goodbye") tracker.goodbye(peer);
     else if (type === "presence/cursor") tracker.cursor({ ...peer, payload });
   });
-  const sweep = setInterval(() => tracker.sweep() || render(tracker.list()), SWEEP_MS);
+  const sweep = setInterval(
+    () => tracker.sweep() || render(tracker.list()),
+    SWEEP_MS,
+  );
   return {
     tracker,
     stop() {
