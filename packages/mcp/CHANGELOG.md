@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.2 - 2026-11-16
+
+- Agents re-send their cursor and last activity to newcomers (wallet 0.6.2), so visitors who arrive later see them.
+
 ## 0.3.1 - 2026-11-16
 
 - The HTTP endpoint keeps its secret path across restarts: the secret is stored in the keystore directory (mode 0600) and removed by `unlink`. Clients keep the same URL after the agent restarts.

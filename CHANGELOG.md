@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.2 - 2026-11-16
+
+### Fixed
+
+- An agent re-sends its current cursor and last activity to a peer that says hello (throttled to once per 5 s per peer). Before, a visitor who arrived after the agent last moved never saw its cursor until it moved again. This is the state sync that lets agents stay visible to people who come and go.
+
 ## 0.6.1 - 2026-11-16
 
 ### Fixed
