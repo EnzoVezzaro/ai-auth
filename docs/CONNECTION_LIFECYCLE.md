@@ -36,8 +36,9 @@ membership.
 States: `idle`, `approval-pending`, `wallet-authorized`, `connecting`,
 `signaling`, `waiting-for-peers`, `direct-peer-connected`, `reconnecting`,
 `degraded`, `expired`, `revoked`, `disconnected`. A temporary transport loss
-moves out of `connected` immediately into `reconnecting`; `failed`/`closed`
-and revocation invalidate the active connection.
+moves out of `direct-peer-connected` immediately into `reconnecting`, or to
+`disconnected` when retries run out. Expired or revoked authorization is checked
+before any reconnect, so the connection does not come back.
 
 ## Liveness
 
@@ -67,9 +68,11 @@ application commands. The generic browser fixture uses `demo.echo` and
 `demo.increment` to prove this. There are no Body4AI catalogs in AI Auth core.
 
 A page tool catalog is bound to the site's wallet, room session, signed nonce,
-expiry, and tool version. When the providing page closes, it publishes an
-empty catalog: peers drop the catalog at once and in-flight calls are rejected
-with `SITE_DISCONNECTED`. Expired catalogs are pruned on read. Calls validate
+expiry, and tool version. When the providing page closes, it stops refreshing its
+catalog, and the last catalog expires within two minutes. `stop()` and `close()`
+publish an empty catalog at once; a page that closes without calling them does
+not. In-flight calls are rejected with `SITE_DISCONNECTED` when the site leaves
+the room. Expired catalogs are pruned on read. Calls validate
 input against the advertised schema, apply the site's own authorization gate,
 and return the real executor result or a structured error. Stable error codes
 are `TOOL_UNAVAILABLE`, `SITE_DISCONNECTED`, `CATALOG_EXPIRED`,
