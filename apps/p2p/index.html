@@ -10,6 +10,45 @@
     <meta name="theme-color" content="#f3f1eb" />
     <title>AI Auth — Agent wallet</title>
     <link rel="stylesheet" href="./styles.css" />
+    <style>
+      /* Phone-width fixes for the wallet pages. A long wallet ID must wrap
+         inside the topbar instead of widening the page. */
+      @media (max-width: 420px) {
+        .topbar {
+          flex-wrap: wrap;
+        }
+        .topbar > div:first-child {
+          min-width: 0;
+        }
+        .topbar-status {
+          min-width: 0;
+          max-width: 100%;
+        }
+        .topbar-status > span:last-child {
+          min-width: 0;
+          overflow-wrap: anywhere;
+        }
+        .nav-item {
+          white-space: normal;
+          line-height: 1.2;
+        }
+      }
+      /* The wallet ID on a plain panel must use the panel's text color. */
+      .panel .key-id {
+        color: inherit;
+      }
+      /* Touch targets are at least 44px tall on touch screens and phones. */
+      @media (pointer: coarse), (max-width: 700px) {
+        button,
+        .button,
+        .button.small,
+        .nav-item,
+        .checkbox-row,
+        .control {
+          min-height: 44px;
+        }
+      }
+    </style>
     <script type="module" src="./app.js"></script>
   </head>
   <body>
@@ -83,8 +122,7 @@
       </div>
     </div>
     <noscript
-      >This wallet needs JavaScript to create and check
-      signatures.</noscript
+      >This wallet needs JavaScript to create and check signatures.</noscript
     >
   </body>
 </html>
