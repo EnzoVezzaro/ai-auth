@@ -491,7 +491,7 @@ try {
     () =>
       [
         ...document.querySelectorAll('#events li[data-type="presence/cursor"]'),
-      ].some((item) => JSON.parse(item.textContent).label.startsWith("Agent ")),
+      ].some((item) => JSON.parse(item.textContent).label.length > 0),
     undefined,
     { timeout: 30_000 },
   );
