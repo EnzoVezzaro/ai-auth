@@ -431,6 +431,9 @@ export async function connectAIAuthModal({
             type: "ai-auth/session-resume",
             sessionId: currentRecord.sessionId,
             walletId: currentRecord.walletId,
+            // Public, signed data only: the wallet re-verifies this envelope
+            // against its own key before it agrees to resume.
+            consent: currentRecord.consent,
             audience: origin,
             room,
             capabilities: [...currentRecord.capabilities],
@@ -1147,6 +1150,8 @@ export const connectAIAuthPopup = connectAIAuthModal;
  * drops that agent's record; it never starts a fresh approval silently.
  */
 export async function resumeAIAuthSession(options = {}) {
+  // Match connectAIAuthModal's default so a site can pass the same options.
+  const origin = options.origin ?? globalThis.location?.origin;
   const store =
     options.sessionStore ??
     (globalThis.sessionStorage
@@ -1156,7 +1161,7 @@ export async function resumeAIAuthSession(options = {}) {
   const records = options.record
     ? [options.record]
     : await listResumableSessions(store, {
-        origin: options.origin,
+        origin,
         room: options.room,
         capabilities: options.capabilities,
         now: options.now,
@@ -1164,6 +1169,7 @@ export async function resumeAIAuthSession(options = {}) {
   if (records.length === 0) return null;
   return connectAIAuthModal({
     ...options,
+    origin,
     sessionStore: store,
     resumeRecord: records[0],
   });
