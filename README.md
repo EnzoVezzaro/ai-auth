@@ -39,7 +39,7 @@ npm install @enzovezzaro/ai-auth-agent
 npm install @enzovezzaro/ai-auth-mcp
 ```
 
-`@enzovezzaro/ai-auth-server` is retired. The wallet package replaced it. The project is published on [GitHub Pages](https://enzovezzaro.github.io/ai-auth/) only; the [hosting policy](docs/HOSTING.md) explains why.
+The static site is hosted on [GitHub Pages](https://enzovezzaro.github.io/ai-auth/), while the npm packages above are published to npm by [`.github/workflows/release.yml`](.github/workflows/release.yml). The [hosting policy](docs/HOSTING.md) explains why the site is hosted on GitHub Pages only.
 
 ## Run it locally
 
@@ -110,9 +110,9 @@ removeCursorOverlay();
 connection.close();
 ```
 
-Call the modal from a click or another user gesture. It shows the site's request and signs only the scopes you select. Use HTTPS once you leave local development.
+Call the modal from a click or another user gesture; the SDK does not enforce a gesture check, so this is a convention for the calling site rather than a guarantee. It shows the site's request and signs only the scopes you select. Use HTTPS once you leave local development.
 
-The default room comes from the site's exact origin, so agents on the same site find one another. Pass a `room` key if you want a separate space. A room puts peers in the same place. It does not hand out access, so the site still checks every request.
+The default room name is the literal `default`. The site's exact origin still matters: the shared topic hash is `createSharedRoomTopic(origin, room)`, so agents on the same origin and room name find one another. Pass a `room` key if you want a separate space. A room puts peers in the same place. It does not hand out access, so the site still checks every request.
 
 The details are in the [architecture](docs/ARCHITECTURE.md), [security boundaries](docs/SECURITY.md), [wire format](docs/WIRE_FORMAT.md), and [wallet recovery](docs/RECOVERY.md) documents.
 
@@ -158,7 +158,7 @@ The panel shows the instruction with a copy button, then the handshake state (`i
 
 An agent does not need an open browser tab. `@enzovezzaro/ai-auth-agent` keeps its wallet in an encrypted `0600` keystore file. The passphrase comes from `AI_AUTH_PASSPHRASE` or a terminal prompt. A broken keystore fails closed; it never quietly creates a new identity.
 
-`createAgentRuntime` joins the room, sends heartbeat leases, and reconnects after a drop. `resume()` picks up a saved room after a restart. You will not see `direct-peer-connected` until a real WebRTC data channel is open. There is a worked example in `packages/agent/examples/peer.mjs`, and the design notes are in [docs/AGENT_RUNTIME.md](docs/AGENT_RUNTIME.md).
+`createAgentRuntime` joins the room, sends heartbeat leases, and reconnects after a drop. `resume()` picks up a saved room after a restart. You will not see `direct-peer-connected` until a real WebRTC data channel is open. There is a worked example in `packages/agent/examples/peer.mjs`. [docs/AGENT_RUNTIME.md](docs/AGENT_RUNTIME.md) is the Node WebRTC spike record, not a setup guide.
 
 For local coding agents, `ai-auth-mcp` exposes the same wallet through MCP stdio:
 
@@ -171,7 +171,7 @@ npx -y @enzovezzaro/ai-auth-mcp serve \
   --auto-join
 ```
 
-The terminal shows a preview when an agent asks to connect. With nobody there to approve it, the command stops unless `--approve` lists the exact scopes. I verified Claude Code end to end. The [adapter guide](docs/AGENT_ADAPTERS.md) covers Codex and OpenCode; their tool calls are still unverified.
+The terminal shows a preview when an agent asks to connect. With nobody there to approve it, the command stops unless `--approve` lists the exact scopes. The [adapter guide](docs/AGENT_ADAPTERS.md) records verification on 2026-11-15: a Claude Code tool call reached a peer over WebRTC, but Codex and OpenCode tool calls remain unverified (those runs stopped before a tool call).
 
 WebMCP is the tool surface inside the page. The SDK finds the page's tools, advertises a bounded catalog, and only runs a call after the wallet scope check and the page's own approval step. These local integrations are optional for a website. Never put secrets or private page data in the shared room.
 
@@ -182,9 +182,9 @@ A session starts when a wallet approves a connection. A site that sets no limit 
 
 `connection.renew()` takes the request back to the owner. It can keep or narrow the scopes, but it cannot add capabilities. After a session expires, goes idle, or ends, publishing, receiving, transfers, and WebMCP calls stop.
 
-Rooms start as `open`, and the SDK tells you when you join one. Anyone with the origin and room name can get in. A `restricted` room only admits peers with a site-issued `ai-auth-membership` proof. The site creates and checks those with `createParticipationPolicy`, `issueMembership`, and `verifyMembership`. Membership can expire or last until revoked. Even a valid membership cannot run a protected operation by itself. Each of those needs a short-lived execution grant (`issueExecutionGrant`, checked by `authorizeProtected`). Revoke with a signed `ai-auth-revocation` record, shared through `createRevocationGossip`.
+Rooms start as `open`. The SDK does not emit a join notice; it exposes the open-room disclosure text as `OPEN_ROOM_DISCLOSURE` (`policy.disclosure` / `room.disclosure`), which the site should display. Anyone with the origin and room name can get in. A `restricted` room only admits peers with a site-issued `ai-auth-membership` proof. The site creates and checks those with `createParticipationPolicy`, `issueMembership`, and `verifyMembership`. Membership can expire or last until revoked. Even a valid membership cannot run a protected operation by itself. Each of those needs a short-lived execution grant (`issueExecutionGrant`, checked by `authorizeProtected`). Revoke with a signed `ai-auth-revocation` record, shared through `createRevocationGossip`.
 
-A peer that was offline learns about a revocation when it reconnects. There is no global switch, so the execution grant keeps the window small. Private mode joins without showing a cursor or presence. The participant still receives authorized events, and its actions are still signed and audited. Private mode does not bypass site authorization or hide metadata from relays.
+A peer that was offline learns about a revocation when it reconnects through gossip catch-up. There is no single on/off switch for all authorization: revocations target one membership, link, or wallet id, while a room-wide epoch (`bumpEpoch()` or a signed `ai-auth-epoch` record) invalidates every proof and grant issued under an older epoch. Short-lived execution grants keep the exposure window small. Private mode joins without showing a cursor or presence. The participant still receives authorized events, and its actions are still signed and audited. Private mode does not bypass site authorization or hide metadata from relays.
 
 </details>
 
