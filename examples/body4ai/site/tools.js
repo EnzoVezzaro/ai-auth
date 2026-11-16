@@ -2,6 +2,13 @@
 // wishlist.add is protected: it needs the tools.invoke scope, a live execution
 // grant (authorizeProtected) AND an explicit human decision on this page.
 import { getProduct, searchCatalog } from "./catalog.js";
+import { ALLOW_LABEL, DENY_LABEL } from "./messages.js";
+
+const TOOL_REQUESTS = Object.freeze({
+  "catalog.search": "search the catalog",
+  "product.get": "open a product",
+  "wishlist.add": "add a product to your wishlist",
+});
 
 const objectSchema = (properties, required = []) => ({
   type: "object",
@@ -65,18 +72,20 @@ export function buildActions({ wishlist, executions }) {
 }
 
 /** Human approval panel: resolves true/false from the visitor's click. */
-export function askHuman({ target, action, input, requester }) {
+export function askHuman({ target, action }) {
   const panel = document.createElement("div");
   panel.dataset.approval = action.name;
   panel.setAttribute("role", "alertdialog");
   const text = document.createElement("p");
-  text.textContent = `Agent ${requester.slice(6, 18)} wants to run ${action.name} ${JSON.stringify(input)}`;
+  const request = TOOL_REQUESTS[action.name] ?? "use a page tool";
+  text.textContent = `A connected agent wants to ${request}. Allow it?`;
   const approve = document.createElement("button");
   approve.id = "approve-action";
-  approve.textContent = "Approve";
+  approve.textContent = ALLOW_LABEL;
   const deny = document.createElement("button");
   deny.id = "deny-action";
-  deny.textContent = "Deny";
+  deny.className = "secondary";
+  deny.textContent = DENY_LABEL;
   panel.append(text, approve, deny);
   target.append(panel);
   return new Promise((resolve) => {
@@ -101,7 +110,7 @@ export function makeAuthorize({ target, log }) {
       return false;
     }
     if (action.readOnly) return true;
-    const approved = await askHuman({ target, action, input, requester });
+    const approved = await askHuman({ target, action });
     if (!approved) log("denied", action.name, "human declined");
     return approved;
   };

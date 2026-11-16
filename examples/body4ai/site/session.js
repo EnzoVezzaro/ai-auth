@@ -9,6 +9,11 @@ import {
   verifyPermissionConsent,
 } from "../../../packages/p2p/browser.js";
 import { askConsent } from "./consent-dialog.js";
+import {
+  EXTEND_LABEL,
+  PlainError,
+  approvalFailureMessage,
+} from "./messages.js";
 
 const HANDSHAKE_MS = 120_000;
 
@@ -24,21 +29,28 @@ export async function negotiateSession({
     expiresInMs: HANDSHAKE_MS,
     ...(sessionTtlMs ? { sessionTtlMs } : {}),
   });
-  const approved = await askConsent({
+  const outcome = await askConsent({
     title: "Connect to BODY4AI",
-    origin,
     capabilities: request.capabilities,
     expiresInMs: HANDSHAKE_MS,
   });
-  if (!approved?.length) throw new Error("The wallet declined this request");
-  const consent = await approvePermissionRequest(wallet, request, approved);
+  if (!outcome.approved)
+    throw new PlainError(approvalFailureMessage(outcome.reason));
+  const consent = await approvePermissionRequest(
+    wallet,
+    request,
+    outcome.approved,
+  );
   const guard = new NonceGuard();
   const valid = await verifyPermissionConsent(consent, request, {
     expectedOrigin: origin,
     expectedWallet: wallet.id,
     nonceGuard: guard,
   });
-  if (!valid) throw new Error("The wallet consent could not be verified");
+  if (!valid)
+    throw new PlainError(
+      "We could not verify your approval. Click Connect agent to try again.",
+    );
   return {
     request,
     consent,
@@ -48,6 +60,7 @@ export async function negotiateSession({
 }
 
 export async function renewSession(session, { wallet, origin, room }) {
+  const endsAt = session.consent.body.payload.expiresAt;
   const request = await createPermissionRequest(
     origin,
     session.consent.body.payload.capabilities,
@@ -57,16 +70,23 @@ export async function renewSession(session, { wallet, origin, room }) {
       renews: session.consent.body.payload.requestNonce,
     },
   );
-  const approved = await askConsent({
-    title: "Renew BODY4AI session",
-    origin,
+  const outcome = await askConsent({
+    title: EXTEND_LABEL,
     capabilities: request.capabilities,
     expiresInMs: HANDSHAKE_MS,
   });
-  if (!approved?.length) throw new Error("The wallet declined to renew");
-  const consent = await approvePermissionRequest(wallet, request, approved, {
-    previousConsent: session.consent,
-  });
+  if (!outcome.approved)
+    throw new PlainError(
+      approvalFailureMessage(outcome.reason, { renewal: true, endsAt }),
+    );
+  const consent = await approvePermissionRequest(
+    wallet,
+    request,
+    outcome.approved,
+    {
+      previousConsent: session.consent,
+    },
+  );
   const valid = await verifyPermissionConsent(consent, request, {
     expectedOrigin: origin,
     expectedWallet: wallet.id,
@@ -74,6 +94,6 @@ export async function renewSession(session, { wallet, origin, room }) {
     previousConsent: session.consent,
   });
   if (!valid || !session.lease.renew(consent.body.payload))
-    throw new Error("The wallet renewal could not be verified");
+    throw new PlainError("We could not extend the session. Try again.");
   return { ...session, request, consent };
 }
