@@ -13,6 +13,10 @@ export const CONNECT_LABEL = "Connect agent";
 export const EXTEND_MINUTES = 30;
 export const EXTEND_LABEL = `Extend for ${EXTEND_MINUTES} more minutes`;
 export const DISCONNECTED_BY_USER_MESSAGE = "You disconnected.";
+export const NO_WALLET_NOTICE =
+  "No wallet is saved in this browser yet. Create your wallet first, then connect.";
+export const WALLET_SAVED_NOTICE =
+  "Your wallet is still saved in this browser.";
 
 const MINUTE_MS = 60_000;
 

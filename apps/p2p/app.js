@@ -1,5 +1,16 @@
 import { CollaborationTransfers } from "../../packages/p2p/collaboration.js";
-import { WALLET_REQUIRED_MESSAGE } from "../../packages/p2p/copy.js";
+import {
+  EXTEND_LABEL,
+  EXTEND_MINUTES,
+  WALLET_REQUIRED_MESSAGE,
+  WALLET_SAVED_NOTICE,
+  NO_WALLET_NOTICE,
+  capabilityCopy,
+  connectionStatusLabel,
+  renewalKeptText,
+  requestEndText,
+  sessionEndText,
+} from "../../packages/p2p/copy.js";
 import {
   appendActivity,
   approvePermissionRequest,
@@ -69,34 +80,15 @@ const state = {
   externalRoomReady: false,
   externalPendingEvents: [],
   error: "",
+  connectionLabel: "",
 };
 const capabilityOptions = [
-  [
-    "presence.read",
-    "See this agent's public presence",
-    "Let the requesting site see that this agent is online.",
-  ],
-  [
-    "messages.send",
-    "Exchange messages",
-    "Allow message exchange in this site's shared space.",
-  ],
-  [
-    "content.share",
-    "Share selected content",
-    "Allow manually selected elements, screenshots, and recordings to be shared with peers.",
-  ],
-  [
-    "tools.invoke",
-    "Use approved tools",
-    "The site still chooses and enforces each tool action.",
-  ],
-  [
-    "tasks.delegate",
-    "Delegate a task",
-    "Allow a limited task handoff to an authorized peer.",
-  ],
-];
+  "presence.read",
+  "messages.send",
+  "content.share",
+  "tools.invoke",
+  "tasks.delegate",
+].map((id) => [id, capabilityCopy(id).title, capabilityCopy(id).detail]);
 const esc = (value) =>
   String(value ?? "").replace(
     /[&<>"']/gu,
@@ -123,14 +115,6 @@ function sessionTtlChoices(request) {
   choices.add(maxSessionTtlMs);
   return [...choices].sort((a, b) => a - b);
 }
-function remainingText(expiresAt) {
-  const remaining = Math.max(0, expiresAt - Date.now());
-  const minutes = Math.floor(remaining / 60_000);
-  const seconds = Math.floor((remaining % 60_000) / 1000);
-  return minutes > 0
-    ? `${minutes}m ${String(seconds).padStart(2, "0")}s`
-    : `${seconds}s`;
-}
 
 function toast(message) {
   const element = $("#toast");
@@ -156,7 +140,7 @@ function setupFormError() {
 }
 
 function walletSetupView() {
-  return `${pageHead("YOUR KEY. YOUR AGENT.", "Start with a wallet.", "Create an agent identity in this browser. Your signing key is stored in IndexedDB and cannot be exported by this page after creation.")}
+  return `${pageHead("YOUR KEY. YOUR AGENT.", "Start with a wallet.", "Create an agent identity in this browser. Your wallet key is stored in this browser's storage and cannot be copied out by this page after creation.")}
     <div class="grid-main">
       <section class="panel">
         <div class="panel-head"><div><h2>Create a wallet</h2><p class="panel-copy">A recovery file is encrypted before it is downloaded. Keep it separate from this browser.</p></div><span class="status-tag pending">LOCAL KEY</span></div>
@@ -176,19 +160,19 @@ function walletSetupView() {
         </form>
       </section>
       <aside class="stack">
-        <section class="panel"><div class="panel-head"><div><p class="mini-label">WHAT THIS IS</p><h3>Agent identity without an account</h3></div></div><p class="panel-copy">A public key identifies the wallet. It can sign proof of possession and scoped consent. A signature does not grant access to someone else's site.</p></section>
-        <section class="panel"><div class="panel-head"><div><p class="mini-label">NO CHAIN REQUIRED</p><h3>Web cryptography only</h3></div></div><div class="metric-line"><span>Algorithm</span><strong>ECDSA · P-256</strong></div><div class="metric-line"><span>Storage</span><strong>Browser IndexedDB</strong></div><div class="metric-line"><span>Blockchain</span><strong>None</strong></div></section>
+        <section class="panel"><div class="panel-head"><div><p class="mini-label">WHAT THIS IS</p><h3>Agent identity without an account</h3></div></div><p class="panel-copy">Your wallet key identifies you. It signs your approvals. A signature does not give anyone access to a site.</p></section>
+        <section class="panel"><div class="panel-head"><div><p class="mini-label">NO ACCOUNT NEEDED</p><h3>Kept in this browser</h3></div></div><div class="metric-line"><span>Algorithm</span><strong>ECDSA · P-256</strong></div><div class="metric-line"><span>Storage</span><strong>This browser's storage</strong></div><div class="metric-line"><span>Account</span><strong>None</strong></div></section>
       </aside>
     </div>`;
 }
 
 function walletView() {
   if (!state.wallet) return walletSetupView();
-  return `${pageHead("IDENTITY", "Your agent has an identity.", "A public key other websites can verify. The private signing key stays in this browser's IndexedDB.")}
+  return `${pageHead("IDENTITY", "Your agent has an identity.", "Other websites can verify this public ID. The private wallet key stays in this browser's storage.")}
     <div class="grid-main">
       <div class="stack">
         <section class="key-card"><p class="mini-label">PUBLIC AGENT ID</p><code class="key-id">${esc(state.wallet.id)}</code><div class="key-meta"><div>Agent name<strong>${esc(state.wallet.name)}</strong></div><div>Created<strong>${esc(dateText(state.wallet.createdAt))}</strong></div><div>Key status<strong>Non-exportable</strong></div></div></section>
-        <section class="panel"><div class="panel-head"><div><h2>Signing key</h2><p class="panel-copy">The private key cannot be read back after import into Web Crypto. The encrypted backup can be copied whenever you need it.</p></div><span class="status-tag"><span class="state-dot"></span> READY</span></div>
+        <section class="panel"><div class="panel-head"><div><h2>Signing key</h2><p class="panel-copy">The private key cannot be read back after it is imported. The encrypted backup can be copied whenever you need it.</p></div><span class="status-tag"><span class="state-dot"></span> READY</span></div>
           <div class="metric-line"><span>Key type</span><strong>ECDSA P-256</strong></div><div class="metric-line"><span>Signature hash</span><strong>SHA-256</strong></div><div class="metric-line"><span>Exportability</span><strong>Private key: no</strong></div>
           <div class="button-row"><button class="button secondary" id="download-backup">Download encrypted recovery file</button><button class="button quiet" id="copy-agent-id">Copy public identity</button></div>
         </section>
@@ -203,13 +187,13 @@ function overviewView() {
   const peers = state.room?.peers.size ?? 0;
   const activityCount = state.activity?.length ?? 0;
   const identity = state.wallet
-    ? `<section class="panel"><div class="panel-head"><div><p class="mini-label">AGENT IDENTITY</p><h2>${esc(state.wallet.name)}</h2><p class="panel-copy">This key lives in this browser and signs your agent's proofs.</p></div><span class="status-tag"><span class="state-dot"></span> READY</span></div><code class="key-id">${esc(shortId(state.wallet.id))}</code></section>`
-    : `<section class="panel"><div class="panel-head"><div><p class="mini-label">AGENT IDENTITY</p><h2>Create your wallet</h2><p class="panel-copy">Generate a local signing identity and save an encrypted recovery file.</p></div><span class="status-tag pending">NOT CREATED</span></div><button class="button" data-go-wallet>Set up wallet</button></section>`;
-  return `${pageHead("WALLET OVERVIEW", "Your agent, at a glance.", "Manage a local cryptographic identity, approve scoped requests, and connect directly with other wallets.")}
+    ? `<section class="panel"><div class="panel-head"><div><p class="mini-label">AGENT IDENTITY</p><h2>${esc(state.wallet.name)}</h2><p class="panel-copy">This wallet key lives in this browser and signs your approvals.</p></div><span class="status-tag"><span class="state-dot"></span> READY</span></div><p class="panel-copy">${WALLET_SAVED_NOTICE}</p><code class="key-id">${esc(shortId(state.wallet.id))}</code></section>`
+    : `<section class="panel"><div class="panel-head"><div><p class="mini-label">AGENT IDENTITY</p><h2>Create your wallet</h2><p class="panel-copy">${NO_WALLET_NOTICE}</p></div><span class="status-tag pending">NOT CREATED</span></div><button class="button" data-go-wallet>Set up wallet</button></section>`;
+  return `${pageHead("WALLET OVERVIEW", "Your agent, at a glance.", "Manage your wallet key in this browser, approve requested permissions, and connect directly with other agents.")}
     ${identity}
     <div class="grid-main top-gap">
-      <section class="panel"><p class="mini-label">CURRENT SESSION</p><h2>${state.privateMode ? "Private" : "Public collaboration"}</h2><p class="panel-copy">${state.privateMode ? "You receive room events but advertise no presence until you go public." : "Wallets on this site's public space discover one another through Nostr."}</p><div class="metric-line"><span>Connected peers</span><strong id="overview-peer-count">${peers}</strong></div><div class="metric-line"><span>Stored activity</span><strong>${activityCount}</strong></div><div class="callout top-gap">The website is the collaboration hub. Nostr relays coordinate discovery; signed events travel directly between wallets over WebRTC. No AI Auth server is involved.</div></section>
-      <section class="panel"><p class="mini-label">QUICK ACTIONS</p><h2>What would you like to do?</h2><div class="overview-actions"><button class="button secondary" data-go-view="connect">Review a site request</button><button class="button secondary" data-go-view="permissions">Grant a capability</button><button class="button secondary" data-go-view="peer">Connect to an agent</button><button class="button quiet" data-go-view="activity">View signed activity</button></div></section>
+      <section class="panel"><p class="mini-label">CURRENT SESSION</p><h2>${state.privateMode ? "Private" : "Public collaboration"}</h2><p class="panel-copy">${state.privateMode ? "You receive room events but advertise no presence until you go public." : "Agents on this site's public space find one another through connection helpers."}</p><div class="metric-line"><span>Connection</span><strong id="connection-status">${esc(state.connectionLabel || "Not connected.")}</strong></div><div class="metric-line"><span>Connected peers</span><strong id="overview-peer-count">${peers}</strong></div><div class="metric-line"><span>Stored activity</span><strong>${activityCount}</strong></div><div class="callout top-gap">The website brings the agents together. Connection helpers only help them find each other; signed messages travel directly between wallets. No AI Auth server is involved.</div></section>
+      <section class="panel"><p class="mini-label">QUICK ACTIONS</p><h2>What would you like to do?</h2><div class="overview-actions"><button class="button secondary" data-go-view="connect">Review a site request</button><button class="button secondary" data-go-view="permissions">Grant access</button><button class="button secondary" data-go-view="peer">Connect to an agent</button><button class="button quiet" data-go-view="activity">View signed activity</button></div></section>
     </div>`;
 }
 
@@ -224,28 +208,28 @@ function connectView() {
     )
     .join("");
   const result = state.consent
-    ? `<section class="panel"><div class="panel-head"><div><p class="mini-label">SIGNATURE VERIFIED</p><h2>Consent proof created</h2><p class="panel-copy">The wallet signed these selected scopes for ${esc(state.request.audience)}. The demo verifier checked the wallet, nonce, audience, expiry and scope subset.</p></div><span class="status-tag"><span class="state-dot"></span> VERIFIED</span></div><div class="fingerprint">${esc(JSON.stringify(state.consent, null, 2))}</div><div class="button-row"><button class="button secondary" id="copy-consent">Copy signed proof</button><button class="button quiet" id="new-request">New request</button></div><div class="callout top-gap">This sample verifier runs in the wallet page. A real relying website must issue its own challenge and enforce its own authorization policy.</div></section>`
+    ? `<section class="panel"><div class="panel-head"><div><p class="mini-label">SIGNATURE VERIFIED</p><h2>Approval created</h2><p class="panel-copy">The wallet approved these permissions for ${esc(state.request.audience)}. The check confirmed the wallet, the site, the time limit and the permissions.</p></div><span class="status-tag"><span class="state-dot"></span> VERIFIED</span></div><div class="fingerprint">${esc(JSON.stringify(state.consent, null, 2))}</div><div class="button-row"><button class="button secondary" id="copy-consent">Copy signed approval</button><button class="button quiet" id="new-request">New request</button></div><div class="callout top-gap">This sample verifier runs in the wallet page. A real relying website must issue its own challenge and enforce its own authorization policy.</div></section>`
     : "";
   return `${pageHead("SIGN-IN WITH AGENT", "Choose what this site may ask for.", "A one-use, origin-bound request is signed by your wallet. Permission is explicit and expires quickly.")}
-    <div class="grid-main"><div class="stack"><section class="panel"><div class="panel-head"><div><h2>Permission request</h2><p class="panel-copy">Only the exact origin receives this consent proof.</p></div><span class="status-tag pending">REVIEW REQUIRED</span></div>
-      <form id="permission-form"><div class="field"><label for="request-origin">Website origin</label><input class="control" id="request-origin" type="url" required value="${esc(location.origin)}"/><small>Use an origin only: scheme, host and optional port. No paths or wildcard hosts.</small></div><p class="scope-label">REQUESTED CAPABILITIES</p><div class="scope-list">${scopes}</div>${setupFormError()}<button class="button" type="submit">Review and sign selection</button></form>
-      </section>${result}</div><aside class="stack"><section class="panel"><div class="panel-head"><div><p class="mini-label">WHAT GETS SIGNED</p><h3>One site. A few actions. A short expiry.</h3></div></div><div class="metric-line"><span>Origin</span><strong>Exact match</strong></div><div class="metric-line"><span>Challenge</span><strong>One use</strong></div><div class="metric-line"><span>Lifetime</span><strong>60 seconds</strong></div><div class="metric-line"><span>Capabilities</span><strong>Only selected</strong></div></section><section class="panel"><p class="panel-copy">The signature proves this wallet approved a request. It does not prove a human reviewed it unless a human actually confirms the selection.</p></section></aside></div>`;
+    <div class="grid-main"><div class="stack"><section class="panel"><div class="panel-head"><div><h2>Permission request</h2><p class="panel-copy">Only this exact website receives the approval.</p></div><span class="status-tag pending">REVIEW REQUIRED</span></div>
+      <form id="permission-form"><div class="field"><label for="request-origin">Website origin</label><input class="control" id="request-origin" type="url" required value="${esc(location.origin)}"/><small>Use an origin only: scheme, host and optional port. No paths or wildcard hosts.</small></div><p class="scope-label">REQUESTED PERMISSIONS</p><div class="scope-list">${scopes}</div>${setupFormError()}<button class="button" type="submit">Review and approve selection</button></form>
+      </section>${result}</div><aside class="stack"><section class="panel"><div class="panel-head"><div><p class="mini-label">WHAT GETS SIGNED</p><h3>One site. A few actions. A short expiry.</h3></div></div><div class="metric-line"><span>Origin</span><strong>Exact match</strong></div><div class="metric-line"><span>Challenge</span><strong>One use</strong></div><div class="metric-line"><span>Lifetime</span><strong>60 seconds</strong></div><div class="metric-line"><span>Permissions</span><strong>Only selected</strong></div></section><section class="panel"><p class="panel-copy">The signature proves this wallet approved a request. It does not prove a human reviewed it unless a human actually confirms the selection.</p></section></aside></div>`;
 }
 
 function externalPermissionView() {
   const request = state.externalRequest;
   const displayOrigin = request.audience;
   if (!state.wallet) {
-    return `${pageHead("SITE WALLET REQUEST", "Create or restore your wallet.", `${displayOrigin} is requesting a signed agent identity. The wallet key stays in this browser.`)}
-      <section class="panel"><p class="mini-label">REQUESTING SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">Requested capabilities: ${request.capabilities.map(esc).join(", ")}</p>${setupFormError()}<button class="button" data-go-wallet>Continue to wallet setup</button></section>`;
+    return `${pageHead("SITE WALLET REQUEST", "Create or restore your wallet.", `${displayOrigin} wants to connect to your agent. Your wallet key stays in this browser.`)}
+      <section class="panel"><p class="mini-label">REQUESTING SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">Requested permissions: ${request.capabilities.map((capability) => esc(capabilityCopy(capability).title)).join(", ")}</p><p class="help">${NO_WALLET_NOTICE}</p>${setupFormError()}<button class="button" data-go-wallet>Continue to wallet setup</button></section>`;
   }
   if (state.externalStatus === "sent") {
     const grant = state.consent?.body?.payload;
     const renewalPanel = state.renewal
-      ? `<section class="panel" id="renewal-panel"><p class="mini-label">RENEWAL REQUESTED</p><h2>Keep ${esc(displayOrigin)} connected?</h2><p class="panel-copy">The site asks for another ${esc(durationText(Math.min(sessionLimits(state.renewal).maxSessionTtlMs, DEFAULT_SESSION_TTL_MS)))} session with the same capabilities: ${esc(state.renewal.capabilities.join(", "))}. Renewing never adds capabilities.</p><div class="button-row"><button class="button" id="approve-renewal">Renew session</button><button class="button quiet" id="decline-renewal">Decline</button></div></section>`
+      ? `<section class="panel" id="renewal-panel"><p class="mini-label">EXTENSION REQUESTED</p><h2>Keep ${esc(displayOrigin)} connected?</h2><p class="panel-copy">The site asks to extend your session for ${EXTEND_MINUTES} more minutes with the same permissions: ${esc(state.renewal.capabilities.map((capability) => capabilityCopy(capability).title).join(", "))}. Extending never adds permissions.</p><div class="button-row"><button class="button" id="approve-renewal">${EXTEND_LABEL}</button><button class="button quiet" id="decline-renewal">Don't allow</button></div></section>`
       : "";
-    return `${pageHead("CONSENT SENT", "Return to the requesting site.", "The signed proof was sent to the site that opened this wallet. You can close this tab.")}
-      <section class="panel"><p class="mini-label">APPROVED SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">Approved capabilities: ${esc(grant?.capabilities?.join(", ") ?? "")}</p><div class="metric-line"><span>Session expires</span><strong id="session-expiry">${esc(dateText(grant?.expiresAt))} (<span id="session-countdown">${esc(remainingText(grant?.expiresAt))}</span> left)</strong></div>${grant?.idleTimeoutMs ? `<div class="metric-line"><span>Idle timeout</span><strong>${esc(durationText(grant.idleTimeoutMs))}</strong></div>` : `<p class="help">Legacy short session from a site on an older SDK; it cannot be renewed.</p>`}<div class="button-row top-gap"><button class="button quiet" id="end-session">End session now</button></div></section>${renewalPanel}`;
+    return `${pageHead("APPROVAL SENT", "Return to the requesting site.", "Your signed approval was sent to the site that opened this wallet. You can close this tab.")}
+      <section class="panel"><p class="mini-label">APPROVED SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">Approved permissions: ${esc((grant?.capabilities ?? []).map((capability) => capabilityCopy(capability).title).join(", "))}</p><div class="metric-line"><span>Session</span><strong id="session-countdown">${esc(sessionEndText(grant?.expiresAt))}</strong></div>${grant?.idleTimeoutMs ? `<div class="metric-line"><span>Ends after inactivity</span><strong>${esc(durationText(grant.idleTimeoutMs))}</strong></div>` : `<p class="help">Legacy short session from a site on an older SDK; it cannot be renewed.</p>`}<div class="button-row top-gap"><button class="button quiet" id="end-session">End session</button></div></section>${renewalPanel}`;
   }
   if (state.externalStatus === "rejected") {
     return `${pageHead("REQUEST DECLINED", "The site stays disconnected.", "No identity or permission proof was shared.")}
@@ -262,15 +246,13 @@ function externalPermissionView() {
   }
   const scopes = request.capabilities
     .map((capability) => {
-      const [, title, detail] = capabilityOptions.find(
-        ([id]) => id === capability,
-      ) ?? [capability, capability, "This site will enforce this operation."];
+      const { title, detail } = capabilityCopy(capability);
       return `<label class="checkbox-row"><input type="checkbox" name="external-capability" value="${esc(capability)}"/><span><strong>${esc(title)}</strong><small><code>${esc(capability)}</code> · ${esc(detail)}</small></span></label>`;
     })
     .join("");
-  return `${pageHead("EXTERNAL SITE REQUEST", "Review before you sign.", "The wallet will send a public identity and only the capabilities you select. Your private key never leaves this browser.")}
-    <div class="grid-main"><section class="panel"><div class="panel-head"><div><p class="mini-label">REQUESTING SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">This request expires at ${esc(dateText(request.expiresAt))}. It is valid only for this exact origin and this one connection attempt.</p></div><span class="status-tag pending">REVIEW REQUIRED</span></div>
-      <form id="external-permission-form"><p class="scope-label">REQUESTED CAPABILITIES</p><div class="scope-list">${scopes}</div>${request.version === 1 ? `<p class="help">This site uses an older AI Auth SDK, so this connection lasts only until ${esc(dateText(request.expiresAt))} (under two minutes). Ask the site to upgrade for longer sessions.</p>` : ""}<div class="field"${request.version === 1 ? " hidden" : ""}><label for="session-ttl">Session lasts</label><select class="control" id="session-ttl" name="session-ttl">${sessionTtlChoices(
+  return `${pageHead("SITE REQUEST", "Review before you allow.", "Your wallet sends a public ID and only the permissions you allow. Your private key never leaves this browser.")}
+    <div class="grid-main"><section class="panel"><div class="panel-head"><div><p class="mini-label">REQUESTING SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">${esc(requestEndText(request.expiresAt))} It works only for this website and this one connection attempt.</p></div><span class="status-tag pending">REVIEW REQUIRED</span></div>
+      <form id="external-permission-form"><p class="scope-label">REQUESTED PERMISSIONS</p><div class="scope-list">${scopes}</div>${request.version === 1 ? `<p class="help">This site uses an older version of the connection code, so this connection lasts only until ${esc(dateText(request.expiresAt))} (under two minutes). Ask the site to upgrade for longer sessions.</p>` : ""}<div class="field"${request.version === 1 ? " hidden" : ""}><label for="session-ttl">Session lasts</label><select class="control" id="session-ttl" name="session-ttl">${sessionTtlChoices(
         request,
       )
         .map(
@@ -279,33 +261,33 @@ function externalPermissionView() {
         )
         .join(
           "",
-        )}</select><small>The session ends at this time or after ${esc(durationText(Math.min(sessionLimits(request).maxIdleTimeoutMs, sessionLimits(request).maxSessionTtlMs)))} without activity. The site must ask you again to renew it.</small></div>${setupFormError()}<div class="button-row"><button class="button" type="submit">Sign selected capabilities</button><button class="button quiet" type="button" id="reject-external-request">Decline</button></div></form>
-    </section><aside class="stack"><section class="panel"><div class="panel-head"><div><p class="mini-label">YOUR KEY STAYS HERE</p><h3>Only a signed proof leaves this tab</h3></div></div><p class="panel-copy">The requesting site receives your public key and approved scopes. A signature proves control of this wallet; the site still enforces its own permissions.</p></section></aside></div>`;
+        )}</select><small>The session ends at the time shown or after ${esc(durationText(Math.min(sessionLimits(request).maxIdleTimeoutMs, sessionLimits(request).maxSessionTtlMs)))} without activity. The site must ask again to extend it.</small></div>${setupFormError()}<div class="button-row"><button class="button" type="submit">Allow selected permissions</button><button class="button quiet" type="button" id="reject-external-request">Don't allow</button></div></form>
+    </section><aside class="stack"><section class="panel"><div class="panel-head"><div><p class="mini-label">YOUR KEY STAYS HERE</p><h3>Only your approval leaves this tab</h3></div></div><p class="panel-copy">The site receives your public ID and the permissions you allow. A signature proves you control this wallet; the site still enforces its own rules.</p></section></aside></div>`;
 }
 
 function walletRequired() {
-  return `<section class="empty-state"><h3>Create or restore a wallet first</h3><p>The wallet key is needed to sign permission proofs and delegate capabilities.</p><button class="button" data-go-wallet>Open identity setup</button></section>`;
+  return `<section class="empty-state"><h3>Create or restore a wallet first</h3><p>Your wallet key is needed to sign approvals and grant access.</p><button class="button" data-go-wallet>Open identity setup</button></section>`;
 }
 
 function permissionsView() {
   if (!state.wallet)
-    return `${pageHead("DELEGATION", "Grant a peer a narrow capability.", "Create a wallet-signed delegation record. A site must choose whether it trusts and enforces the grant.")}${walletRequired()}`;
-  return `${pageHead("SCOPED DELEGATION", "Grant only what the peer needs.", "The grant names a recipient, resource, operation list and expiry. It is signed by this wallet and independently verifiable.")}
-    <div class="grid-main"><section class="panel"><div class="panel-head"><div><h2>New capability grant</h2><p class="panel-copy">This wallet is the grant issuer. Revocation is not distributed by this MVP; use short expiries.</p></div><span class="status-tag pending">EXPLICIT SCOPE</span></div>
-      <form id="grant-form"><div class="field"><label for="grant-recipient">Recipient agent ID</label><input class="control" id="grant-recipient" required placeholder="agent: public key fingerprint"/></div><div class="field"><label for="grant-resource">Resource</label><input class="control" id="grant-resource" required maxlength="512" placeholder="site:example.com/room:research"/></div><div class="field"><label for="grant-capabilities">Allowed operations</label><input class="control" id="grant-capabilities" required placeholder="messages.send, presence.read"/><small>Comma-separated names. Wildcards are rejected.</small></div><div class="field"><label for="grant-hours">Expires in hours</label><input class="control" id="grant-hours" type="number" min="1" max="720" value="24" required/></div>${setupFormError()}<button class="button" type="submit">Sign delegation</button></form>
-    </section><aside class="stack"><section class="panel"><div class="panel-head"><div><p class="mini-label">AUTHORITY BOUNDARY</p><h3>Wallet signature is not site permission</h3></div></div><p class="panel-copy">The site owning the resource must trust this grant issuer, verify the recipient and scope, apply expiry, and check revocation policy before acting.</p></section><section id="grant-result"></section></aside></div>`;
+    return `${pageHead("GRANT ACCESS", "Grant another agent limited access.", "Create a signed record that gives another agent limited access. The site decides whether to honor it.")}${walletRequired()}`;
+  return `${pageHead("LIMITED ACCESS", "Grant only what the other agent needs.", "The grant names who receives it, what it covers and when it ends. Your wallet signs it, and anyone can check the signature.")}
+    <div class="grid-main"><section class="panel"><div class="panel-head"><div><h2>New access grant</h2><p class="panel-copy">This wallet issues the grant. Cancelling a grant is not supported yet, so use short expiry times.</p></div><span class="status-tag pending">EXPLICIT SCOPE</span></div>
+      <form id="grant-form"><div class="field"><label for="grant-recipient">Other agent's ID</label><input class="control" id="grant-recipient" required placeholder="Paste their agent ID"/></div><div class="field"><label for="grant-resource">What it can use</label><input class="control" id="grant-resource" required maxlength="512" placeholder="site:example.com/room:research"/></div><div class="field"><label for="grant-capabilities">Allowed actions</label><input class="control" id="grant-capabilities" required placeholder="messages.send, presence.read"/><small>Separate with commas. Wildcards are not allowed.</small></div><div class="field"><label for="grant-hours">Ends in hours</label><input class="control" id="grant-hours" type="number" min="1" max="720" value="24" required/></div>${setupFormError()}<button class="button" type="submit">Sign grant</button></form>
+    </section><aside class="stack"><section class="panel"><div class="panel-head"><div><p class="mini-label">AUTHORITY BOUNDARY</p><h3>A signature is not site permission</h3></div></div><p class="panel-copy">The site must trust this wallet, check the recipient and limits, and honor the end time before it acts.</p></section><section id="grant-result"></section></aside></div>`;
 }
 
 function peerRows() {
   const peers = [...(state.room?.peers.values() ?? [])];
   if (!peers.length)
-    return `<div class="empty-state"><h3>No other agents here yet</h3><p>Keep public presence on and connect another wallet to this site's shared space. Public Nostr relays coordinate discovery.</p></div>`;
-  return `<div class="event-list">${peers.map((peer) => `<div class="peer-chip"><div><strong>${esc(peer.name)}</strong><code>${esc(peer.id)}</code><small class="help">Session ${esc(peer.session.slice(0, 8))} · verified signed presence</small></div><button class="button quiet small" type="button" data-grant-peer="${esc(peer.id)}">Grant</button></div>`).join("")}</div>`;
+    return `<div class="empty-state"><h3>No other agents here yet</h3><p>Keep public presence on and connect another agent to this site's shared space. Connection helpers help agents find each other.</p></div>`;
+  return `<div class="event-list">${peers.map((peer) => `<div class="peer-chip"><div><strong>${esc(peer.name)}</strong><code>${esc(peer.id)}</code><small class="help">Verified presence</small></div><button class="button quiet small" type="button" data-grant-peer="${esc(peer.id)}">Grant</button></div>`).join("")}</div>`;
 }
 
 function connectPeerView() {
   if (!state.wallet)
-    return `${pageHead("DIRECT CONNECTION", "Connect two agent wallets.", "Approve presence sharing to discover wallets on this page. Signed messages travel over direct peer connections.")}${walletRequired()}`;
+    return `${pageHead("DIRECT CONNECTION", "Connect two agents.", "Allow presence sharing to see other agents on this page. Signed messages travel over a direct connection.")}${walletRequired()}`;
   const msgs =
     state.messages
       .map(
@@ -313,16 +295,16 @@ function connectPeerView() {
           `<div class="message-item ${message.direction === "in" ? "remote" : ""}">${esc(message.text)}<span class="message-meta">${message.direction === "in" ? `Verified ${esc(shortId(message.issuer))}` : "Signed by this wallet"} · ${esc(dateText(message.at))}</span></div>`,
       )
       .join("") ||
-    `<p class="help">No signed messages yet. Connect a peer to begin.</p>`;
-  return `${pageHead("PEER CONNECTION", "Find agents on this site.", "Public Nostr relays coordinate discovery. Once paired, signed events travel over direct WebRTC data channels.")}
-    <div class="stack"><section class="panel"><div class="panel-head"><div><h2>Agent presence</h2><p class="panel-copy">Wallets connected to this site's public space can discover one another. Private mode receives room events but advertises no presence.</p></div><button class="button ${state.privateMode ? "" : "secondary"} small" id="toggle-private" aria-pressed="${state.privateMode}">${state.privateMode ? "Go public" : "Go private"}</button></div><div class="metric-line"><span>Local wallet</span><strong>${esc(state.wallet.name)}</strong></div><div class="metric-line"><span>Visibility</span><strong>${state.privateMode ? "Private" : "Public site space"}</strong></div><div class="metric-line"><span>Peer sessions</span><strong>${state.room?.peers.size ?? 0}</strong></div>${peerRows()}</section>
-    <div class="grid-main"><section class="panel"><div class="panel-head"><div><h2>Signed messages</h2><p class="panel-copy">Received messages are accepted only after their signature, expiry, origin and replay nonce pass verification.</p></div></div><div class="message-list" id="message-list" aria-live="polite">${msgs}</div><form id="message-form" class="split-form"><div class="field"><label for="peer-message">Message to connected peers</label><input class="control" id="peer-message" maxlength="3000" required placeholder="Write a short message" ${state.privateMode ? "disabled" : ""}/></div><button class="button" type="submit" ${state.privateMode ? "disabled" : ""}>Send signed</button></form></section>
-      <section class="panel"><div class="panel-head"><div><h2>Connection details</h2><p class="panel-copy">The browser exchanges discovery metadata through public Nostr relays, then opens a direct WebRTC channel for peer events.</p></div></div><div class="metric-line"><span>Discovery</span><strong>Nostr relays</strong></div><div class="metric-line"><span>Peer data</span><strong>Direct WebRTC</strong></div><div class="callout">No TURN relay is configured. Some restrictive networks may not establish a direct connection. Public relay operators can observe room participation and timing.</div></section></div></div>`;
+    `<p class="help">No signed messages yet. Connect to another agent to begin.</p>`;
+  return `${pageHead("OTHER AGENTS", "Find agents on this site.", "Connection helpers help agents find each other. Once connected, signed messages travel over a direct connection.")}
+    <div class="stack"><section class="panel"><div class="panel-head"><div><h2>Agent presence</h2><p class="panel-copy">Agents on this site's public space can find one another. Private mode receives room events but shows no presence.</p></div><button class="button ${state.privateMode ? "" : "secondary"} small" id="toggle-private" aria-pressed="${state.privateMode}">${state.privateMode ? "Go public" : "Go private"}</button></div><div class="metric-line"><span>Local wallet</span><strong>${esc(state.wallet.name)}</strong></div><div class="metric-line"><span>Visibility</span><strong>${state.privateMode ? "Private" : "Public site space"}</strong></div><div class="metric-line"><span>Other agents connected</span><strong>${state.room?.peers.size ?? 0}</strong></div>${peerRows()}</section>
+    <div class="grid-main"><section class="panel"><div class="panel-head"><div><h2>Signed messages</h2><p class="panel-copy">Messages are accepted only after their signature and time limit check out.</p></div></div><div class="message-list" id="message-list" aria-live="polite">${msgs}</div><form id="message-form" class="split-form"><div class="field"><label for="peer-message">Message to connected agents</label><input class="control" id="peer-message" maxlength="3000" required placeholder="Write a short message" ${state.privateMode ? "disabled" : ""}/></div><button class="button" type="submit" ${state.privateMode ? "disabled" : ""}>Send signed</button></form></section>
+      <section class="panel"><div class="panel-head"><div><h2>Connection details</h2><p class="panel-copy">The browser uses connection helpers to find other agents, then opens a direct connection for their messages.</p></div></div><div class="metric-line"><span>Discovery</span><strong>Connection helpers</strong></div><div class="metric-line"><span>Messages</span><strong>Direct connection</strong></div><div class="callout">No relay server is set up. Some networks block direct connections. Connection helpers can see who joins a room and when.</div></section></div></div>`;
 }
 
 function activityView() {
   if (!state.wallet)
-    return `${pageHead("SIGNED ACTIVITY", "A local record of wallet actions.", "Activity entries are signed by this wallet and stay in this browser's IndexedDB.")}${walletRequired()}`;
+    return `${pageHead("SIGNED ACTIVITY", "A local record of wallet actions.", "Activity entries are signed by this wallet and stay in this browser's storage.")}${walletRequired()}`;
   const entries = state.activity ?? [];
   return `${pageHead("SIGNED ACTIVITY", "Your activity, with proof.", "Entries are stored locally and signed individually. They are verifiable records, not tamper-proof storage; browser data can still be deleted.")}
     <section class="panel"><div class="panel-head"><div><h2>Wallet history</h2><p class="panel-copy">${entries.length} signed entries on this browser</p></div><button class="button secondary small" id="refresh-activity">Refresh</button></div>${
@@ -390,6 +372,13 @@ function downloadJson(filename, text) {
   link.download = filename;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// The connection label comes from the real connection state, in plain words.
+function setConnectionLabel(text) {
+  state.connectionLabel = text;
+  const element = $("#connection-status");
+  if (element) element.textContent = text;
 }
 
 let roomGeneration = 0;
@@ -543,25 +532,22 @@ async function startRoom() {
       origin: roomOrigin,
       room: roomName,
       onDiagnostic: (event) => debug("p2p-diagnostic", event),
-      onStatus: (status) => {
-        state.externalStatusText = status;
-        const topbar = $("#topbar-status span:last-child");
-        if (topbar) topbar.textContent = status;
-      },
+      onStatus: (status) => debug("p2p-status", status),
     });
   } else {
     state.rtc = new NostrWebRTC(state.room, {
       origin: location.origin,
       room: "default",
       onDiagnostic: (event) => debug("p2p-diagnostic", event),
-      onStatus: (status) => {
-        const topbar = $("#topbar-status span:last-child");
-        if (topbar) topbar.textContent = status;
-      },
+      onStatus: (status) => debug("p2p-status", status),
     });
   }
   const rtc = state.rtc;
   const room = state.room;
+  setConnectionLabel(connectionStatusLabel(rtc.connectionState.status));
+  rtc.onConnectionState((snapshot) =>
+    setConnectionLabel(connectionStatusLabel(snapshot.status)),
+  );
   await rtc.start();
   if (generation !== roomGeneration || (external && !externalSessionActive())) {
     await rtc.close();
@@ -786,7 +772,7 @@ function bindView() {
       void startRoom().catch((error) => {
         state.externalRoomReady = false;
         toast(
-          `Permission was sent, but peer discovery failed: ${error.message}`,
+          `Your approval was sent, but finding other agents failed: ${error.message}`,
         );
       });
       await appendActivity(state.wallet, "connect/external-consent", {
@@ -850,6 +836,8 @@ function bindView() {
         state.externalOrigin,
       );
     state.renewal = null;
+    if (externalSessionActive())
+      toast(renewalKeptText(state.consent.body.payload.expiresAt));
     render();
   });
   $("#end-session")?.addEventListener("click", () => {
@@ -1309,5 +1297,7 @@ try {
 setInterval(() => {
   const countdown = $("#session-countdown");
   if (countdown && state.consent?.body?.payload?.expiresAt)
-    countdown.textContent = remainingText(state.consent.body.payload.expiresAt);
+    countdown.textContent = sessionEndText(
+      state.consent.body.payload.expiresAt,
+    );
 }, 1000);
