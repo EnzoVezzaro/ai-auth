@@ -70,7 +70,15 @@ jobs:
             if npm view "${name}@${version}" version >/dev/null 2>&1; then
               echo "${name}@${version} is already published"
             else
-              (cd "$dir" && npm publish --access public)
+              # Publish the packed tarball: npm builds the registry manifest from
+              # the package.json on disk, which still has local file: links.
+              tmp="$(mktemp -d)"
+              tgz="$(cd "$dir" && npm pack --pack-destination "$tmp" 2>/dev/null | tail -n 1)"
+              if tar -xOzf "$tmp/$tgz" package/package.json | grep -q '"file:'; then
+                echo "::error::${name} still has file: dependencies in its manifest"
+                exit 1
+              fi
+              npm publish "$tmp/$tgz" --access public
             fi
           }
           publish_if_new "@enzovezzaro/ai-auth-wallet" "."

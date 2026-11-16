@@ -2,9 +2,13 @@
 
 ## Unreleased
 
+## 0.2.2 - 2026-11-16
+
+- Fix the published dependencies. 0.2.0 and 0.2.1 shipped `file:../agent` and `file:../..` links in the registry manifest, which do not resolve after install. The package now depends on `@enzovezzaro/ai-auth-agent` `^0.1.2`, and the release publishes from the packed tarball so the manifest matches it. Use 0.2.2; 0.2.0 and 0.2.1 are deprecated.
+
 ## 0.2.1 - 2026-11-16
 
-- Fix the published dependencies: 0.2.0 shipped `file:../agent` and `file:../..` links that do not resolve after install. The package now depends on `@enzovezzaro/ai-auth-agent` `^0.1.1` and `@enzovezzaro/ai-auth-wallet` `^0.5.3`.
+- Superseded by 0.2.2: the tarball had the pinned dependencies, but the registry manifest still carried the `file:` links.
 
 ## 0.2.0 - 2026-11-15
 
