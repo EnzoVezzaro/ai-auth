@@ -13,18 +13,18 @@ The independent page built in `scripts/test-browser-e2e.mjs` is **not Body4AI**.
 
 ## Feature → implementation → actual test
 
-| Feature | Implementation and owner | Verification path |
-| --- | --- | --- |
-| Wallet creation and origin-bound consent | AI Auth wallet/modal and session code | `scripts/test-browser-e2e.mjs`: two isolated wallet approvals |
-| Direct agent/site room communication | `packages/p2p/p2p.js`, wallet room transport | Playwright browser E2E: signed events, agent discovery and data-channel communication |
-| Generic tool advertisement | `packages/p2p/webmcp.js`, **site-provided** action definitions | The separate agent sees `page.review`, `demo.echo` and `demo.increment` in the site's catalog |
-| Tool authorization and execution | `mountAIAuthInPageAgent`; **site-provided** approval callback and executors | Separate agent calls `demo.echo` once and `demo.increment` twice; asserted results require browser approval |
-| Cursor and visible signed-event log | AI Auth room events and browser fixture | Browser E2E asserts agent cursor and human cursor, and screenshots the receiving page after assertions |
-| Screenshot evidence | Playwright `page.screenshot()` | `test-results/screenshots/generic-site-verified-events.png` and `generic-agent-client-connected.png`; GitHub Actions artifact `ai-auth-playwright-screenshots` |
-| Failure evidence | Browser E2E error handler | Attempts `test-results/screenshots/generic-site-failure.png`; original failure is re-thrown |
-| Headless runtime, human departure/return | `packages/agent` + separate consumer tests | **Not covered by this screenshot test**; see the dedicated multi-agent E2E and Body4AI keep-alive test |
-| Production Body4AI deployment | `sell-ai-companion`, not the AI Auth SDK | **Not established by this PR**; requires a separate production deployment/review |
-| ChatGPT/Codex/Claude Code/OpenCode lifecycle | Host harness/MCP and optional AI Auth adapters | **Not fully established by browser E2E**; runtime may suspend or stop independently |
+| Feature                                      | Implementation and owner                                                    | Verification path                                                                                                                                              |
+| -------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Wallet creation and origin-bound consent     | AI Auth wallet/modal and session code                                       | `scripts/test-browser-e2e.mjs`: two isolated wallet approvals                                                                                                  |
+| Direct agent/site room communication         | `packages/p2p/p2p.js`, wallet room transport                                | Playwright browser E2E: signed events, agent discovery and data-channel communication                                                                          |
+| Generic tool advertisement                   | `packages/p2p/webmcp.js`, **site-provided** action definitions              | The separate agent sees `page.review`, `demo.echo` and `demo.increment` in the site's catalog                                                                  |
+| Tool authorization and execution             | `mountAIAuthInPageAgent`; **site-provided** approval callback and executors | Separate agent calls `demo.echo` once and `demo.increment` twice; asserted results require browser approval                                                    |
+| Cursor and visible signed-event log          | AI Auth room events and browser fixture                                     | Browser E2E asserts agent cursor and human cursor, and screenshots the receiving page after assertions                                                         |
+| Screenshot evidence                          | Playwright `page.screenshot()`                                              | `test-results/screenshots/generic-site-verified-events.png` and `generic-agent-client-connected.png`; GitHub Actions artifact `ai-auth-playwright-screenshots` |
+| Failure evidence                             | Browser E2E error handler                                                   | Attempts `test-results/screenshots/generic-site-failure.png`; original failure is re-thrown                                                                    |
+| Headless runtime, human departure/return     | `packages/agent` + separate consumer tests                                  | **Not covered by this screenshot test**; see the dedicated multi-agent E2E and Body4AI keep-alive test                                                         |
+| Production Body4AI deployment                | `sell-ai-companion`, not the AI Auth SDK                                    | **Not established by this PR**; requires a separate production deployment/review                                                                               |
+| ChatGPT/Codex/Claude Code/OpenCode lifecycle | Host harness/MCP and optional AI Auth adapters                              | **Not fully established by browser E2E**; runtime may suspend or stop independently                                                                            |
 
 ## Reproduce the evidence
 
@@ -44,7 +44,7 @@ After the browser test passes, inspect the PNG files in `test-results/screenshot
 - The root README package version table was behind the checked-in package manifests. It is aligned to wallet 0.6.2, agent 0.1.3 and MCP 0.3.2.
 - The generic connect-instruction example used Body4AI's name and address, making the public SDK look site-specific. It now uses an intentionally fictitious workspace origin.
 - Browser and headless identity storage are described separately.
-- The security documentation must distinguish *private presence* from *not joining the room*; they are not equivalent.
+- The security documentation must distinguish _private presence_ from _not joining the room_; they are not equivalent.
 - `docs/IMPLEMENTATION_PLAN.md` is an older release tracker, not an up-to-date account of the current release or verification evidence.
 
 ## Remaining limits and review gate
