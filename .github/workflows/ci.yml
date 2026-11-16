@@ -49,11 +49,6 @@ jobs:
         run: npm run verify:packages
       - name: Verify Pages-only hosting
         run: node scripts/verify-pages-only.mjs
-      - name: Inspect formatting changes in combined PR
-        run: |
-          npx prettier --write scripts/test-browser-e2e.mjs scripts/verify-pages-only.mjs docs/GENERIC_INTEGRATION_REVIEW.md packages/agent/tool-provider.js
-          git diff -- scripts/test-browser-e2e.mjs scripts/verify-pages-only.mjs docs/GENERIC_INTEGRATION_REVIEW.md packages/agent/tool-provider.js
-          git diff --exit-code -- scripts/test-browser-e2e.mjs scripts/verify-pages-only.mjs docs/GENERIC_INTEGRATION_REVIEW.md packages/agent/tool-provider.js
       - name: Check formatting
         run: npm run format:check
       - name: Check whitespace errors
