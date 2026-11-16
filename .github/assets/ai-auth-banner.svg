@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" role="img" aria-labelledby="title desc" viewBox="0 0 1600 500" width="1600" height="500">
+  <title id="title">AI Auth — agent identity and peer collaboration</title>
+  <desc id="desc">Midnight blue open-source project banner with violet and cyan network connections surrounding a signed identity lock.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#090d27"/>
+      <stop offset="52%" stop-color="#151440"/>
+      <stop offset="100%" stop-color="#071e40"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.77" cy="0.56" r="0.64">
+      <stop offset="0%" stop-color="#7e4cfb" stop-opacity=".35"/>
+      <stop offset="50%" stop-color="#346ce5" stop-opacity=".10"/>
+      <stop offset="100%" stop-color="#090d27" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#4e8cf7" stop-opacity=".20"/>
+      <stop offset="48%" stop-color="#7e80ff" stop-opacity=".94"/>
+      <stop offset="100%" stop-color="#45d8f7" stop-opacity=".8"/>
+    </linearGradient>
+    <linearGradient id="icon" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#a28aff"/>
+      <stop offset="60%" stop-color="#5d84fc"/>
+      <stop offset="100%" stop-color="#45e1eb"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#29316e"/>
+      <stop offset="100%" stop-color="#13254f"/>
+    </linearGradient>
+    <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse">
+      <path d="M44 0H0V44" fill="none" stroke="#a6b2ff" stroke-opacity=".075"/>
+    </pattern>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="19"/>
+    </filter>
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="15" stdDeviation="26" flood-color="#02091c" flood-opacity=".64"/>
+    </filter>
+  </defs>
+  <rect width="1600" height="500" rx="30" fill="url(#bg)"/>
+  <rect width="1600" height="500" rx="30" fill="url(#glow)"/>
+  <rect width="1600" height="500" rx="30" fill="url(#grid)"/>
+  <path d="M0 425C245 300 440 520 760 430S1270 290 1600 370V500H0Z" fill="#6851ed" fill-opacity=".12"/>
+  <path d="M0 479C280 350 560 550 915 458S1410 332 1600 418" fill="none" stroke="#b45afb" stroke-width="3" stroke-opacity=".30"/>
+  <ellipse cx="1290" cy="265" rx="255" ry="163" fill="#6956e9" opacity=".11" filter="url(#soft)"/>
+  <g font-family="Inter,Segoe UI,Arial,sans-serif">
+    <g transform="translate(104 66)">
+      <rect width="197" height="34" rx="17" fill="#a3adff" fill-opacity=".13" stroke="#aaaaff" stroke-opacity=".42"/>
+      <circle cx="20" cy="17" r="5" fill="#4ae6d4"/>
+      <text x="34" y="22" fill="#dee7ff" font-weight="700" font-size="15" letter-spacing="2">OPEN SOURCE SDK</text>
+    </g>
+    <text x="101" y="212" fill="#ffffff" font-size="112" letter-spacing="-5" font-weight="800">AI <tspan fill="#a89aff">AUTH</tspan></text>
+    <text x="107" y="272" fill="#e4eaff" font-size="32" font-weight="600">Identity and collaboration for AI agents.</text>
+    <text x="107" y="319" fill="#a7b8de" font-size="22">Self-custodied wallets. Signed consent. Direct peer connections.</text>
+    <g font-size="17" font-weight="600">
+      <rect x="106" y="369" width="194" height="45" rx="22" fill="#9b85ff" fill-opacity=".14" stroke="#8f87ff" stroke-opacity=".58"/>
+      <circle cx="126" cy="391" r="5" fill="#61e7de"/>
+      <text x="142" y="397" fill="#e9e7ff">No hosted backend</text>
+      <rect x="313" y="369" width="170" height="45" rx="22" fill="#658dff" fill-opacity=".14" stroke="#6c9dff" stroke-opacity=".55"/>
+      <circle cx="333" cy="391" r="5" fill="#61e7de"/>
+      <text x="349" y="397" fill="#e9e7ff">WebRTC + Nostr</text>
+      <rect x="496" y="369" width="140" height="45" rx="22" fill="#62adff" fill-opacity=".13" stroke="#72d9f5" stroke-opacity=".40"/>
+      <circle cx="516" cy="391" r="5" fill="#61e7de"/>
+      <text x="532" y="397" fill="#e9e7ff">MCP / WebMCP</text>
+    </g>
+  </g>
+  <g fill="none" stroke="url(#line)" stroke-linecap="round">
+    <path d="M1040 143 1176 220 1405 129" stroke-width="3" stroke-dasharray="8 10"/>
+    <path d="M1001 338 1176 283 1456 357" stroke-width="3" stroke-dasharray="8 10"/>
+    <path d="M1405 129 1456 357" stroke-width="2" stroke-opacity=".5"/>
+    <path d="M1040 143 1001 338" stroke-width="2" stroke-opacity=".5"/>
+  </g>
+  <g fill="#142351" stroke="#7e97f7" stroke-width="3" filter="url(#shadow)">
+    <circle cx="1040" cy="143" r="27"/><circle cx="1001" cy="338" r="27"/>
+    <circle cx="1405" cy="129" r="27"/><circle cx="1456" cy="357" r="27"/>
+  </g>
+  <g fill="none" stroke="#c8ddff" stroke-width="4" stroke-linecap="round">
+    <path d="M1031 145l6 6 12-15"/>
+    <path d="M992 338l7 7 11-14"/>
+    <path d="M1396 130l6 6 12-15"/>
+    <path d="M1447 358l6 6 12-15"/>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="1103" y="122" width="231" height="251" rx="34" fill="url(#panel)" stroke="#8e91ff" stroke-width="2.5"/>
+    <rect x="1124" y="141" width="189" height="212" rx="24" fill="#0f173e" stroke="#8e99ee" stroke-opacity=".4"/>
+    <path d="M1177 242v-40c0-26 19-47 42-47s42 21 42 47v40" fill="none" stroke="url(#icon)" stroke-width="15" stroke-linecap="round"/>
+    <rect x="1154" y="231" width="132" height="100" rx="22" fill="url(#icon)"/>
+    <circle cx="1220" cy="272" r="12" fill="#111b48"/>
+    <path d="M1220 281v21" stroke="#111b48" stroke-width="10" stroke-linecap="round"/>
+    <circle cx="1286" cy="326" r="31" fill="#18385f" stroke="#73ecfb" stroke-width="3"/>
+    <path d="m1271 326 11 11 20-24" fill="none" stroke="#80fff2" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g fill="#70daec">
+    <circle cx="1078" cy="211" r="3"/><circle cx="1372" cy="253" r="3"/>
+    <circle cx="1082" cy="385" r="4"/><circle cx="1355" cy="400" r="4"/>
+  </g>
+</svg>
