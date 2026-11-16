@@ -259,6 +259,56 @@ function mountReveals() {
   items.forEach((item) => observer.observe(item));
 }
 
+function mountScrollMotion() {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const acts = [...document.querySelectorAll("[data-scroll-act]")];
+  if (!acts.length) return;
+  const navLinks = [...document.querySelectorAll('.site-nav a[href^="#"]')];
+  let queued = false;
+  let currentGround = "";
+
+  const update = () => {
+    queued = false;
+    const vh = window.innerHeight;
+    const middle = vh * 0.5;
+    let active = null;
+    let nearest = Infinity;
+    acts.forEach((act) => {
+      const rect = act.getBoundingClientRect();
+      const progress = (vh - rect.top) / (vh + rect.height);
+      act.style.setProperty(
+        "--p",
+        Math.min(1, Math.max(0, progress)).toFixed(4),
+      );
+      const distance = Math.abs(rect.top + rect.height / 2 - middle);
+      if (distance < nearest) {
+        nearest = distance;
+        active = act;
+      }
+    });
+    if (!active) return;
+    const ground = active.dataset.ground;
+    if (ground && ground !== currentGround) {
+      currentGround = ground;
+      document.documentElement.style.setProperty("--ground", ground);
+    }
+    navLinks.forEach((link) => {
+      const match = link.getAttribute("href") === `#${active.id}`;
+      if (match) link.setAttribute("aria-current", "location");
+      else link.removeAttribute("aria-current");
+    });
+  };
+
+  const onScroll = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(update);
+  };
+  window.addEventListener("scroll", onScroll, { passive: true });
+  window.addEventListener("resize", onScroll, { passive: true });
+  update();
+}
+
 function mountProgress() {
   const bar = document.querySelector(".scroll-progress span");
   if (!bar) return;
@@ -340,6 +390,7 @@ mountFlow();
 mountCode();
 mountReveals();
 mountProgress();
+mountScrollMotion();
 mountDemo();
 
 // WebGL setup is expensive. The CSS artifact holds the space until the scenes

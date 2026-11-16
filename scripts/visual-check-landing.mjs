@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
@@ -61,8 +62,44 @@ for (const viewport of viewports) {
     fullPage: true,
   });
 
+  const sweep = [];
+  const frames = [];
+  for (const fraction of [0, 0.25, 0.5, 0.75, 1]) {
+    await page.evaluate((f) => {
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      window.scrollTo({ top: max * f, behavior: "instant" });
+    }, fraction);
+    await page.waitForTimeout(260);
+    if (viewport.name === "desktop") {
+      const shot = await page.screenshot();
+      frames.push(createHash("sha256").update(shot).digest("hex"));
+      await page.screenshot({
+        path: resolve(
+          output,
+          `desktop-scroll-${Math.round(fraction * 100)}.png`,
+        ),
+      });
+    }
+    sweep.push(
+      await page.evaluate(() => ({
+        y: Math.round(window.scrollY),
+        ground: getComputedStyle(document.body).backgroundColor,
+        heroP: document.querySelector(".hero")?.style.getPropertyValue("--p"),
+        activeNav:
+          document
+            .querySelector('.site-nav a[aria-current="location"]')
+            ?.textContent?.trim() ?? null,
+      })),
+    );
+  }
+  const scrollSweep = {
+    steps: sweep,
+    distinctFrames: new Set(frames).size,
+  };
+
   const result = {
     name: viewport.name,
+    scrollSweep,
     size: `${viewport.width}x${viewport.height}`,
     errors,
     scrollWidth: await page.evaluate(

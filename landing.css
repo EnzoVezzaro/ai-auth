@@ -1,6 +1,7 @@
 :root {
   color-scheme: dark;
   --bg: #080a0d;
+  --ground: #080a0d;
   --bg-soft: #0b0e12;
   --surface: #0e1116;
   --surface-2: #13171d;
@@ -54,7 +55,8 @@ body {
   min-width: 320px;
   overflow-x: hidden;
   color: var(--ink);
-  background: var(--bg);
+  background: var(--ground);
+  transition: background-color 500ms linear;
 }
 
 body::before {
@@ -448,10 +450,10 @@ h1 em {
 
 [data-reveal] {
   opacity: 0;
-  transform: translateY(26px);
+  transform: translateY(14px);
   transition:
-    opacity 800ms var(--ease),
-    transform 800ms var(--ease);
+    opacity 620ms var(--ease),
+    transform 620ms var(--ease);
 }
 
 [data-reveal].is-visible {
@@ -491,6 +493,15 @@ h1 em {
     #000 0%,
     transparent 78%
   );
+}
+
+.hero-grid {
+  transform: translate3d(0, calc(var(--p, 0) * -48px), 0);
+}
+
+.hero-halo {
+  transform: translate3d(0, calc(var(--p, 0) * 62px), 0)
+    scale(calc(1 + var(--p, 0) * 0.08));
 }
 
 .hero-copy {
@@ -2182,6 +2193,20 @@ h1 em {
   font-size: 11px;
 }
 
+/* Scroll-linked depth. Copy stays still so it remains easy to read. */
+
+.room-doc {
+  transform: translate3d(0, calc((var(--p, 0.5) - 0.5) * 18px), 0);
+}
+
+.network-grid {
+  transform: translate3d(0, calc((var(--p, 0.5) - 0.5) * 14px), 0);
+}
+
+.closing-scene {
+  opacity: calc(0.55 + var(--p, 0) * 0.45);
+}
+
 /* Responsive */
 
 @media (max-width: 1180px) {
@@ -2496,5 +2521,16 @@ h1 em {
   [data-reveal] {
     opacity: 1;
     transform: none;
+  }
+
+  .hero-grid,
+  .hero-halo,
+  .room-doc,
+  .network-grid {
+    transform: none !important;
+  }
+
+  .closing-scene {
+    opacity: 0.85;
   }
 }
