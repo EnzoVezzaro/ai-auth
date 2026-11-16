@@ -449,6 +449,9 @@ export async function registerAIAuthPageActions({
  * session and can be stopped through the returned stop()/close() or an abort
  * signal.
  */
+/** How often a connected page re-announces its tool catalog (well inside the 120 s event lifetime). */
+const CATALOG_REFRESH_MS = 45_000;
+
 export async function mountAIAuthInPageAgent({
   actions,
   connection,
@@ -457,6 +460,7 @@ export async function mountAIAuthInPageAgent({
   authorize,
   publishAction,
   policy,
+  catalogRefreshMs = CATALOG_REFRESH_MS,
 } = {}) {
   if (typeof authorize !== "function")
     throw new TypeError(
@@ -482,7 +486,7 @@ export async function mountAIAuthInPageAgent({
       }),
   });
   try {
-    return wireAgentBridge(api, connection);
+    return wireAgentBridge(api, connection, catalogRefreshMs);
   } catch (error) {
     // Never leak the registration (and its expiry timer) when wiring fails.
     api.close();
@@ -490,7 +494,11 @@ export async function mountAIAuthInPageAgent({
   }
 }
 
-function wireAgentBridge(api, connection) {
+function wireAgentBridge(
+  api,
+  connection,
+  catalogRefreshMs = CATALOG_REFRESH_MS,
+) {
   // Only tools with a bounded descriptor are advertised or callable by peers.
   const advertised = new Map();
   for (const name of api.tools) {
@@ -582,6 +590,15 @@ function wireAgentBridge(api, connection) {
   const stopPeerDiscovery = connection.onEvent((envelope) => {
     if (envelope?.body?.type === "peer/hello") publishCatalog();
   });
+  // A signed catalog expires (MAX_EVENT_AGE_MS, 120 s). Agents that stay in the
+  // room would lose the tools unless the page announces them again in time.
+  const refreshTimer = setInterval(publishCatalog, catalogRefreshMs);
+  refreshTimer.unref?.();
+  const stopRefresh = () => clearInterval(refreshTimer);
+  const stopRefreshOnClose = onVerifiedPageConnectionClose(
+    connection,
+    stopRefresh,
+  );
   return Object.freeze({
     webMcpAvailable: api.webMcpAvailable,
     tools: api.tools,
@@ -590,12 +607,16 @@ function wireAgentBridge(api, connection) {
       stopEvents();
       stopRoomReady();
       stopPeerDiscovery();
+      stopRefresh();
+      stopRefreshOnClose();
       api.close();
     },
     close: () => {
       stopEvents();
       stopRoomReady();
       stopPeerDiscovery();
+      stopRefresh();
+      stopRefreshOnClose();
       api.close();
     },
   });
@@ -789,7 +810,11 @@ export function createAIAuthAgentClient(
         x,
         y,
         visible,
-        label: "Agent " + room.wallet.id.slice(6, 26),
+        // Show the agent's chosen name when the room carries one; the id is the fallback.
+        label:
+          typeof room.wallet.name === "string" && room.wallet.name.trim()
+            ? room.wallet.name.trim().slice(0, 60)
+            : "Agent " + room.wallet.id.slice(6, 26),
         ...(scroll === undefined ? {} : { scroll }),
       });
     },

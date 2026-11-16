@@ -6,6 +6,7 @@ import {
   createAgentRuntime,
 } from "@enzovezzaro/ai-auth-agent";
 import { createAIAuthMcpServer, connectAIAuthMcpStdio } from "./index.js";
+import { serveAIAuthMcpHttp } from "./http.js";
 import { parseArgs, USAGE } from "./cli-args.js";
 import { parseConnectInput, fetchSiteManifest } from "./connect-input.js";
 import { resolveApproval, renderPreview, askOnTty } from "./approval.js";
@@ -64,31 +65,36 @@ async function serve(args) {
   );
   let bridge = null;
   let runtime = null;
-  const { server } = await createAIAuthMcpServer({
-    wallet,
-    name: "ai-auth",
-    actions: buildAgentActions({
-      getBridge: () => bridge,
-      siteCapabilities: requested,
-    }),
-    approveCapabilities: async (asked) => {
-      const approved = await resolveApproval({
-        requested: asked,
-        approve: args.approve,
-        interactive: interactive(),
-        ask: askOnTty(),
-      });
-      runtime = createAgentRuntime({
-        keystore,
-        origin: site.origin,
-        room: site.room,
-        capabilities: approved,
-        descriptor: { name: args.name ?? "ai-auth-mcp" },
-      });
-      bridge = createAgentBridge({ runtime });
-      return approved;
-    },
-  });
+  // One agent runtime, however many MCP sessions connect (HTTP opens one per
+  // client session). Approval runs once; later sessions reuse the grant.
+  const makeServer = () =>
+    createAIAuthMcpServer({
+      wallet,
+      name: "ai-auth",
+      actions: buildAgentActions({
+        getBridge: () => bridge,
+        siteCapabilities: requested,
+      }),
+      approveCapabilities: async (asked) => {
+        if (runtime) return [...runtime.capabilities];
+        const approved = await resolveApproval({
+          requested: asked,
+          approve: args.approve,
+          interactive: interactive(),
+          ask: askOnTty(),
+        });
+        runtime = createAgentRuntime({
+          keystore,
+          origin: site.origin,
+          room: site.room,
+          capabilities: approved,
+          descriptor: { name: args.name ?? "ai-auth-mcp" },
+        });
+        bridge = createAgentBridge({ runtime });
+        return approved;
+      },
+    }).then(({ server }) => server);
+  const server = await makeServer();
   const shutdown = async () => {
     bridge?.close();
     await runtime?.close().catch(() => {});
@@ -96,11 +102,29 @@ async function serve(args) {
   };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
-  process.stdin.once("end", shutdown);
-  await connectAIAuthMcpStdio(server);
-  err(
-    `ai-auth-mcp ready: ${runtime.capabilities.join(", ")} for ${site.origin} (stdio MCP; not a background service)`,
-  );
+  if (args.http !== undefined) {
+    const port = Number(args.http);
+    if (!Number.isInteger(port) || port < 0 || port > 65_535)
+      throw new Error("--http needs a port number");
+    let first = server;
+    const http = await serveAIAuthMcpHttp({
+      port,
+      createMcpServer: () => {
+        const ready = first;
+        first = null;
+        return ready ?? makeServer();
+      },
+    });
+    err(
+      `ai-auth-mcp ready: ${runtime.capabilities.join(", ")} for ${site.origin} (HTTP MCP; runs until stopped)\nMCP endpoint: ${http.url}\nThe URL is the credential for this agent. Share it only with the client you connect.`,
+    );
+  } else {
+    process.stdin.once("end", shutdown);
+    await connectAIAuthMcpStdio(server);
+    err(
+      `ai-auth-mcp ready: ${runtime.capabilities.join(", ")} for ${site.origin} (stdio MCP; not a background service)`,
+    );
+  }
   const start = args.flags.has("resume")
     ? runtime.resume()
     : args.flags.has("auto-join")

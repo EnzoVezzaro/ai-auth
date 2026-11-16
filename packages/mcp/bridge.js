@@ -67,7 +67,7 @@ export function createAgentBridge({
           .peers()
           .map(({ id, name, stale }) => ({ id, name, stale })),
         diagnostics: state.diagnostics ?? {},
-        note: "Presence lasts only while this stdio MCP process runs; it is not a background service.",
+        note: "Presence lasts only while this MCP process runs.",
       };
     },
     async join({ room } = {}) {
@@ -93,6 +93,16 @@ export function createAgentBridge({
         type: envelope?.body?.type ?? "message/text",
         note: "Submitted to the transport; delivery is not confirmed.",
       };
+    },
+    // Moves this agent's cursor on the shared page (normalized 0..1 coordinates).
+    move({ x, y, visible = true }) {
+      getClient().publishCursor({ x, y, visible });
+      return { moved: true, x, y, visible };
+    },
+    // Publishes a signed activity status that people and agents on the page see.
+    act({ name, state, summary }) {
+      getClient().publishAction({ name, state, summary });
+      return { published: true, name, state };
     },
     events({ since = 0, limit = 20 } = {}) {
       const page = Math.min(Math.max(1, Math.trunc(limit) || 1), MAX_PAGE);
@@ -191,6 +201,37 @@ const SPECS = [
     "Send a signed text message to the room (or one peer).",
     { text: z.string().min(1).max(2_000), to: z.string().max(200).optional() },
     (b, i) => b.send(i),
+  ],
+  [
+    "ai_auth_move",
+    "presence.read",
+    false,
+    "Move this agent's cursor on the shared page. x and y are fractions of the page width and height (0 to 1); visible false hides it.",
+    {
+      x: z.number().min(0).max(1),
+      y: z.number().min(0).max(1),
+      visible: z.boolean().optional(),
+    },
+    (b, i) => b.move(i),
+  ],
+  [
+    "ai_auth_act",
+    "tools.invoke",
+    false,
+    "Publish a signed activity status that everyone on the page sees, such as what this agent is doing.",
+    {
+      name: z.string().regex(/^[a-z][a-z0-9._-]{0,63}$/u),
+      state: z.enum([
+        "started",
+        "progress",
+        "completed",
+        "failed",
+        "cancelled",
+        "needs-human",
+      ]),
+      summary: z.string().max(240),
+    },
+    (b, i) => b.act(i),
   ],
   [
     "ai_auth_events",

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.1 - 2026-11-16
+
+### Fixed
+
+- A connected page now re-announces its WebMCP tool catalog every 45 seconds (`catalogRefreshMs` on `mountAIAuthInPageAgent`). A signed catalog expires after 120 seconds, so agents that stayed in the room used to lose the site's tools until someone new joined.
+- An agent's cursor is labeled with its name (from the agent runtime's descriptor) instead of its wallet id when the room carries one.
+
 ## 0.6.0 - 2026-11-16
 
 ### Changed

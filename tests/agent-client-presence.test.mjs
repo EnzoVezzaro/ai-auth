@@ -143,3 +143,29 @@ test("calls to a site that has left fail at once instead of timing out", async (
     "fails at once, not after the 60 s timeout",
   );
 });
+
+test("an agent's cursor is labeled with its name when the room has one", async (t) => {
+  const named = await makeWallet("Agent");
+  const sent = [];
+  const room = {
+    wallet: { id: named.id, name: "ChatGPT agent A" },
+    session: "agent-room-session",
+    peers: new Map(),
+    subscribe: () => () => {},
+    async send(type, payload) {
+      sent.push({ type, payload });
+    },
+  };
+  const client = createAIAuthAgentClient(room);
+  t.after(() => client.close());
+  client.publishCursor({ x: 0.5, y: 0.5 });
+  assert.equal(sent[0].type, "presence/cursor");
+  assert.equal(sent[0].payload.label, "ChatGPT agent A");
+
+  const anonymous = { ...room, wallet: { id: named.id } };
+  const other = createAIAuthAgentClient(anonymous);
+  t.after(() => other.close());
+  sent.length = 0;
+  other.publishCursor({ x: 0.1, y: 0.2 });
+  assert.equal(sent[0].payload.label, "Agent " + named.id.slice(6, 26));
+});

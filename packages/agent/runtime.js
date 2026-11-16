@@ -322,7 +322,12 @@ export function createAgentRuntime(options = {}) {
      */
     agentRoom: Object.freeze({
       get wallet() {
-        return wallet ? Object.freeze({ id: wallet.id }) : undefined;
+        return wallet
+          ? Object.freeze({
+              id: wallet.id,
+              ...(meta.name ? { name: meta.name } : {}),
+            })
+          : undefined;
       },
       get session() {
         return core?.session;

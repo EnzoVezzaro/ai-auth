@@ -191,13 +191,50 @@ test("actions only cover scopes the site requested and declare read-only where t
     "ai_auth_events",
     "ai_auth_join",
     "ai_auth_leave",
+    "ai_auth_move",
     "ai_auth_status",
   ]);
   const all = buildAgentActions({
     getBridge: () => ({}),
     siteCapabilities: ["presence.read", "messages.send", "tools.invoke"],
   });
-  assert.equal(all.length, 7);
+  assert.equal(all.length, 9);
+  assert.equal(all.find((a) => a.name === "ai_auth_move").readOnly, false);
+  assert.equal(all.find((a) => a.name === "ai_auth_act").readOnly, false);
   assert.equal(all.find((a) => a.name === "ai_auth_status").readOnly, true);
   assert.equal(all.find((a) => a.name === "ai_auth_send").readOnly, false);
+});
+
+test("move publishes the agent cursor and act publishes a signed activity status", async () => {
+  const rt = fakeRuntime();
+  const published = [];
+  const bridge = createAgentBridge({
+    runtime: rt,
+    clientFactory: () => ({
+      catalogs: [],
+      publishCursor: (c) => (published.push(["cursor", c]), { body: {} }),
+      publishAction: (a) => (published.push(["action", a]), { body: {} }),
+    }),
+  });
+  const moved = await bridge.move({ x: 0.25, y: 0.5 });
+  assert.equal(moved.moved, true);
+  const acted = await bridge.act({
+    name: "catalog.browse",
+    state: "progress",
+    summary: "Looking at glasses",
+  });
+  assert.equal(acted.published, true);
+  assert.deepEqual(published, [
+    ["cursor", { x: 0.25, y: 0.5, visible: true }],
+    [
+      "action",
+      {
+        name: "catalog.browse",
+        state: "progress",
+        summary: "Looking at glasses",
+      },
+    ],
+  ]);
+  await bridge.move({ x: 0.1, y: 0.1, visible: false });
+  assert.equal(published.at(-1)[1].visible, false);
 });

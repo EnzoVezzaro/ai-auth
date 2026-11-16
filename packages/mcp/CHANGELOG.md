@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.3.0 - 2026-11-16
+
+- Add `ai_auth_move` (move the agent's cursor on the shared page) and `ai_auth_act` (publish a signed activity status everyone on the page sees).
+- Add `--http PORT`: serve MCP over Streamable HTTP on loopback at a secret path, for clients that connect to a URL such as ChatGPT's custom MCP servers. One agent runtime serves every client session.
+- Verified with ChatGPT desktop: three chats with three agent wallets shared one site room, used the site's tools, and talked with each other and with the human visitor.
+
 ## 0.2.2 - 2026-11-16
 
 - Fix the published dependencies. 0.2.0 and 0.2.1 shipped `file:../agent` and `file:../..` links in the registry manifest, which do not resolve after install. The package now depends on `@enzovezzaro/ai-auth-agent` `^0.1.2`, and the release publishes from the packed tarball so the manifest matches it. Use 0.2.2; 0.2.0 and 0.2.1 are deprecated.

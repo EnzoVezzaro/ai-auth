@@ -115,6 +115,7 @@ test("serve with an exact subset exposes only the approved tools over stdio MCP"
     "ai_auth_events",
     "ai_auth_join",
     "ai_auth_leave",
+    "ai_auth_move",
     "ai_auth_status",
   ]);
   const status = await client.callTool({
@@ -132,4 +133,59 @@ test("unlink refuses without --yes in non-TTY and removes the keystore with it",
   assert.notEqual(run(["unlink", "--keystore-dir", dir]).status, 0);
   assert.equal(run(["unlink", "--keystore-dir", dir, "--yes"]).status, 0);
   assert.notEqual(run(["whoami", "--keystore-dir", dir]).status, 0);
+});
+
+test("serve --http exposes the approved tools over Streamable HTTP at a secret path", async (t) => {
+  const { StreamableHTTPClientTransport } =
+    await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
+  const dir = await scratch(t);
+  run(["init", "--keystore-dir", dir]);
+  const child = spawn(
+    process.execPath,
+    [
+      cli,
+      "serve",
+      ...baseArgs(dir),
+      "--approve",
+      "presence.read",
+      "--http",
+      "0",
+    ],
+    { env, stdio: ["ignore", "ignore", "pipe"] },
+  );
+  t.after(() => child.kill());
+  let stderr = "";
+  const endpoint = await new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`no endpoint: ${stderr}`)),
+      15_000,
+    );
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+      const match = stderr.match(
+        /MCP endpoint: (http:\/\/127\.0\.0\.1:\d+\/mcp\/[A-Za-z0-9_-]{16,})/u,
+      );
+      if (match) {
+        clearTimeout(timer);
+        resolve(match[1]);
+      }
+    });
+  });
+  const client = new Client({ name: "t", version: "1" });
+  t.after(() => client.close());
+  await client.connect(new StreamableHTTPClientTransport(new URL(endpoint)));
+  const { tools } = await client.listTools();
+  assert.deepEqual(tools.map((x) => x.name).sort(), [
+    "ai_auth_events",
+    "ai_auth_join",
+    "ai_auth_leave",
+    "ai_auth_move",
+    "ai_auth_status",
+  ]);
+  const wrong = await fetch(new URL("/mcp/not-the-secret", endpoint), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(wrong.status, 404);
 });

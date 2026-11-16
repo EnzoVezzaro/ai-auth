@@ -10,6 +10,7 @@ const VALUE_FLAGS = new Set([
   "caps",
   "approve",
   "name",
+  "http",
 ]);
 const BOOL_FLAGS = new Set([
   "auto-join",
@@ -66,4 +67,6 @@ export const USAGE = `ai-auth-mcp [serve|init|whoami|preview|unlink] [options]
   --auto-join | --resume   join the room at startup / restore the last room
   --no-manifest        do not fetch /.well-known/ai-auth.json for a URL
   --yes                confirm unlink without a prompt
+  --http PORT          serve MCP over Streamable HTTP on 127.0.0.1:PORT (0 picks a free port) instead of stdio;
+                       the printed URL contains a secret and is the credential for this agent
 `;

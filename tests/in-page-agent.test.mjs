@@ -606,6 +606,51 @@ test("in-page agent discovers WebMCP tools, targets requests, and returns signed
   connection.close();
 });
 
+test("in-page agent republishes its catalog before the signed catalog expires", async () => {
+  const { connection, popupMessages } = await makeVerifiedConnection(
+    ["tools.invoke"],
+    true,
+    { roomSession: "wallet-room-session" },
+  );
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    modelContext: {
+      getTools: () => [
+        {
+          name: "site.search",
+          description: "Search public site records.",
+          inputSchema: { type: "object", properties: {} },
+          annotations: { readOnlyHint: true },
+        },
+      ],
+      executeTool: async () => "{}",
+    },
+    authorize: () => true,
+    catalogRefreshMs: 40,
+  });
+  const catalogs = () =>
+    popupMessages.filter(
+      ({ message }) =>
+        message.type === "ai-auth/site-agent-event" &&
+        message.event?.kind === "tool-catalog",
+    ).length;
+  const first = catalogs();
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.ok(
+    catalogs() >= first + 2,
+    "the catalog is announced again while connected",
+  );
+  api.close();
+  const afterClose = catalogs();
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.equal(
+    catalogs(),
+    afterClose,
+    "no announcements after the agent closes",
+  );
+  connection.close();
+});
+
 test("a tool cancellation only stops the matching signed requester", async () => {
   const { connection, wallet, dispatch } = await makeVerifiedConnection(
     ["tools.invoke"],
