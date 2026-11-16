@@ -413,6 +413,51 @@ test("join, leave and reconnect keep the same verified identity", async () => {
   assert.equal(hostP.room.policy.roleOf(ctx.alice.id), "member");
 });
 
+test("work still in flight when a room leaves fails quietly, never unhandled", async () => {
+  const ctx = await setup();
+  const unhandled = [];
+  const record = (reason) => unhandled.push(reason);
+  process.on("unhandledRejection", record);
+  try {
+    const host = new P2PRoom(ctx.host, ROOM, { origin: ORIGIN });
+    const alice = new P2PRoom(ctx.alice, ROOM, { origin: ORIGIN });
+    participants.push({ leave: () => alice.close() });
+    const hello = await host.send("peer/hello", { label: ctx.host.name });
+
+    // A hello that is still being verified when the room leaves is owed a
+    // heartbeat reply. Nothing awaits it, exactly as the transport adapter
+    // does, so it must not reject once the room is closed.
+    const inbound = alice.receive(hello, { peerId: "host" });
+    await alice.close();
+    await tick(10);
+    assert.deepEqual(unhandled, []);
+    await inbound;
+
+    // A private room closes without a goodbye, so a send still being signed
+    // can outlive it. It must reject with a clear error rather than post into
+    // a torn-down transport, and later sends must reject the same way.
+    const priv = new P2PRoom(ctx.alice, ROOM, {
+      origin: ORIGIN,
+      privateMode: true,
+    });
+    participants.push({ leave: () => priv.close() });
+    const late = priv.send("collab/text", { text: "late" }).then(
+      () => "sent",
+      (error) => error.message,
+    );
+    await priv.close();
+    assert.equal(await late, "This wallet session is closed");
+    await assert.rejects(
+      priv.send("collab/text", { text: "after" }),
+      /This wallet session is closed/u,
+    );
+    await tick(10);
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.off("unhandledRejection", record);
+  }
+});
+
 test("a nickname is never identity and observers cannot exceed their scopes", async () => {
   const ctx = await setup();
   const policy = ctx.policy();

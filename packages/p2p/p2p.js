@@ -214,7 +214,9 @@ export class P2PRoom {
       await this.send("peer/hello", { label: this.wallet.name });
       if (this.closed) return this;
       this.timer = setInterval(() => {
-        void this.send("peer/heartbeat", { label: this.wallet.name });
+        void this.sendInBackground("peer/heartbeat", {
+          label: this.wallet.name,
+        });
         this.expire();
       }, 8_000);
     } else {
@@ -245,6 +247,9 @@ export class P2PRoom {
       nonce: randomNonce(),
       expiresAt: Date.now() + MAX_EVENT_AGE_MS,
     });
+    // close() may have run while this envelope was being signed. Nothing may
+    // reach a transport that has already been torn down.
+    if (this.closed) throw new Error("This wallet session is closed");
     const wire = JSON.stringify(envelope);
     if (this.broadcast && (!this.restricted || PRESENCE_ONLY_TYPES.has(type)))
       this.broadcast.postMessage(envelope);
@@ -255,6 +260,22 @@ export class P2PRoom {
     this.recordAudit(envelope);
     this.notify({ direction: "out", envelope, ...(to ? { to } : {}) });
     return envelope;
+  }
+
+  // Background announcements (heartbeats, hello replies) are best effort. A
+  // room that closed while one was pending has nothing left to announce, so
+  // that outcome is silent. Any other failure is reported to listeners rather
+  // than left as an unhandled rejection. Public send() keeps rejecting.
+  async sendInBackground(type, payload = {}) {
+    if (this.closed) return false;
+    try {
+      await this.send(type, payload);
+      return true;
+    } catch (error) {
+      if (!this.closed)
+        this.notify({ direction: "error", message: error.message });
+      return false;
+    }
   }
 
   async receive(envelope, source = this.localInboundSource) {
@@ -321,7 +342,9 @@ export class P2PRoom {
     }
     this.notify({ direction: "in", envelope, peer: this.peers.get(peerKey) });
     if (envelope.body.type === "peer/hello" && !this.privateMode)
-      await this.send("peer/heartbeat", { label: this.wallet.name });
+      await this.sendInBackground("peer/heartbeat", {
+        label: this.wallet.name,
+      });
     return true;
   }
 
@@ -451,7 +474,8 @@ export class P2PRoom {
     channel.onopen = () => {
       if (this.closed) return;
       if (this.privateMode) void this.proveMembership().catch(() => {});
-      else void this.send("peer/hello", { label: this.wallet.name });
+      else
+        void this.sendInBackground("peer/hello", { label: this.wallet.name });
     };
     channel.onclose = () => {
       this.channels.delete(channel);
@@ -633,13 +657,22 @@ export class NostrWebRTC {
         type: envelope?.body?.type,
         peerId,
       });
-      void this.coreRoom.receive(envelope, source).then((accepted) => {
-        this.onDiagnostic({
-          stage: accepted ? "event-accepted" : "event-rejected",
-          type: envelope?.body?.type,
-          peerId,
-        });
-      });
+      void this.coreRoom
+        .receive(envelope, source)
+        .then((accepted) =>
+          this.onDiagnostic({
+            stage: accepted ? "event-accepted" : "event-rejected",
+            type: envelope?.body?.type,
+            peerId,
+          }),
+        )
+        .catch(() =>
+          this.onDiagnostic({
+            stage: "event-rejected",
+            type: envelope?.body?.type,
+            peerId,
+          }),
+        );
     });
     this.sendAction = action.send;
     this.stopForwarding = this.coreRoom.subscribe(
