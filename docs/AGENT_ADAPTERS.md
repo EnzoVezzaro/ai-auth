@@ -162,7 +162,7 @@ restart, remove the stale plugin and add the newly printed URL again. This is a
 manual re-add step in the client, not a protocol requirement.
 
 Observed on 2026-11-16 with three independent plugins (agents A, B and C) in
-one BODY4AI room: A and C kept working; B required that one manual re-add after
+one shared room on the example site: A and C kept working; B required that one manual re-add after
 its endpoint changed. The current endpoint is a live credential and is reported
 out of band rather than committed to this repository.
 

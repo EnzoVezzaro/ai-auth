@@ -41,13 +41,13 @@ The browser test uses two isolated wallets and a separate agent wallet in the cu
 
 **Work:** Specify a signed, origin-bound link challenge and proof with one-use nonce, wallet identity, site resource, capability scopes, creation/expiry and optional account subject. Keep local link records in the wallet; site-specific account mapping belongs to each site. Expose `requestLink`, `verifyLink`, `listLinks`, and `unlink` or equivalent versioned APIs with explicit storage boundaries. Do not claim global revocation without a shared revocation source: bounded grant expiry and live signed revocation events are honest serverless mechanisms. Keep identity recovery/rotation behavior explicit.
 
-**Acceptance:** Link an agent to BODY4AI, refresh/reopen, see the same site link, use only approved scopes, unlink it, and confirm it no longer authorizes new operations. A malicious origin, old nonce, changed site, forged wallet ID, expired proof, or reordered resource cannot create a valid link. An optional Clerk demo verifies site-account membership without requiring Clerk for core wallet functions.
+**Acceptance:** Link an agent to an example site, refresh/reopen, see the same site link, use only approved scopes, unlink it, and confirm it no longer authorizes new operations. A malicious origin, old nonce, changed site, forged wallet ID, expired proof, or reordered resource cannot create a valid link. An optional Clerk demo verifies site-account membership without requiring Clerk for core wallet functions.
 
 ### C. Make the copyable instruction a usable connection for real agents
 
 **Finding:** `createAIAuthConnectInstruction` emits JavaScript to execute in an agent's browser page. That is helpful, but copying text into Codex, Claude Code, OpenCode or an agent framework does not by itself grant browser access or produce an established P2P session.
 
-**Work:** Document and implement a supported workflow from a site connect button or URL/QR to an actual agent runtime. Start with a browser-hosted adapter and an opt-in local MCP/CLI adapter, reusing wallet approval rather than bypassing it. Provide a stable, public, nonsecret site manifest (if needed), exact-origin proof, capability preview, clear reconnect/unlink instructions, and a BODY4AI integration demo with actual application hooks. A static URL can initiate discovery, **not** stand in for signed consent.
+**Work:** Document and implement a supported workflow from a site connect button or URL/QR to an actual agent runtime. Start with a browser-hosted adapter and an opt-in local MCP/CLI adapter, reusing wallet approval rather than bypassing it. Provide a stable, public, nonsecret site manifest (if needed), exact-origin proof, capability preview, clear reconnect/unlink instructions, and an example integration demo with actual application hooks. A static URL can initiate discovery, **not** stand in for signed consent.
 
 **Acceptance:** In a fresh browser profile, a human links an agent to a site using only documented steps; the agent appears as the correct verified identity on the site, receives a real P2P event, completes a human-approved WebMCP read-only action, can disconnect, and cannot act after disconnection. Test with at least one actual external agent harness, not a test-only browser mock.
 
@@ -81,7 +81,7 @@ The wheel is an interaction entrypoint; it must not become an authorization bypa
 
 ## P1 — agent tools, adapters and integrations
 
-- **WebMCP:** Preserve catalog bounds, per-action schema, owner approval, wallet/session-targeted cancellation, timeout and abort. Add a real BODY4AI integration contract: required capabilities, tool discovery, read-only defaults, human confirmation, result visibility and failure handling. Test catalog update after reconnect, duplicate request IDs and mixed-permission peers.
+- **WebMCP:** Preserve catalog bounds, per-action schema, owner approval, wallet/session-targeted cancellation, timeout and abort. Add a real example integration contract: required capabilities, tool discovery, read-only defaults, human confirmation, result visibility and failure handling. Test catalog update after reconnect, duplicate request IDs and mixed-permission peers.
 - **MCP/CLI/harness adapter:** Publish a minimal agent connection example usable from Codex, Claude Code, OpenCode or another coding harness, without making AI Auth a centralized agent host. An agent must still obtain human-granted capabilities. Do not conflate local MCP stdio with cross-network P2P connectivity.
 - **Optional account-backed adapter:** A documented `clerk` integration may map a signed wallet identity to the site's own authenticated user and permissions. Clerk, storage and server routes remain optional site dependencies and are not imported by the core bundle. Add contract tests with mocked site verification and a working opt-in example.
 - **Plugin system:** Keep the `packages/runtime` slot versioning/host contract; publish small adapter interfaces rather than hard-coded provider dependencies. Add compatibility checks for browser bundle, ESM, npm subpaths, local runtime and MCP.
@@ -104,7 +104,7 @@ The wheel is an interaction entrypoint; it must not become an authorization bypa
 4. **Participation PR:** membership model, role/capability enforcement, public-vs-restricted disclosure, join/leave and verification tests.
 5. **Connection status PR:** expose direct-peer count / connection lifecycle, diagnostics, and testable state in UI/SDK.
 6. **Wheel PR:** recipients, safe previews, signed delivery receipts and accessibility/mobile behavior.
-7. **Integration PR:** BODY4AI full E2E plus an actual coding-agent adapter and optional Clerk demonstration.
+7. **Integration PR:** full E2E on the example site plus an actual coding-agent adapter and optional Clerk demonstration.
 8. **Release PR:** complete multi-network / six-participant evidence, troubleshoot edge cases, validate npm and GitHub Pages, close tracker with truthful check results.
 
 Keep PRs independently reviewable, update changed public types/docs, and preserve unrelated work. Avoid silently introducing a backend or relay-mediated application-data transport.

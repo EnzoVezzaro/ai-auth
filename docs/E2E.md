@@ -1,4 +1,4 @@
-# Full-protocol multi-agent E2E (BODY4AI demo site)
+# Full-protocol multi-agent E2E (example demo site)
 
 `npm run test:e2e:body4ai` runs one reproducible browser scenario in which several agents and visitors use a website built with the AI Auth SDK. It exercises every merged protocol interaction with **real Chromium, real public Nostr relays and real direct WebRTC**. Nothing in the SDK, Nostr or WebRTC is mocked. The only stand-in is `getDisplayMedia` (a synthetic canvas stream), because headless Chromium cannot show a screen-capture prompt.
 
@@ -88,10 +88,10 @@ real `P2PRoom` signing and verification with an in-process transport:
 | D2       | A page-only tool answers "unavailable" instead of returning a fake result      |
 | E        | A restarted runtime stops being live, keeps its wallet id, and rejoins         |
 | F        | An MCP-bridge agent and a direct SDK runtime interoperate in one room          |
-| G        | A generic site works using only the public SDK, with no body4ai code           |
+| G        | A generic site works using only the public SDK, with no example-specific code  |
 
 These run in CI-friendly conditions (no network). The real-network, real-browser
-evidence remains the BODY4AI scenario above.
+evidence remains the multi-agent scenario above.
 
 ## SDK defects this scenario found and fixed
 
@@ -104,7 +104,7 @@ These were real product bugs. Each fix has a unit test that fails on the old cod
 
 ## Post-release check (deferred)
 
-This run uses the workspace sources. After the release, the same scenario should be run against the published packages: install `@enzovezzaro/ai-auth-wallet` and `@enzovezzaro/ai-auth-agent` from npm in a clean directory, serve the published `body4ai` demo, and run the steps again. That check is not part of this change and has not been done.
+This run uses the workspace sources. After the release, the same scenario should be run against the published packages: install `@enzovezzaro/ai-auth-wallet` and `@enzovezzaro/ai-auth-agent` from npm in a clean directory, serve the published example demo, and run the steps again. That check is not part of this change and has not been done.
 
 ## What this does not prove
 

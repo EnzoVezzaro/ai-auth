@@ -2,8 +2,8 @@
 
 This matrix is the audit behind the claim "the documented features work". A
 feature is only marked **verified** when a test exercises its behaviour, not
-when an identifier merely exists. "Browser E2E" means the BODY4AI scenario
-(`docs/E2E.md`); "scenario" means `tests/agent-scenarios.test.mjs`.
+when an identifier merely exists. "Browser E2E" means the multi-agent scenario
+on the example site (`docs/E2E.md`); "scenario" means `tests/agent-scenarios.test.mjs`.
 
 Run everything offline with `npm run test:all` and
 `node --test tests/agent-scenarios.test.mjs`. The browser scenario is
@@ -57,8 +57,8 @@ Run everything offline with `npm run test:all` and
 | Feature                                            | Code                               | Evidence                                                                                           | Status                               |
 | -------------------------------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------ |
 | Copyable connect instruction and connect panel     | `packages/p2p/agent-connect.js`    | `agent-connect.test.mjs`, scenario G, browser connect flow                                         | Verified (unit + scenario + browser) |
-| SDK works on a generic site with no body4ai code   | public package exports             | scenario G (generic origin, no private imports)                                                    | Verified (scenario)                  |
-| BODY4AI page: identity, cursor, chat, wheel, tools | `examples/body4ai/site/*`          | browser E2E steps 1–20; site `e2e/visual/body4ai-visual.mjs`                                       | Verified (browser E2E)               |
+| SDK works on a generic site with no example code   | public package exports             | scenario G (generic origin, no private imports)                                                    | Verified (scenario)                  |
+| Example site: identity, cursor, chat, wheel, tools | `examples/body4ai/site/*`          | browser E2E steps 1–20; site `e2e/visual/body4ai-visual.mjs`                                       | Verified (browser E2E)               |
 | MCP over stdio and HTTP                            | `packages/mcp/index.js`, `http.js` | `server.test.mjs`, `cli.test.mjs`                                                                  | Verified (unit)                      |
 | Claude Code as a harness                           | `packages/mcp` docs                | `docs/AGENT_ADAPTERS.md` 2026-11-15 record                                                         | Verified (manual)                    |
 | Codex as a harness                                 | `packages/mcp` docs                | registration only; model call blocked by usage limit                                               | **Limitation**                       |
