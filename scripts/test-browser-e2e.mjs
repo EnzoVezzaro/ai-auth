@@ -431,15 +431,20 @@ try {
   assert.ok(agentCatalog.tools.some((tool) => tool.name === "demo.increment"));
   const invokeDemoTool = async (name, input) => {
     const response = agentPage.evaluate(
-      ({ catalog, name, input }) => window.__agent.client.callTool(catalog, name, input),
+      ({ catalog, name, input }) =>
+        window.__agent.client.callTool(catalog, name, input),
       { catalog: agentCatalog, name, input },
     );
-    await siteA.locator("#approve-action").waitFor({ state: "visible", timeout: 60_000 });
+    await siteA
+      .locator("#approve-action")
+      .waitFor({ state: "visible", timeout: 60_000 });
     await siteA.locator("#approve-action").click();
     return response;
   };
   assert.deepEqual(
-    await invokeDemoTool("demo.echo", { message: "hello from another agent wallet" }),
+    await invokeDemoTool("demo.echo", {
+      message: "hello from another agent wallet",
+    }),
     { echoed: "hello from another agent wallet" },
   );
   assert.deepEqual(await invokeDemoTool("demo.increment", {}), { count: 1 });
@@ -874,7 +879,9 @@ try {
     path: resolve(screenshots, "generic-agent-client-connected.png"),
     fullPage: true,
   });
-  console.log("Saved verified browser screenshots under test-results/screenshots/");
+  console.log(
+    "Saved verified browser screenshots under test-results/screenshots/",
+  );
 
   if (process.env.AI_AUTH_CHECK_TOP_LEVEL_WALLET) {
     const contextC = await browser.newContext({ acceptDownloads: true });
