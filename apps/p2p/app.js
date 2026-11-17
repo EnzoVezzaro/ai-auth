@@ -1374,7 +1374,9 @@ if (externalConnectMode) {
       event.origin === state.externalOrigin &&
       event.origin === state.externalRequest?.audience
     ) {
-      markSessionEnded(state.consent?.body?.payload?.requestNonce);
+      // The site already revoked its side of the connection. End the wallet's
+      // room too so peers get a signed goodbye instead of waiting for the lease.
+      expireExternalSession("ended");
       return;
     }
     // Authenticate the message itself: data.audience is caller-controlled, so
