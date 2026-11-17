@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.8.0 - 2026-11-17
+
+### Added
+
+- WebMCP tools publish a `consequentialHint` for protected actions and an `untrustedContentHint` for results that come from peers or agents. These hints are advisory; the approval gate is still the only check.
+- WebMCP tools publish an optional human-readable `title`.
+- The page re-discovers its WebMCP tools when the page's tool set changes (`toolchange`), and re-publishes the catalog.
+
+### Changed
+
+- Tool names follow the WebMCP draft: 1 to 128 characters from `A-Z a-z 0-9 _ . -`. Non-object JSON Schemas are accepted for tool input.
+- The landing page is rebuilt with ThreeUI.
+
+### Fixed
+
+- Peers that keep sending heartbeats stay online in the collaboration wheel. Before, an active agent could show as offline.
+- An addressed message to a fresh peer is no longer blocked as "offline".
+- A visitor's disconnect sends a signed goodbye, so peers drop the visitor at once instead of after the lease expires.
+- Agent-side tests (tool provider and agent scenarios) allow longer for the first catalog or presence announcement under a loaded run.
+
 ## 0.7.0 - 2026-11-16
 
 ### Added
