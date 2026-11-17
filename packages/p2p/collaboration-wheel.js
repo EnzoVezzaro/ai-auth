@@ -66,6 +66,7 @@ class Wheel {
     this.objectUrls = new Set();
     this.entries = new Map();
     this.inbox = Promise.resolve();
+    this.sendingText = false;
     this.restoreFocus = null;
     this.bind();
     this.refresh();
@@ -419,7 +420,11 @@ class Wheel {
     const text = this.ui.input.value.trim();
     if (!text || this.ui.input.disabled || this.sendingText) return;
     this.sendingText = true;
+    // Clear and lock synchronously: a double Enter/click must not enqueue the
+    // same draft twice while the first send is awaiting the transport.
     this.ui.input.value = "";
+    this.ui.input.disabled = true;
+    this.ui.send.disabled = true;
     try {
       await this.deliver("text", text, (o) =>
         this.connection.sendText(text, o),
@@ -432,6 +437,7 @@ class Wheel {
       this.say(error.message || "Could not send message.");
     } finally {
       this.sendingText = false;
+      this.refresh();
     }
   }
 
