@@ -140,7 +140,7 @@ function parseSessionTtl(value) {
   return value === "never" ? null : Number(value);
 }
 function sessionLimitCopy(request) {
-  return "Choose how long this session may last. Shorter sessions also end after the idle time shown, up to 10 minutes. Never has no time or idle limit: the session stays active until you end it or the site stops it.";
+  return "Choose how long this session may last. Shorter sessions also end after the idle time shown, up to 10 minutes. Never has no time or idle limit: the session stays active and resumable after a refresh until you end it or the site stops it.";
 }
 // A grant with no fixed end (Never) stays open until it is ended or revoked.
 function grantOpen(payload) {
@@ -797,11 +797,15 @@ function bindView() {
         },
       );
       // Save the signed grant before the site is told, so a wallet reload can
-      // confirm a resume from its durable record rather than page memory.
-      await grantStore.save(consent, {
-        audience: state.externalOrigin,
-        room: state.externalRequest.room ?? "default",
-      });
+      // confirm a resume from its durable record rather than page memory. A
+      // blocked storage backend must not block connecting; without a durable
+      // grant the session simply cannot be resumed later.
+      try {
+        await grantStore.save(consent, {
+          audience: state.externalOrigin,
+          room: state.externalRequest.room ?? "default",
+        });
+      } catch {} // best-effort durability; resume stays unavailable
       externalHost.postMessage(
         {
           type: "ai-auth/connect-consent",
@@ -853,6 +857,25 @@ function bindView() {
       );
       if (!state.lease.renew(consent.body.payload))
         throw new Error("This session is no longer active");
+      // Renewal keeps the session's original identity: replace the one grant
+      // keyed by the original nonce rather than storing under the renewal
+      // nonce. The narrower consent then supersedes the broader one everywhere.
+      const sessionId =
+        state.externalRequest?.nonce ?? state.consent.body.payload.requestNonce;
+      try {
+        await grantStore.save(consent, {
+          audience: state.externalOrigin,
+          room: renewal.room ?? state.externalRequest?.room ?? "default",
+          requestNonce: sessionId,
+        });
+      } catch {
+        // Without persistence the old (broader) grant must not stay resumable.
+        try {
+          await grantStore.markEnded(state.externalOrigin, sessionId);
+        } catch {}
+      }
+      // Persist (or retire) the grant before telling the site it succeeded,
+      // matching the fresh-connect ordering.
       externalHost.postMessage(
         {
           type: "ai-auth/renew-consent",
@@ -861,10 +884,6 @@ function bindView() {
         },
         state.externalOrigin,
       );
-      await grantStore.save(consent, {
-        audience: state.externalOrigin,
-        room: renewal.room ?? state.externalRequest?.room ?? "default",
-      });
       state.consent = consent;
       state.renewal = null;
       scheduleSessionExpiry();

@@ -100,13 +100,17 @@ export function createGrantStore({
     throw new TypeError("A grant adapter with get and put is required");
 
   return {
-    async save(consent, { audience, room, at = now() } = {}) {
+    async save(consent, { audience, room, requestNonce, at = now() } = {}) {
       const payload = consent?.body?.payload;
       if (!payload || typeof audience !== "string" || typeof room !== "string")
         throw new TypeError("A consent, audience and room are required");
+      // A renewal carries its own request nonce but keeps the session's stable
+      // identity. Callers pass the original nonce to replace that one record,
+      // so the superseded (broader) consent is never left resumable.
+      const id = requestNonce ?? payload.requestNonce;
       const record = {
         audience,
-        requestNonce: payload.requestNonce,
+        requestNonce: id,
         room,
         capabilities: [...(payload.capabilities ?? [])],
         expiresAt: payload.expiresAt,
@@ -116,7 +120,7 @@ export function createGrantStore({
         ended: false,
         consent,
       };
-      await adapter.put(grantKey(audience, record.requestNonce), record);
+      await adapter.put(grantKey(audience, id), record);
       return record;
     },
     get(audience, requestNonce) {

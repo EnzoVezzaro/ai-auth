@@ -7,8 +7,9 @@ import { CONSENT_VERSION } from "./connect.js";
 
 export const SESSION_RECORD_VERSION = 1;
 // A stored consent is re-verified at restore time, long after the one-use
-// challenge expired. Its own signed expiry bounds it, so envelope age may be
-// generous here; verifyStoredConsent checks the grant end time separately.
+// challenge expired. Its own signed expiry bounds a timed grant, so envelope
+// age may be generous here; Never grants have no time bound at all and are
+// exempt from this age cap so they stay resumable however old they get.
 const STORED_CONSENT_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
 const PREFIX = "ai-auth:sessions";
 
@@ -85,7 +86,8 @@ export async function verifyStoredConsent(
     return await verifyEnvelope(consent, {
       expectedIssuer: walletId,
       now,
-      maxAgeMs: STORED_CONSENT_MAX_AGE_MS,
+      maxAgeMs:
+        payload.expiresAt === null ? Infinity : STORED_CONSENT_MAX_AGE_MS,
     });
   } catch {
     return false;

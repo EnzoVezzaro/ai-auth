@@ -26,25 +26,32 @@ export async function canResumeSession(
     endedIds = new Set(),
     lastActivity,
     now = Date.now(),
+    boundByStore = false,
   } = {},
 ) {
   const payload = consent?.body?.payload;
   if (!payload || typeof walletId !== "string" || !exactOrigin(audience))
     return false;
+  // A renewed consent carries its own request nonce (the renewal challenge)
+  // and links back to the stable session id through renewsNonce. The wallet's
+  // durable grant still pins the exact envelope, so accepting either binding
+  // lets an approved renewal resume under the original session identity.
   if (
     payload.version !== CONSENT_VERSION ||
     payload.audience !== audience ||
-    payload.requestNonce !== sessionId ||
+    (!boundByStore &&
+      payload.requestNonce !== sessionId &&
+      payload.renewsNonce !== sessionId) ||
     payload.room !== room ||
     endedIds.has(sessionId)
   )
     return false;
   // The signed descriptor is checked exactly as on a fresh connect, using the
-  // saved session id as the nonce it was signed against.
+  // nonce this consent was signed against (a renewal uses its own nonce).
   if (payload.agentDescriptor !== undefined) {
     const agent = await verifyConsentAgent(
       consent,
-      { room, nonce: sessionId },
+      { room, nonce: payload.requestNonce },
       { expectedOrigin: audience, expectedWallet: walletId, now },
     );
     if (!agent.ok) return false;
@@ -66,10 +73,12 @@ export async function canResumeSession(
     now - (lastActivity ?? payload.issuedAt) >= payload.idleTimeoutMs
   )
     return false;
+  // A Never grant has no signed time bound, so it must not silently acquire a
+  // one-week resume window. Only grants that carry an expiry keep the cap.
   return verifyEnvelope(consent, {
     expectedIssuer: walletId,
     now,
-    maxAgeMs: MAX_STORED_CONSENT_AGE_MS,
+    maxAgeMs: payload.expiresAt === null ? Infinity : MAX_STORED_CONSENT_AGE_MS,
   });
 }
 
@@ -117,6 +126,10 @@ export async function canResumeStoredSession(
     walletId,
     endedIds: new Set(),
     lastActivity: record.lastActivity,
+    // The durable record is keyed by the stable session id and pins the exact
+    // envelope, so repeated renewals (whose renewsNonce chains to the previous
+    // renewal) are still bound to this session without a fresh signature.
+    boundByStore: true,
     now,
   });
 }
