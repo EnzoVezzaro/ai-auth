@@ -283,10 +283,11 @@ export function createAgentBridge({
         })),
       };
     },
-    async invoke({ name, input = {}, wallet }, { signal } = {}) {
+    async invoke({ name, input = {}, wallet, session }, { signal } = {}) {
       const matching = catalogs().filter(
         (c) =>
           (!wallet || c.wallet === wallet) &&
+          (!session || c.session === session) &&
           c.tools.some((t) => t.name === name),
       );
       if (matching.length === 0)
@@ -296,14 +297,18 @@ export function createAgentBridge({
           rejected: false,
           reason: `No participant advertises "${name}" right now. A page tool needs the site's page open; an agent tool needs the providing agent online.`,
         };
-      if (matching.length > 1)
+      if (matching.length > 1) {
+        const choices = matching
+          .map((c) => `${c.wallet} (session ${c.session})`)
+          .join("; ")
+          .slice(0, 180);
         return {
           ok: false,
           code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
           rejected: false,
-          reason:
-            "Ambiguous: several participants advertise this tool; pass wallet",
+          reason: `Ambiguous: several catalogs advertise "${name}": ${choices}. Pass wallet and session to choose one.`,
         };
+      }
       try {
         return {
           ok: true,
@@ -348,8 +353,8 @@ export function createAgentBridge({
         makeHostCall((options) => api.events(options)),
         makeHostCall((input) => api.send(input)),
         makeHostCall((input) => api.move(input)),
-        makeHostCall((name, input, wallet) =>
-          api.invoke({ name, input: input ?? {}, wallet }, { signal }),
+        makeHostCall((name, input, wallet, session) =>
+          api.invoke({ name, input: input ?? {}, wallet, session }, { signal }),
         ),
       ];
       const wrappers = factory(...callbacks);
@@ -487,6 +492,7 @@ const SPECS = [
       name: z.string().regex(TOOL_NAME_PATTERN),
       input: z.record(z.string(), z.unknown()).optional(),
       wallet: z.string().max(200).optional(),
+      session: z.string().max(200).optional(),
     },
     (b, i) => b.invoke(i),
   ],

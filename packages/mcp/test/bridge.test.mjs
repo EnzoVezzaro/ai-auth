@@ -171,6 +171,60 @@ test("invoke with several catalogs requires an explicit wallet", async () => {
   );
 });
 
+test("CT-04/MCP-01: invoke disambiguates two live sessions of one wallet", async () => {
+  const mk = (session) => ({
+    wallet: "agent:site",
+    session,
+    requestNonce: `n-${session}-123456789`,
+    expiresAt: Date.now() + 60_000,
+    tools: [{ name: "t" }],
+  });
+  const client = {
+    catalogs: [mk("old-session"), mk("new-session")],
+    callTool: async (catalog) => ({ session: catalog.session }),
+  };
+  const bridge = createAgentBridge({
+    runtime: fakeRuntime(),
+    clientFactory: () => client,
+  });
+  const ambiguous = await bridge.invoke({ name: "t", wallet: "agent:site" });
+  assert.equal(ambiguous.ok, false);
+  assert.match(ambiguous.reason, /session/i, "the remedy names the catalog key");
+  assert.match(ambiguous.reason, /old-session/);
+  assert.match(ambiguous.reason, /new-session/);
+  assert.deepEqual(
+    await bridge.invoke({
+      name: "t",
+      wallet: "agent:site",
+      session: "new-session",
+    }),
+    { ok: true, result: { session: "new-session" } },
+  );
+});
+
+test("CT-04: code mode can pass a session to disambiguate an invoke", async () => {
+  const mk = (session) => ({
+    wallet: "agent:site",
+    session,
+    requestNonce: `n-${session}-123456789`,
+    expiresAt: Date.now() + 60_000,
+    tools: [{ name: "t" }],
+  });
+  const client = {
+    catalogs: [mk("old-session"), mk("new-session")],
+    callTool: async (catalog) => ({ session: catalog.session }),
+  };
+  const bridge = createAgentBridge({
+    runtime: fakeRuntime(),
+    clientFactory: () => client,
+  });
+  const out = await bridge.runCode({
+    code: `const r = await aiAuth.invoke("t", {}, "agent:site", "new-session"); return r.result.session;`,
+  });
+  assert.equal(out.ok, true, out.reason);
+  assert.equal(out.value, "new-session");
+});
+
 test("list_tools exposes site tool names and descriptions only", () => {
   const catalog = {
     wallet: "agent:site",
