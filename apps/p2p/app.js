@@ -88,6 +88,9 @@ const state = {
   externalPendingEvents: [],
   error: "",
   connectionLabel: "",
+  // Set synchronously at the start of wallet create/restore so a second
+  // submit cannot generate a second key or download a second recovery file.
+  submitting: false,
 };
 // Approved grants are durable in the wallet origin, so a wallet reload can
 // still confirm a resume. The adapter is a thin IndexedDB wrapper.
@@ -623,11 +626,15 @@ function bindView() {
   rootViewButtons();
   $("#create-wallet-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    state.error = "";
-    const data = new FormData(event.currentTarget);
-    if (data.get("passphrase") !== data.get("confirmation"))
-      return fail(new Error("Recovery passphrases do not match"));
+    if (state.submitting) return;
+    state.submitting = true;
+    const submitButton = event.currentTarget.querySelector('[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
     try {
+      state.error = "";
+      const data = new FormData(event.currentTarget);
+      if (data.get("passphrase") !== data.get("confirmation"))
+        return fail(new Error("Recovery passphrases do not match"));
       state.wallet = await createWallet({
         name: data.get("name"),
         passphrase: data.get("passphrase"),
@@ -653,14 +660,21 @@ function bindView() {
       toast("Wallet created. Save the encrypted recovery file.");
     } catch (error) {
       fail(error);
+    } finally {
+      state.submitting = false;
+      if (submitButton) submitButton.disabled = false;
     }
   });
   $("#import-wallet-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    state.error = "";
-    const file = $("#backup-file").files?.[0];
-    if (!file) return fail(new Error("Choose a recovery file first"));
+    if (state.submitting) return;
+    state.submitting = true;
+    const submitButton = event.currentTarget.querySelector('[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
     try {
+      state.error = "";
+      const file = $("#backup-file").files?.[0];
+      if (!file) return fail(new Error("Choose a recovery file first"));
       state.wallet = await importWalletBackup(
         await file.text(),
         $("#restore-passphrase").value,
@@ -678,6 +692,9 @@ function bindView() {
       toast("Wallet restored in this browser.");
     } catch (error) {
       fail(error);
+    } finally {
+      state.submitting = false;
+      if (submitButton) submitButton.disabled = false;
     }
   });
   $("#download-backup")?.addEventListener("click", () =>
