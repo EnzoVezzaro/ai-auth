@@ -84,7 +84,7 @@ test("the chat log keeps arrival order across incoming and outgoing messages", a
       type: "text",
       text: "incoming first",
       envelope: {
-        body: { type: "collab/text", issuer: "agent:peer", payload: {} },
+        body: { type: "message/text", issuer: "agent:peer", payload: {} },
         proof: { publicKey },
       },
     });

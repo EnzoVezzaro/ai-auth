@@ -151,7 +151,7 @@ These are the machine-readable codes in `TOOL_ERROR_CODES`, defined in `packages
 
 ## Chat types
 
-Human chat in the page and the collaboration wheel use `collab/text` as the wire type. The older `message/text` type is still accepted when received. The canonical name for chat is under review.
+Human chat in the page and the collaboration wheel use `message/text` as the wire type, with an optional signed `target` and `messageId`. The older `collab/text` name is still accepted from older senders and earns the same signed delivery receipt.
 
 ## Code Mode
 

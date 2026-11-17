@@ -150,7 +150,7 @@ test("a headless runtime signs a receipt for an addressed chat message", async (
   });
   const messageId = crypto.randomUUID();
   await sender.runtime.send(
-    "collab/text",
+    "message/text",
     {
       text: "for the headless agent",
       messageId,
@@ -175,7 +175,7 @@ test("a headless runtime signs a receipt for an addressed chat message", async (
   // A message addressed to another wallet earns no receipt from this agent.
   const other = crypto.randomUUID();
   await sender.runtime.send(
-    "collab/text",
+    "message/text",
     {
       text: "not for you",
       messageId: other,

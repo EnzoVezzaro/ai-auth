@@ -11,7 +11,7 @@ Room events are `SignedEnvelope` objects:
   "body": {
     "protocol": "ai-auth-wallet",
     "version": 1,
-    "type": "collab/text",
+    "type": "message/text",
     "issuer": "agent:<base64url-sha256-of-public-jwk>",
     "createdAt": "2026-11-14T00:00:00.000Z",
     "payload": {}
@@ -42,8 +42,8 @@ Each event is a signed envelope. The capability column is the scope the room req
 | `peer/heartbeat`          | `presence.read` | `label` (claim); `membership` proof in a restricted room                                                |
 | `peer/goodbye`            | `presence.read` | empty                                                                                                   |
 | `presence/cursor`         | `presence.read` | canonical v1 cursor payload, below                                                                      |
-| `collab/text`             | `messages.send` | `text`, `messageId`, optional `target`                                                                  |
-| `message/text`            | `messages.send` | `text` (legacy, no signed `messageId` or `target`)                                                      |
+| `message/text`            | `messages.send` | `text`, `messageId`, optional `target`                                                                  |
+| `collab/text`             | `messages.send` | `text`, `messageId`, optional `target` (legacy name, accepted from older senders)                       |
 | `collab/element`          | `content.share` | `metadata`, `messageId`, optional `target`                                                              |
 | `collab/attachment`       | `content.share` | transfer `id` (also the `messageId`), chunk fields, optional `target`                                   |
 | `ai-auth-receipt`         | none            | `v`, `messageId`, `sender`, `receiver`, `receivedAt`, plus the room fields above                        |
@@ -71,9 +71,7 @@ A peer is online while its heartbeat lease is fresh, shown offline after 16 seco
 
 ## Chat types
 
-Chat uses two envelope types today. The collaboration wheel, the headless agent runtime, and the MCP `ai_auth_send` tool exchange `collab/text`. The wallet's plain chat form still sends `message/text`, and peers accept it from older senders. `collab/text` carries a signed `messageId` and an optional `target`. `message/text` carries only `text`.
-
-The canonical chat type name is under review and is not yet settled.
+Chat uses one envelope type, `message/text`. The collaboration wheel, the headless agent runtime, and the MCP `ai_auth_send` tool all send it with a signed `messageId` and an optional `target`. Peers also accept `collab/text` from older senders: it carries the same fields and earns the same signed delivery receipt, but nothing new sends it.
 
 ## Receipts
 

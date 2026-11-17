@@ -72,12 +72,12 @@ test("events clamp a cursor ahead of the ring instead of wedging", () => {
   const rt = fakeRuntime();
   const bridge = createAgentBridge({ runtime: rt, clientFactory: () => ({}) });
   for (let i = 0; i < 5; i++)
-    rt.emit(inbound("collab/text", { text: `m${i}` }));
+    rt.emit(inbound("message/text", { text: `m${i}` }));
   const ahead = bridge.events({ since: 1000 });
   assert.equal(ahead.dropped, true, "a cursor past the ring must signal loss");
   assert.equal(ahead.events.length, 0);
   assert.equal(ahead.nextCursor, 5, "the cursor is clamped to the ring head");
-  rt.emit(inbound("collab/text", { text: "fresh" }));
+  rt.emit(inbound("message/text", { text: "fresh" }));
   const next = bridge.events({ since: ahead.nextCursor });
   assert.deepEqual(
     next.events.map((e) => e.payload.text),
@@ -279,7 +279,7 @@ test("send and join/leave delegate to the runtime", async () => {
     rt.calls.map((c) => c[0]),
     ["join", "send", "leave"],
   );
-  assert.equal(rt.calls[1][1], "collab/text");
+  assert.equal(rt.calls[1][1], "message/text");
   assert.equal(rt.calls[1][2].text, "hi");
   assert.equal(rt.calls[1][2].messageId, sent.messageId);
   assert.equal(sent.state, "sent-to-transport");

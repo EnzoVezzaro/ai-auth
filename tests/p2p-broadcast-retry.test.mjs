@@ -108,7 +108,7 @@ test("a broadcast reaches a peer whose channel reopens after the send", async ()
   net.setOpen("b", false);
   const envelope = {
     body: {
-      type: "collab/text",
+      type: "message/text",
       payload: { expiresAt: Date.now() + 30_000, nonce: "n".repeat(24) },
     },
   };
@@ -175,7 +175,7 @@ test("missed broadcasts are not retried past the envelope expiry", async () => {
   net.setOpen("a", false);
   const envelope = {
     body: {
-      type: "collab/text",
+      type: "message/text",
       payload: { expiresAt: Date.now() + 40, nonce: "m".repeat(24) },
     },
   };

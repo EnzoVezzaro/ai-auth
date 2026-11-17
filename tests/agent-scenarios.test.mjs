@@ -324,7 +324,7 @@ test("F: an MCP bridge agent and a direct SDK runtime interoperate in one room",
 
   const heard = [];
   direct.runtime.onEvent((m) => {
-    // ai_auth_send now emits the canonical collab/text; message/text is still
+    // ai_auth_send emits the canonical message/text; collab/text is still
     // accepted from legacy agents.
     if (
       m.direction === "in" &&

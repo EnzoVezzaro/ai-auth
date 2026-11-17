@@ -42,6 +42,7 @@ const CAPABILITY_FOR_EVENT = {
   "peer/goodbye": "presence.read",
   "presence/cursor": "presence.read",
   "message/text": "messages.send",
+  "collab/text": "messages.send", // legacy chat from older senders
   "agent/action": "tools.invoke",
 };
 const PASSIVE_EVENT_TYPES = new Set([

@@ -132,17 +132,17 @@ function runtimeForRoom(room, listeners) {
   };
 }
 
-test("legacy message/text from an old agent is shown in the wheel log", async (t) => {
+test("legacy collab/text from an old agent is shown in the wheel log", async (t) => {
   const { human, agent, settle } = await pair(t);
   const { shadow } = await mountWheel(t, human, agent);
   const log = () => shadow.querySelector(".log").textContent;
-  await agent.send("message/text", { text: "legacy hello" });
+  await agent.send("collab/text", { text: "legacy hello" });
   await settle();
   await until(() => log().includes("legacy hello"));
   assert.match(log(), /legacy hello/u);
 });
 
-test("a collab/text sent through ai_auth_send appears in the wheel log", async (t) => {
+test("a message/text sent through ai_auth_send appears in the wheel log", async (t) => {
   const { human, agent, settle } = await pair(t);
   const { shadow } = await mountWheel(t, human, agent);
   const bridge = createAgentBridge({
@@ -276,7 +276,7 @@ test("ai_auth_events surfaces peer chat and a receipt for the agent's own messag
       .events({})
       .events.some(
         (event) =>
-          event.type === "collab/text" &&
+          event.type === "message/text" &&
           event.payload?.text === "reply from human",
       ),
   );

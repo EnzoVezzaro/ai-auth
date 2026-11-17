@@ -701,7 +701,7 @@ try {
         window.__transfers.find((event) => event.type === "text").envelope.body
           .type,
     ),
-    "collab/text",
+    "message/text",
   );
   await siteA.getByRole("button", { name: "Share element" }).click();
   await siteA.locator("#share-target").click();
