@@ -376,6 +376,23 @@ test("a pointer below the first viewport uses the document-size basis, not a cla
   assert.equal(node.style.top, "400px");
 });
 
+test("the overlay's own human cursor is published page-scoped", (t) => {
+  const dom = makeDom();
+  const conn = makeConnection();
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/docs",
+  });
+  t.after(stop);
+  dom.target.dispatch("pointermove", { clientX: 100, clientY: 200 });
+  assert.equal(conn.published.length, 1);
+  assert.equal(
+    conn.published[0].page,
+    "/docs",
+    "the human cursor carries the viewer's page key",
+  );
+});
+
 test("scroll updates are captured on the document, not only the target", async (t) => {
   const dom = makeDom();
   const conn = makeConnection();

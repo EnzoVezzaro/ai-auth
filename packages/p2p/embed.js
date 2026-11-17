@@ -1174,7 +1174,7 @@ export async function connectAIAuthModal({
           walletPage.origin,
         );
       },
-      publishCursor({ x, y, visible = true, scroll }) {
+      publishCursor({ x, y, visible = true, scroll, page = null }) {
         if (!guardActive()) return;
         if (!consent.body.payload.capabilities.includes("presence.read"))
           return;
@@ -1192,6 +1192,14 @@ export async function connectAIAuthModal({
           (!Number.isFinite(scroll) || scroll < 0 || scroll > 1)
         )
           return;
+        if (
+          page !== null &&
+          (typeof page !== "string" ||
+            !page ||
+            page.length > 200 ||
+            /[\u0000-\u001f]/u.test(page))
+        )
+          return;
         recordActivity();
         popup.postMessage(
           {
@@ -1200,6 +1208,9 @@ export async function connectAIAuthModal({
               x,
               y,
               visible,
+              // pageKey is omitted when the caller does not scope the cursor,
+              // so older wallets keep treating it as a site-wide cursor.
+              ...(page === null ? {} : { pageKey: page }),
               ...(scroll === undefined ? {} : { scroll }),
             },
           },
@@ -1480,7 +1491,7 @@ export function mountAIAuthCollaboration(
     const now = Date.now();
     if (now - lastSentAt < 450) return;
     lastSentAt = now;
-    connection.publishCursor({ x, y, visible, scroll });
+    connection.publishCursor({ x, y, visible, scroll, page: viewerPage });
   };
   const fraction = (client, size, scroll) =>
     Math.max(0, Math.min(1, (client + scroll) / Math.max(1, size)));
@@ -1499,6 +1510,7 @@ export function mountAIAuthCollaboration(
       y: lastY,
       visible: false,
       scroll: scrollFraction(),
+      page: viewerPage,
     });
   target.addEventListener("pointermove", publish, { passive: true });
   target.addEventListener("pointerleave", leave);
