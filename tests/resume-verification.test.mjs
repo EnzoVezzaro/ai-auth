@@ -170,6 +170,33 @@ test("a forged recent lastActivity cannot revive an idle-expired session", async
   );
 });
 
+test("a signed consent with the wrong version is refused on resume", async () => {
+  const wallet = await makeWallet();
+  const consent = await grant(wallet);
+  const wrongVersion = await wallet.sign("connect/consent", {
+    ...consent.body.payload,
+    version: 3,
+  });
+  assert.equal(
+    await canResumeSession(wrongVersion, expectations(consent)),
+    false,
+    "resume applies the same consent version check as a fresh connect",
+  );
+});
+
+test("a signed consent with a tampered agent descriptor is refused", async () => {
+  const wallet = await makeWallet();
+  const consent = await grant(wallet);
+  const tampered = structuredClone(consent.body.payload);
+  tampered.agentDescriptor.model = "evil-model";
+  const reSigned = await wallet.sign("connect/consent", tampered);
+  assert.equal(
+    await canResumeSession(reSigned, expectations(consent)),
+    false,
+    "the descriptor is re-verified against its signed fields",
+  );
+});
+
 test("the wallet refuses a tampered consent even with matching fields", async () => {
   const consent = await grant(await makeWallet());
   const tampered = structuredClone(consent);
