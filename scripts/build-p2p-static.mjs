@@ -100,7 +100,7 @@ await build({
 for (const name of [
   "ARCHITECTURE.md",
   "SECURITY.md",
-  "WIRE_FORMAT.md",
+  "protocol.md",
   "RECOVERY.md",
 ]) {
   await cp(resolve(root, "docs", name), resolve(output, "docs", name));

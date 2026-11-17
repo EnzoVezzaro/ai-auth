@@ -1,6 +1,6 @@
 # AI Auth 0.4.0 — agent connection, linking, interaction and participation handoff
 
-> Archived document. It describes the 0.4.0 milestone and is kept for history. Current explanation lives in [`../explanation/`](../explanation/index.md).
+> Archived document. It describes the 0.4.0 milestone and is kept for history. Current explanation lives in [session lifecycle](../lifecycle.md).
 
 **Reviewed:** 2026-11-15. **Baseline:** `main` at `b51956a1125f18b09533c4fb77d7d8e28151c4cc`. **Target:** a reliable, genuinely usable agent-to-site and agent-to-agent collaboration product, with the floating interaction wheel. This is an audit and implementation handoff, **not a claim that the work below is complete**.
 

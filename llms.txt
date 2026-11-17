@@ -25,7 +25,7 @@ AI Auth is a protocol and SDK, not an account system. There is no AI Auth server
 - [Live site](https://enzovezzaro.github.io/ai-auth/): the landing page.
 - [Wallet](https://enzovezzaro.github.io/ai-auth/wallet/): the browser wallet, which is not indexed.
 - [Architecture](https://enzovezzaro.github.io/ai-auth/docs/ARCHITECTURE.md): how the pieces connect.
-- [Wire format](https://enzovezzaro.github.io/ai-auth/docs/WIRE_FORMAT.md): envelope and message formats.
+- [Protocol](https://enzovezzaro.github.io/ai-auth/docs/protocol.md): envelope, events, and message formats.
 - [Security](https://enzovezzaro.github.io/ai-auth/docs/SECURITY.md): threat model and boundaries.
 - [Recovery](https://enzovezzaro.github.io/ai-auth/docs/RECOVERY.md): backing up and restoring a wallet.
 
@@ -35,7 +35,7 @@ AI Auth is a protocol and SDK, not an account system. There is no AI Auth server
 - [Site integration](https://github.com/EnzoVezzaro/ai-auth/blob/main/docs/site-integration.md): how to connect a site and use the SDK.
 - [Agents and MCP](https://github.com/EnzoVezzaro/ai-auth/blob/main/docs/agents.md): runtime, keystore, tools and local coding agents.
 - [MCP command](https://github.com/EnzoVezzaro/ai-auth/blob/main/docs/mcp.md): the ai-auth-mcp command, flags and tools.
-- [Connection lifecycle](https://github.com/EnzoVezzaro/ai-auth/blob/main/docs/CONNECTION_LIFECYCLE.md): states, sessions, and WebMCP ownership.
+- [Session lifecycle](https://github.com/EnzoVezzaro/ai-auth/blob/main/docs/lifecycle.md): states, sessions, refresh, and resume.
 - [Changelog](https://github.com/EnzoVezzaro/ai-auth/blob/main/CHANGELOG.md): release history.
 
 ## Example

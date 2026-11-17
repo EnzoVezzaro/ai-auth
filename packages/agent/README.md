@@ -50,14 +50,14 @@ Human and wheel chat also use `collab/text`. The legacy `message/text` type is s
 | Backup and restore | `backup(path)` copies the encrypted file. `restore(path, { replace })` checks it. |
 | Delete             | `delete()` removes the active keystore. Archives stay until you remove them.      |
 
-A signature proves possession of the key. It does not prove who runs the agent or that a site admitted it. Restricted rooms need a membership proof. See [security](../../docs/SECURITY.md) and [protocol](../../docs/PROTOCOL.md).
+A signature proves possession of the key. It does not prove who runs the agent or that a site admitted it. Restricted rooms need a membership proof. See [security](../../docs/SECURITY.md) and [protocol](../../docs/protocol.md).
 
 ## Runtime
 
 `createAgentRuntime({ keystore, origin, room?, capabilities, descriptor? })`
 
 - `join(room?)`, `leave()`, `close()` and `resume()`. `leave()` forgets the room, `close()` keeps it.
-- `connectionState` and `onConnectionState(fn)` report the SDK lifecycle. `direct-peer-connected` appears only after the data channel opens. The status list is in [connection lifecycle](../../docs/CONNECTION_LIFECYCLE.md).
+- `connectionState` and `onConnectionState(fn)` report the SDK lifecycle. `direct-peer-connected` appears only after the data channel opens. The status list is in [session lifecycle](../../docs/lifecycle.md).
 - `peers()` reads signed heartbeat leases. `onPeerStale` fires once per lapsed lease.
 - `join()` retries transport failures with bounded backoff. The last room is saved in `<dir>/runtime.json`, with no secrets.
 - The connection lasts only while this process runs. There is no background daemon.

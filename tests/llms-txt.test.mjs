@@ -12,7 +12,7 @@ const text = await readFile(resolve(root, "llms.txt"), "utf8");
 const PUBLISHED_DOCS = [
   "ARCHITECTURE.md",
   "SECURITY.md",
-  "WIRE_FORMAT.md",
+  "protocol.md",
   "RECOVERY.md",
 ];
 

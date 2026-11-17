@@ -4,7 +4,7 @@
 
 ## What it is and is not
 
-- **Public and unsigned.** Anyone can serve or edit it, and a fetch proves nothing about the site's identity beyond "this origin served these bytes over TLS". It is a hint, never consent. Access still requires a signed wallet approval bound to the exact origin (see `WIRE_FORMAT.md`).
+- **Public and unsigned.** Anyone can serve or edit it, and a fetch proves nothing about the site's identity beyond "this origin served these bytes over TLS". It is a hint, never consent. Access still requires a signed wallet approval bound to the exact origin (see `protocol.md`).
 - **Not a secret store.** The validator rejects documents that contain credentials, private keys, tokens, or anything shaped like one. Never put bearer tokens, session keys, or private page data in it.
 - **No new server.** The file is static. AI Auth operates no registry; agents fetch it directly from the site.
 

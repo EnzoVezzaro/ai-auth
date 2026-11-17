@@ -9,16 +9,16 @@ Start with the [quickstart](quickstart.md) or the [site integration guide](site-
 
 ## Agent builders
 
-- [Agent adapters: Claude Code, Codex, OpenCode](AGENT_ADAPTERS.md)
-- [Headless agent runtime notes](AGENT_RUNTIME.md)
+- [Agents and MCP: Claude Code, Codex, OpenCode](agents.md)
+- [Headless agent runtime notes](agents.md)
 - [Agent package readme](../packages/agent/README.md) · [MCP command readme](../packages/mcp/README.md) · [Runtime package readme](../packages/runtime/README.md)
 
 ## Protocol and security
 
-- [Architecture](ARCHITECTURE.md) · [Connection lifecycle](CONNECTION_LIFECYCLE.md)
-- [Protocol](PROTOCOL.md) · [Wire format](WIRE_FORMAT.md)
+- [Architecture](ARCHITECTURE.md) · [Session lifecycle](lifecycle.md)
+- [Wire protocol](protocol.md) · [Limits and not yet available](limits.md)
 - [Security boundaries](SECURITY.md) · [Export and trust boundaries](BOUNDARIES.md)
-- [Site discovery](DISCOVERY.md) · [Explanation index](explanation/index.md)
+- [Site discovery](DISCOVERY.md)
 
 ## Operations
 

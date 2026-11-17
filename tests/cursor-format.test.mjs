@@ -102,8 +102,8 @@ async function examplePresenceItem(cursor) {
   });
 }
 
-test("DTC-13: PROTOCOL.md describes cursor coordinates as normalized fractions", async () => {
-  const protocol = await read("docs/PROTOCOL.md");
+test("DTC-13: protocol.md describes cursor coordinates as normalized fractions", async () => {
+  const protocol = await read("docs/protocol.md");
   const row = protocol.split("\n").find((line) => line.includes("| `x`, `y`"));
   assert.ok(row, "the cursor coordinate row is missing");
   assert.match(row, /0\.\.1 fraction/u);

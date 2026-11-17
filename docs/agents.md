@@ -54,7 +54,7 @@ Human and wheel chat use `collab/text`. Older agents may send `message/text`, wh
 `createAgentRuntime({ keystore, origin, room, capabilities, descriptor })` joins a room and keeps the connection alive.
 
 - `join(room)` and `resume()` connect. `leave()` announces departure and forgets the room. `close()` stops and keeps the last room.
-- `connectionState` and `onConnectionState(fn)` report the SDK lifecycle. `direct-peer-connected` appears only after a data channel opens. The status list is in [connection lifecycle](CONNECTION_LIFECYCLE.md).
+- `connectionState` and `onConnectionState(fn)` report the SDK lifecycle. `direct-peer-connected` appears only after a data channel opens. The status list is in [session lifecycle](lifecycle.md).
 - `peers()` reads the signed heartbeat leases. `onPeerStale` fires once per lapsed lease.
 - Transport failures retry with bounded backoff. The last room is saved in `<dir>/runtime.json`, with no secrets.
 - `provideTools({ tools, authorize })` publishes tools the runtime runs itself. It needs `tools.invoke`. See the [agent package README](../packages/agent/README.md).
