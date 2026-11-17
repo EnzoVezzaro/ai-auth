@@ -31,6 +31,14 @@ function toolError(code, message) {
   return error;
 }
 
+// A peer's failure carries its own code when available; an older peer that
+// only sends a message is treated as a refusal, not as a missing tool.
+function responseErrorCode(code) {
+  return typeof code === "string" && Object.hasOwn(TOOL_ERROR_CODES, code)
+    ? code
+    : TOOL_ERROR_CODES.DENIED;
+}
+
 function validateInput(input, schema) {
   if (!schema || schema.type !== "object" || input === undefined) return input;
   if (!input || typeof input !== "object" || Array.isArray(input))
@@ -318,7 +326,12 @@ export async function registerAIAuthPageActions({
   // Results created by refusal paths, so callers can tell failure from data.
   const failures = new WeakSet();
   const refuse = (error) => {
-    const result = { error };
+    const result = {
+      error,
+      // Keep the machine-readable reason so a caller can tell invalid input
+      // (TOOL_UNAVAILABLE) from a refusal (DENIED) after the wire hop.
+      ...(typeof error?.code === "string" ? { code: error.code } : {}),
+    };
     failures.add(result);
     return result;
   };
@@ -717,6 +730,7 @@ function wireAgentBridge(
         toWallet: envelope.body.issuer,
         toSession: payload.session,
         error: "This site is busy; retry shortly",
+        code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
       });
       return;
     }
@@ -741,7 +755,12 @@ function wireAgentBridge(
           toSession: envelope.body.payload.session,
           // Denials and failures are errors, never successful results.
           ...(api.isFailure(result)
-            ? { error: String(result.error).slice(0, 240) }
+            ? {
+                error: String(result.error).slice(0, 240),
+                ...(typeof result.code === "string"
+                  ? { code: result.code }
+                  : {}),
+              }
             : { result: boundedJson(result) }),
         }),
       )
@@ -752,6 +771,7 @@ function wireAgentBridge(
           toWallet: envelope.body.issuer,
           toSession: envelope.body.payload.session,
           error: "The site tool could not complete",
+          code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
         }),
       )
       .finally(() => runningRequests.delete(payload.requestId));
@@ -1082,7 +1102,12 @@ export function createAIAuthAgentClient(
     clearTimeout(request.timer);
     request.signal?.removeEventListener("abort", request.abortHandler);
     if (typeof payload.error === "string")
-      request.reject(new Error(String(payload.error).slice(0, 240)));
+      request.reject(
+        toolError(
+          responseErrorCode(payload.code),
+          String(payload.error).slice(0, 240),
+        ),
+      );
     else {
       try {
         request.resolve(boundedJson(payload.result));

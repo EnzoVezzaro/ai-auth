@@ -542,6 +542,22 @@ test("CT-01: code mode async calls return JSON copies and capture logs", async (
   assert.deepEqual(out.logs, ["before"]);
 });
 
+test("CT-08: the events stream surfaces a denied action to the agent", () => {
+  const rt = fakeRuntime();
+  const bridge = createAgentBridge({ runtime: rt, clientFactory: () => ({}) });
+  rt.emit(
+    inbound("agent/action", {
+      name: "wishlist.add",
+      state: "denied",
+      summary: "Human approval declined for wishlist.add",
+    }),
+  );
+  const { events } = bridge.events({});
+  assert.equal(events.length, 1);
+  assert.equal(events[0].payload.state, "denied");
+  assert.match(events[0].payload.summary, /declined/);
+});
+
 test("CT-08: ai_auth_act accepts the terminal denied state", () => {
   const action = buildAgentActions({
     getBridge: () => ({}),

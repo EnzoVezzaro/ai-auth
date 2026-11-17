@@ -1,3 +1,5 @@
+import { TOOL_ERROR_CODES } from "@enzovezzaro/ai-auth-wallet";
+
 // Agent-local tool provider: an agent runtime publishes tools it executes
 // itself, so other participants can call them with no browser present.
 // The wire format is the one the site page uses (signed `agent/action` events
@@ -179,11 +181,14 @@ export function createToolProvider({
       allowed = false;
     }
     if (!allowed)
-      return { error: "This agent did not allow that tool for you" };
+      return {
+        error: "This agent did not allow that tool for you",
+        code: TOOL_ERROR_CODES.DENIED,
+      };
     try {
       validateInput(request.input, byName.get(request.name)?.inputSchema);
     } catch (error) {
-      return { error: error.message };
+      return { error: error.message, code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE };
     }
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -203,10 +208,16 @@ export function createToolProvider({
         ),
       ]);
       if (bytes(value ?? null) > MAX_RESULT_BYTES)
-        return { error: "The tool result is too large" };
+        return {
+          error: "The tool result is too large",
+          code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
+        };
       return { result: value ?? null };
     } catch {
-      return { error: "The tool could not complete" };
+      return {
+        error: "The tool could not complete",
+        code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
+      };
     } finally {
       clearTimeout(timer);
     }
@@ -262,6 +273,7 @@ export function createToolProvider({
       void respond(requester, {
         requestId: payload.requestId,
         error: "This provider is busy; retry shortly",
+        code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
       });
       return;
     }
