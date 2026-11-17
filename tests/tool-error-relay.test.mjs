@@ -9,6 +9,8 @@ import {
   connectAIAuthPopup,
   createAIAuthAgentClient,
   identityFor,
+  mountAIAuthInPageAgent,
+  randomNonce,
   registerAIAuthPageActions,
   signEnvelope,
 } from "../packages/p2p/index.js";
@@ -104,11 +106,11 @@ async function verifiedConnection() {
     consent,
     wallet: { id: wallet.id, name: wallet.name },
   });
-  return connectionPromise;
+  return { connection: await connectionPromise, popupMessages };
 }
 
 test("invalid input keeps TOOL_UNAVAILABLE across the wallet relay to the agent", async (t) => {
-  const connection = await verifiedConnection();
+  const { connection } = await verifiedConnection();
   t.after(() => connection.close());
   const api = await registerAIAuthPageActions({
     actions: [

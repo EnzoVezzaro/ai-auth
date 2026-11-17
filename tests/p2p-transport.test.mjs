@@ -299,11 +299,13 @@ test("WebMCP registers only consented actions and signs action lifecycle events"
   );
   assert.deepEqual(await api.execute("presence.read"), {
     error: "This action is not approved for this page",
+    code: "DENIED",
   });
   connection.close();
   assert.equal(registrations[0].options.signal.aborted, true);
   assert.deepEqual(await api.execute("workspace.read"), {
     error: "This action is not approved for this page",
+    code: "DENIED",
   });
   api.close();
 });
@@ -336,6 +338,7 @@ test("WebMCP JavaScript fallback hides action and transport secrets", async () =
   assert.deepEqual(api.tools, ["workspace.read"]);
   assert.deepEqual(await api.execute("workspace.read"), {
     error: "This page action failed. Check the site for details.",
+    code: "TOOL_UNAVAILABLE",
   });
   assert.deepEqual(
     events.map(({ state }) => state),
@@ -383,6 +386,7 @@ test("WebMCP tools require tools.invoke even when presence is approved", async (
   assert.equal(registrations.length, 0);
   assert.deepEqual(await api.execute("workspace.delete"), {
     error: "This action is not approved for this page",
+    code: "DENIED",
   });
   api.close();
   connection.close();
@@ -448,6 +452,7 @@ test("WebMCP registration expires with its verified wallet connection", async ()
     assert.equal(registrationSignal.aborted, true);
     assert.deepEqual(await api.execute("workspace.read"), {
       error: "This action is not approved for this page",
+      code: "DENIED",
     });
     assert.equal(executions, 0);
   } finally {
@@ -497,6 +502,7 @@ test("WebMCP does not execute if the wallet closes while publishing starts", asy
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(await execution, {
     error: "This action is not approved for this page",
+    code: "DENIED",
   });
   assert.equal(executions, 0);
   assert.equal(registrations[0].options.signal.aborted, true);

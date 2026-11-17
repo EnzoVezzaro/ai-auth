@@ -104,6 +104,9 @@ const TOOL_EVENT_KINDS = new Set([
 ]);
 
 function boundedJson(value, maxBytes = MAX_TOOL_JSON_BYTES) {
+  // A tool with no return value is a valid, empty success. JSON has no
+  // `undefined`, so it crosses the wire as `null` rather than a failure.
+  if (value === undefined) return null;
   let serialized;
   try {
     serialized = JSON.stringify(value);
