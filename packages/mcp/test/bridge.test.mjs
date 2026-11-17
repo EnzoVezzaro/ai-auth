@@ -411,6 +411,23 @@ test("status reports tools this agent provides", () => {
   assert.deepEqual(bridge.status().provides, ["agent.ping"]);
 });
 
+test("MCP-04: leaving clears provides and rejoining does not resurrect them", async () => {
+  const bridge = createAgentBridge({
+    runtime: fakeRuntime(),
+    clientFactory: () => ({}),
+    providedTools: ["agent.ping", "agent.self"],
+  });
+  assert.deepEqual(bridge.status().provides, ["agent.ping", "agent.self"]);
+  await bridge.leave();
+  assert.deepEqual(bridge.status().provides, []);
+  await bridge.join({ room: "research" });
+  assert.deepEqual(
+    bridge.status().provides,
+    [],
+    "the runtime closed its providers on leave, so they are not available again",
+  );
+});
+
 test("code mode runs sandboxed code against connection-checked aiAuth APIs", async () => {
   const bridge = createAgentBridge({
     runtime: fakeRuntime(),
