@@ -1371,7 +1371,15 @@ if (externalConnectMode) {
       markSessionEnded(state.consent?.body?.payload?.requestNonce);
       return;
     }
-    if (event.data?.type === "ai-auth/session-resume") {
+    // Authenticate the message itself: data.audience is caller-controlled, so
+    // it must agree with the real event.origin (and with the site we are bound
+    // to once a session exists) before a resume is even considered.
+    if (
+      event.data?.type === "ai-auth/session-resume" &&
+      event.source === externalHost &&
+      event.origin === event.data?.audience &&
+      (state.externalOrigin === "" || event.origin === state.externalOrigin)
+    ) {
       await confirmSessionResume(event);
       return;
     }
