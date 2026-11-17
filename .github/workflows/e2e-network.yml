@@ -1,0 +1,68 @@
+# Real-relay / WebRTC suites. Kept out of release-blocking CI (ci.yml) because
+# they depend on public Nostr relays, direct ICE and a running Chromium.
+# Runs nightly and on demand; needs no secrets.
+name: Network E2E
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  network-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install headless agent runtime dependencies
+        run: npm ci
+        working-directory: packages/agent
+      - name: Install MCP dependencies
+        run: npm ci
+        working-directory: packages/mcp
+      - name: Install Chromium for real-network browser E2E
+        run: npx playwright install --with-deps --only-shell chromium
+      - name: Run the full-protocol multi-agent scenario
+        run: npm run test:e2e:body4ai
+      - name: Upload body4ai screenshots and report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ai-auth-network-body4ai
+          path: |
+            test-results/screenshots/*.png
+            test-results/e2e-report.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Run the resume-after-reload browser scenario
+        if: always()
+        run: npm run test:browser:resume
+      - name: Upload resume screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ai-auth-network-resume
+          path: test-results/screenshots/*.png
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Run the collaboration wheel browser scenario
+        if: always()
+        run: npm run test:browser:wheel
+      - name: Upload wheel screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ai-auth-network-wheel
+          path: test-results/screenshots/*.png
+          if-no-files-found: warn
+          retention-days: 14
