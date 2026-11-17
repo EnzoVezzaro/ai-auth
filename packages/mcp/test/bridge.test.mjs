@@ -5,6 +5,7 @@ import {
   buildAgentActions,
   createRoomToolProvider,
 } from "../bridge.js";
+import { TOOL_ERROR_CODES } from "../../../packages/p2p/index.js";
 
 function fakeRuntime() {
   const listeners = new Set();
@@ -518,6 +519,34 @@ test("CT-01: code mode async calls return JSON copies and capture logs", async (
   assert.equal(out.ok, true, out.reason);
   assert.equal(out.value, 2);
   assert.deepEqual(out.logs, ["before"]);
+});
+
+test("MCP-02: list_tools before join returns a typed join-first error", () => {
+  const bridge = createAgentBridge({ runtime: fakeRuntime() });
+  const out = bridge.listTools();
+  assert.equal(out.ok, false);
+  assert.equal(out.code, TOOL_ERROR_CODES.NOT_JOINED);
+  assert.match(out.reason, /ai_auth_join/);
+  assert.deepEqual(out.sites, []);
+});
+
+test("MCP-02: invoke before join returns a typed join-first error", async () => {
+  const bridge = createAgentBridge({ runtime: fakeRuntime() });
+  const out = await bridge.invoke({ name: "t" });
+  assert.equal(out.ok, false);
+  assert.equal(out.code, TOOL_ERROR_CODES.NOT_JOINED);
+  assert.match(out.reason, /ai_auth_join/);
+});
+
+test("MCP-02: code mode surfaces the typed join-first error", async () => {
+  const bridge = createAgentBridge({ runtime: fakeRuntime() });
+  const out = await bridge.runCode({
+    code: `const r = aiAuth.listTools(); return { ok: r.ok, code: r.code };`,
+  });
+  assert.equal(out.ok, true, out.reason);
+  // The object comes back from the vm realm, so compare its fields.
+  assert.equal(out.value.ok, false);
+  assert.equal(out.value.code, TOOL_ERROR_CODES.NOT_JOINED);
 });
 
 test("CT-11: ai_auth_invoke accepts spec-valid names up to 128 characters", () => {
