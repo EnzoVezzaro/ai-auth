@@ -590,6 +590,54 @@ test("a tool name containing a slash is still rejected", async (t) => {
   assert.deepEqual(api.tools, []);
 });
 
+test("a human title is published with each tool descriptor, capped to 120 characters", async (t) => {
+  const { connection, popupMessages } = await makeVerifiedConnection(
+    ["tools.invoke"],
+    { roomSession: WALLET_SESSION },
+  );
+  t.after(() => connection.close());
+  const registrations = [];
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    actions: [
+      countAction(
+        { runs: 0 },
+        {
+          name: "site.count",
+          label: "  Count public records  ",
+        },
+      ),
+      countAction({ runs: 0 }, { name: "site.long", title: "t".repeat(200) }),
+    ],
+    modelContext: {
+      registerTool(tool) {
+        registrations.push(tool);
+      },
+      getTools: () => [
+        {
+          name: "peer.search",
+          description: "Search peer data.",
+          inputSchema: {},
+          title: "Peer search",
+        },
+      ],
+      executeTool: async () => "{}",
+    },
+    authorize: () => true,
+  });
+  t.after(() => api.close());
+  const tools = new Map(
+    catalogsIn(popupMessages)[0].tools.map((tool) => [tool.name, tool]),
+  );
+  assert.equal(tools.get("site.count").title, "Count public records");
+  assert.equal(tools.get("site.long").title.length, 120);
+  assert.equal(tools.get("peer.search").title, "Peer search");
+  assert.equal(
+    registrations.find((tool) => tool.name === "site.count").title,
+    "Count public records",
+  );
+});
+
 test("a non-object JSON Schema is published without dropping the catalog", async (t) => {
   const { connection, popupMessages } = await makeVerifiedConnection(
     ["tools.invoke"],

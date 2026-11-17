@@ -121,6 +121,15 @@ function toolAnnotations(action) {
   };
 }
 
+const MAX_TITLE_CHARS = 120;
+
+function toolTitle(action) {
+  const title = action.title ?? action.label;
+  return typeof title === "string" && title.trim()
+    ? title.trim().slice(0, MAX_TITLE_CHARS)
+    : undefined;
+}
+
 function toolDescriptor(action) {
   const descriptor = {
     name: action.name,
@@ -130,6 +139,8 @@ function toolDescriptor(action) {
   };
   if (action.outputSchema)
     descriptor.outputSchema = boundedJson(action.outputSchema, 4_096);
+  const title = toolTitle(action);
+  if (title) descriptor.title = title;
   return descriptor;
 }
 
@@ -242,6 +253,7 @@ export async function registerAIAuthPageActions({
             description: tool.description,
             inputSchema: tool.inputSchema,
             outputSchema: tool.outputSchema,
+            title: toolTitle(tool),
             requiredCapability: "tools.invoke",
             readOnly: tool.annotations?.readOnlyHint === true,
             // The page's hints are advisory; they never change the gate.
@@ -496,6 +508,7 @@ export async function registerAIAuthPageActions({
               name: action.name,
               description: action.description,
               inputSchema: action.inputSchema,
+              ...(toolTitle(action) ? { title: toolTitle(action) } : {}),
               annotations: toolAnnotations(action),
               execute: (input, context = {}) =>
                 execute(action.name, input, context),
