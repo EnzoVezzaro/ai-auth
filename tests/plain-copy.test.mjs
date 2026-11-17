@@ -83,6 +83,20 @@ test("each SDK connection status has one plain label", () => {
   assert.equal(connectionStatusLabel("not-a-status"), "Not connected.");
 });
 
+test("recovery and revocation statuses have their own human labels", () => {
+  assert.equal(connectionStatusLabel("connecting"), "Connecting…");
+  assert.equal(
+    connectionStatusLabel("reconnecting"),
+    "Connection lost. Trying to reconnect…",
+  );
+  assert.equal(
+    connectionStatusLabel("revoked"),
+    "The wallet ended this session.",
+  );
+  assert.notEqual(connectionStatusLabel("reconnecting"), "Not connected.");
+  assert.notEqual(connectionStatusLabel("revoked"), "Not connected.");
+});
+
 test("permission copy is plain words, and unknown permissions get a safe fallback", () => {
   assert.equal(capabilityCopy("presence.read").title, "See who else is here");
   assert.equal(capabilityCopy("messages.send").title, "Send messages");

@@ -167,9 +167,14 @@ export function createAgentRuntime(options = {}) {
       if (!have.has(peer.peerId)) state.addPeer(peer);
     for (const id of have) if (!want.has(id)) state.removePeer(id);
     state.tryTransition(snapshot.status);
+    // A reconnection attempt is also a period with no direct peers. Keeping
+    // noPeerSince set here is what lets checkLeases schedule the next retry;
+    // clearing it would make `reconnecting` terminal after an ICE failure.
     const waiting =
       snapshot.directPeerCount === 0 &&
-      ["signaling", "waiting-for-peers"].includes(snapshot.status);
+      ["signaling", "waiting-for-peers", "reconnecting"].includes(
+        snapshot.status,
+      );
     noPeerSince = waiting ? (noPeerSince ?? now()) : null;
   }
 
@@ -177,11 +182,11 @@ export function createAgentRuntime(options = {}) {
     if (message.direction === "state" && message.reason === "peer-lost") {
       // A transport channel died. Everyone seen through it is immediately
       // stale; recovery requires a new authenticated session.
-      for (const [id, peer] of registry) {
+      for (const peer of registry.values()) {
         if (peer.flagged) continue;
         peer.flagged = true;
         emit(listeners.stale, {
-          id,
+          id: peer.id,
           name: peer.name,
           session: peer.session,
           seenAt: peer.seenAt,
@@ -192,9 +197,12 @@ export function createAgentRuntime(options = {}) {
     }
     if (message.direction === "in" && message.envelope) {
       const { type, issuer } = message.envelope.body;
-      if (type === "peer/goodbye") registry.delete(issuer);
+      // Two tabs of one wallet share an issuer but not a session. Key exactly
+      // like P2PRoom.peers so neither overwrites the other or deletes it on bye.
+      const key = `${issuer}:${message.envelope.body.payload?.session ?? ""}`;
+      if (type === "peer/goodbye") registry.delete(key);
       else if (message.peer && issuer !== wallet?.id)
-        registry.set(issuer, {
+        registry.set(key, {
           id: issuer,
           name: message.peer.name,
           session: message.peer.session,
@@ -346,17 +354,17 @@ export function createAgentRuntime(options = {}) {
       providers.clear();
       return;
     }
-    for (const [id, peer] of registry) {
+    for (const [key, peer] of registry) {
       if (t > peer.seenAt + leaseMs && !peer.flagged) {
         peer.flagged = true;
         emit(listeners.stale, {
-          id,
+          id: peer.id,
           name: peer.name,
           session: peer.session,
           seenAt: peer.seenAt,
           leaseExpiresAt: peer.seenAt + leaseMs,
         });
-      } else if (t > peer.seenAt + 2 * leaseMs) registry.delete(id);
+      } else if (t > peer.seenAt + 2 * leaseMs) registry.delete(key);
     }
     if (
       core &&

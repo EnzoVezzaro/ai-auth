@@ -163,6 +163,38 @@ test("transport: zero peers waits, join/leave track a real data channel, errors 
   assert.equal(transport.left, true);
 });
 
+test("transport: a null error is handled without throwing", async () => {
+  const transport = makeFakeTransport();
+  const coreRoom = {
+    origin: "https://site.example",
+    room: "default",
+    wallet: { name: "w" },
+    subscribe: () => () => {},
+    receive: async () => true,
+    send: async () => {},
+    start: async () => {},
+  };
+  const statuses = [];
+  const adapter = new NostrWebRTC(coreRoom, {
+    joinRoom: () => transport,
+    onStatus: (message) => statuses.push(message),
+  });
+  await adapter.start();
+
+  // Trystero can emit without an error object; the callback must not throw.
+  assert.doesNotThrow(() => transport.error(null));
+  assert.ok(
+    statuses.includes("The peer collaboration room reported an error"),
+    "a generic status is still reported",
+  );
+  assert.equal(
+    adapter.connectionState.status,
+    "waiting-for-peers",
+    "only a peer-connect-failed code invalidates the connection",
+  );
+  await adapter.close();
+});
+
 test("transport: sending without an open peer never reports a connected state", async () => {
   const transport = makeFakeTransport();
   const adapter = makeAdapter(transport);
