@@ -350,15 +350,19 @@ class Wheel {
 
   // The session ended or the recipient vanished: stop capture, drop staged work.
   dropWorkIfUnusable(block) {
-    if (!block) return;
     const status = this.snapshot?.status;
-    if (!this.expired && status !== "expired" && status !== "disconnected")
-      return;
+    const unusable =
+      this.expired ||
+      status === "expired" ||
+      status === "disconnected" ||
+      status === "revoked" ||
+      status === "idle";
+    if (!unusable) return;
     if (this.capture.isRecording() || this.capture.isLive()) {
       this.capture.cancel();
       this.setRecordingUi(false);
     }
-    if (this.staged) this.discardStaged(block);
+    if (this.staged) this.discardStaged(block || "This session has ended.");
   }
 
   guarded(name, run) {
