@@ -9,17 +9,11 @@ export const DISCOVERY_VERSION = 1;
 export const DISCOVERY_PATH = "/.well-known/ai-auth.json";
 export const MAX_DISCOVERY_BYTES = 16 * 1024;
 export const DISCOVERY_TIMEOUT_MS = 8_000;
-// Scopes a discovery document may ask for. `tasks.delegate` stays accepted so
-// existing documents are not rejected, but it is not offered as a default:
-// there is no task protocol behind it yet.
 export const DISCOVERY_CAPABILITIES = Object.freeze([
   "presence.read",
   "messages.send",
   "content.share",
   "tools.invoke",
-]);
-const ACCEPTED_CAPABILITIES = Object.freeze([
-  ...DISCOVERY_CAPABILITIES,
   "tasks.delegate",
 ]);
 
@@ -128,9 +122,9 @@ export function validateDiscovery(doc, { origin } = {}) {
   if (
     caps !== undefined &&
     (!Array.isArray(caps) ||
-      caps.length > ACCEPTED_CAPABILITIES.length ||
+      caps.length > DISCOVERY_CAPABILITIES.length ||
       new Set(caps).size !== caps.length ||
-      !caps.every((c) => ACCEPTED_CAPABILITIES.includes(c)))
+      !caps.every((c) => DISCOVERY_CAPABILITIES.includes(c)))
   )
     return fail("bad-capabilities");
   if (doc.rooms !== undefined && !checkRooms(doc.rooms))

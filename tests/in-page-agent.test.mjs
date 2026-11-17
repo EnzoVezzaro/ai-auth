@@ -263,7 +263,7 @@ test("in-page agent discovers WebMCP tools and runs only human-authorized action
   ]);
   assert.deepEqual(
     events.map(({ state }) => state),
-    ["denied"],
+    ["needs-human"],
   );
   assert.equal(events[0].name, "workspace.read");
 

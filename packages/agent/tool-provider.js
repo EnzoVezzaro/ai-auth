@@ -1,5 +1,3 @@
-import { TOOL_ERROR_CODES } from "@enzovezzaro/ai-auth-wallet";
-
 // Agent-local tool provider: an agent runtime publishes tools it executes
 // itself, so other participants can call them with no browser present.
 // The wire format is the one the site page uses (signed `agent/action` events
@@ -181,14 +179,11 @@ export function createToolProvider({
       allowed = false;
     }
     if (!allowed)
-      return {
-        error: "This agent did not allow that tool for you",
-        code: TOOL_ERROR_CODES.DENIED,
-      };
+      return { error: "This agent did not allow that tool for you" };
     try {
       validateInput(request.input, byName.get(request.name)?.inputSchema);
     } catch (error) {
-      return { error: error.message, code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE };
+      return { error: error.message };
     }
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -208,16 +203,10 @@ export function createToolProvider({
         ),
       ]);
       if (bytes(value ?? null) > MAX_RESULT_BYTES)
-        return {
-          error: "The tool result is too large",
-          code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
-        };
+        return { error: "The tool result is too large" };
       return { result: value ?? null };
     } catch {
-      return {
-        error: "The tool could not complete",
-        code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
-      };
+      return { error: "The tool could not complete" };
     } finally {
       clearTimeout(timer);
     }
@@ -265,22 +254,13 @@ export function createToolProvider({
     if (type !== "agent/action" || !validRequest(payload) || issuer === ownId())
       return;
     const now = Date.now();
-    const requester = { wallet: issuer, session: payload.session };
     for (const [id, until] of seen) if (until <= now) seen.delete(id);
-    if (seen.has(payload.requestId)) return;
-    if (running >= CONCURRENCY) {
-      // A silent drop makes the caller wait for its full timeout with no hint.
-      void respond(requester, {
-        requestId: payload.requestId,
-        error: "This provider is busy; retry shortly",
-        code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
-      });
-      return;
-    }
+    if (seen.has(payload.requestId) || running >= CONCURRENCY) return;
     seen.set(payload.requestId, now + REQUEST_MEMORY_MS);
     running += 1;
     const controller = new AbortController();
     runningRequests.set(payload.requestId, controller);
+    const requester = { wallet: issuer, session: payload.session };
     execute(requester, payload, controller)
       .then((outcome) =>
         respond(requester, { requestId: payload.requestId, ...outcome }),

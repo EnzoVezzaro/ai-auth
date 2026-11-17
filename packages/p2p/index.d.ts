@@ -377,8 +377,7 @@ export interface AIAuthPageConnection {
       | "completed"
       | "failed"
       | "cancelled"
-      | "needs-human"
-      | "denied";
+      | "needs-human";
     summary: string;
   }): void;
   publishCursor(cursor: {
@@ -732,8 +731,7 @@ export function createAIAuthAgentClient(
       | "completed"
       | "failed"
       | "cancelled"
-      | "needs-human"
-      | "denied";
+      | "needs-human";
     summary: string;
   }): Promise<SignedEnvelope>;
   callTool(

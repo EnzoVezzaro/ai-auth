@@ -12,9 +12,6 @@ const MEANING = {
   "messages.send": "send signed text messages to peers in the room",
   "tools.invoke":
     "list and call the site's WebMCP tools (the site owner still approves each call)",
-  // Accepted for compatibility, but no task/command protocol exists yet.
-  "tasks.delegate":
-    "legacy task-delegation scope: no task protocol is implemented yet, so it grants no working handoff",
 };
 
 export function renderPreview({ origin, room, walletId, requested, source }) {
@@ -67,30 +64,17 @@ export async function resolveApproval({
     throw new ApprovalError(
       "Refusing to auto-approve without a TTY: pass --approve with the exact scopes to grant",
     );
-  let lastError = null;
-  // A typo at the TTY should not force a restart (and a fresh passphrase).
-  // Empty input stays an explicit, terminal "deny".
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const answer = String((await ask(requested, lastError)) ?? "").trim();
-    if (!answer)
-      throw new ApprovalError(
-        "No capabilities were approved; connection denied",
-      );
-    if (answer === "all") return [...requested].sort();
-    try {
-      return validateScopes(
-        answer
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
-        requested,
-      );
-    } catch (error) {
-      if (!(error instanceof ApprovalError)) throw error;
-      lastError = error;
-    }
-  }
-  throw lastError ?? new ApprovalError("No valid scopes were approved");
+  const answer = String((await ask(requested)) ?? "").trim();
+  if (!answer)
+    throw new ApprovalError("No capabilities were approved; connection denied");
+  if (answer === "all") return [...requested].sort();
+  return validateScopes(
+    answer
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+    requested,
+  );
 }
 
 /** Visible line prompt on the controlling TTY (stderr keeps stdout clean). */
@@ -98,12 +82,11 @@ export function askOnTty({
   input = process.stdin,
   output = process.stderr,
 } = {}) {
-  return (requested, error) =>
+  return (requested) =>
     new Promise((resolve) => {
       const rl = createInterface({ input, output });
-      const hint = error ? ` [${error.message}]` : "";
       rl.question(
-        `Grant which scopes? (comma list of ${requested.join(", ")}; "all"; empty = deny)${hint}: `,
+        `Grant which scopes? (comma list of ${requested.join(", ")}; "all"; empty = deny): `,
         (line) => {
           rl.close();
           resolve(line);
