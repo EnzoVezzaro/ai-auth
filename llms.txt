@@ -25,7 +25,7 @@ AI Auth is a protocol and SDK, not an account system. There is no AI Auth server
 - [Live site](https://enzovezzaro.github.io/ai-auth/): the landing page.
 - [Wallet](https://enzovezzaro.github.io/ai-auth/wallet/): the browser wallet, which is not indexed.
 - [Architecture](https://enzovezzaro.github.io/ai-auth/docs/ARCHITECTURE.md): how the pieces connect.
-- [Wire format](https://enzovezzaro.github.io/ai-auth/docs/WIRE_FORMAT.md): envelope and message formats.
+- [Protocol](https://enzovezzaro.github.io/ai-auth/docs/protocol.md): envelope, events, and message formats.
 - [Security](https://enzovezzaro.github.io/ai-auth/docs/SECURITY.md): threat model and boundaries.
 - [Recovery](https://enzovezzaro.github.io/ai-auth/docs/RECOVERY.md): backing up and restoring a wallet.
 

@@ -10,7 +10,7 @@ Start with the [quickstart](quickstart.md) or the [site integration guide](site-
 ## Agent builders
 
 - [Agents and MCP: Claude Code, Codex, OpenCode](agents.md)
-- [Headless agent runtime notes](AGENT_RUNTIME.md)
+- [Headless agent runtime notes](agents.md)
 - [Agent package readme](../packages/agent/README.md) · [MCP command readme](../packages/mcp/README.md) · [Runtime package readme](../packages/runtime/README.md)
 
 ## Protocol and security
