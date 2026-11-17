@@ -370,6 +370,18 @@ export async function connectAIAuthModal({
   };
   const onCancel = (event) => {
     event.preventDefault();
+    // A renewal re-shows the dialog, so Escape/Cancel there must decline only
+    // the extension - never tear down the still-active session.
+    if (pendingRenewal) {
+      const renewal = pendingRenewal;
+      pendingRenewal = null;
+      clearTimeout(renewal.timer);
+      hideDialog();
+      renewal.reject(
+        keptSessionError("renewal-declined", consent?.body?.payload?.expiresAt),
+      );
+      return;
+    }
     if (activeConnection) activeConnection.close();
     else cancelPending();
   };
