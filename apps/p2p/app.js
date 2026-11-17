@@ -93,6 +93,8 @@ const state = {
   submitting: false,
   // Guards the private/public toggle while startRoom tears down the old room.
   togglingPrivate: false,
+  // Distinguishes "you ended" from "the site ended" on the ended view.
+  endedBySite: false,
 };
 // Approved grants are durable in the wallet origin, so a wallet reload can
 // still confirm a resume. The adapter is a thin IndexedDB wrapper.
@@ -278,6 +280,11 @@ function externalPermissionView() {
   if (state.externalStatus === "idle") {
     return `${pageHead("SESSION ENDED", "Return to the requesting site.", "This session ended after a period without activity. Start a new connection from the site.")}
       <section class="panel"><p class="mini-label">IDLE SESSION</p><h2>${esc(displayOrigin)}</h2></section>`;
+  }
+  if (state.externalStatus === "ended") {
+    const bySite = state.endedBySite === true;
+    return `${pageHead("SESSION ENDED", "Return to the requesting site.", bySite ? "The site ended this session." : "You ended this session.")}
+      <section class="panel"><p class="mini-label">${bySite ? "SITE ENDED SESSION" : "SESSION ENDED"}</p><h2>${esc(displayOrigin)}</h2></section>`;
   }
   if (state.externalStatus === "expired") {
     const ended = Boolean(state.consent);
@@ -1149,7 +1156,7 @@ function scheduleSessionExpiry() {
   );
 }
 
-async function expireExternalSession(reason = "expired") {
+async function expireExternalSession(reason = "expired", endedBySite = false) {
   if (state.externalStatus !== "sent") return;
   clearTimeout(state.sessionTimer);
   await markSessionEnded(state.consent?.body?.payload?.requestNonce);
@@ -1164,7 +1171,9 @@ async function expireExternalSession(reason = "expired") {
       state.externalOrigin,
     );
   roomGeneration++;
-  state.externalStatus = reason === "idle" ? "idle" : "expired";
+  state.externalStatus =
+    reason === "idle" ? "idle" : reason === "ended" ? "ended" : "expired";
+  state.endedBySite = reason === "ended" ? endedBySite : false;
   state.externalRoomReady = false;
   state.externalPendingEvents.length = 0;
   state.transfers?.close();
@@ -1452,7 +1461,7 @@ if (externalConnectMode) {
     ) {
       // The site already revoked its side of the connection. End the wallet's
       // room too so peers get a signed goodbye instead of waiting for the lease.
-      await expireExternalSession("ended");
+      await expireExternalSession("ended", true);
       return;
     }
     // Authenticate the message itself: data.audience is caller-controlled, so
