@@ -468,7 +468,14 @@ export async function connectAIAuthModal({
       return;
     }
     if (event.data?.type === "ai-auth/wallet-setup") {
+      // The wallet is creating a key instead of asking for approval. Keep a
+      // bounded timeout armed so abandoning wallet creation still rejects the
+      // ready promise instead of waiting forever.
       clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        cleanup();
+        rejectReady(new Error(approvalTimeoutMessage(timeoutMs)));
+      }, timeoutMs);
       return;
     }
     if (event.data?.type === "ai-auth/connect-ready") {
