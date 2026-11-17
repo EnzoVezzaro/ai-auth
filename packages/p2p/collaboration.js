@@ -22,6 +22,8 @@ const CHUNK_INTERVAL_MS = 1800;
 const TRANSFER_TTL_MS = 3 * 60 * 1000;
 const MAX_TRANSFERS = 4;
 const MAX_COMPLETED = 256;
+// message/text is canonical; collab/text is still accepted from older senders.
+const CHAT_TYPES = new Set(["message/text", "collab/text"]);
 const MEDIA_TYPES = {
   screenshot: new Set(["image/png", "image/jpeg", "image/webp"]),
   recording: new Set(["video/webm", "video/mp4"]),
@@ -132,7 +134,7 @@ export class CollaborationTransfers {
       throw new TypeError(
         `Messages must contain 1–${MAX_MESSAGE_CHARS} characters`,
       );
-    return this.room.send("collab/text", {
+    return this.room.send("message/text", {
       text,
       ...this.addressing(options),
     });
@@ -211,18 +213,16 @@ export class CollaborationTransfers {
     if (type === RECEIPT_TYPE) return void this.receiveReceipt(envelope);
     // A message signed for another wallet is dropped, never displayed.
     if (
-      type?.startsWith("collab/") &&
+      (type?.startsWith("collab/") || CHAT_TYPES.has(type)) &&
       !isAddressedTo(payload, this.room.wallet?.id)
     )
       return;
-    if (type === "collab/text" && validText(payload.text)) {
+    if (CHAT_TYPES.has(type) && validText(payload.text)) {
+      // message/text is canonical; collab/text from older senders is still
+      // accepted. Both may carry a signed target and message id, so both earn
+      // a receipt when addressed to this wallet.
       this.notify({ type: "text", text: payload.text, envelope });
       this.acknowledge(envelope);
-    } else if (type === "message/text" && validText(payload.text)) {
-      // Legacy chat from site code and old agents. Shown as a normal message
-      // from that peer; nothing new sends it and it carries no signed target
-      // or message id, so there is no receipt to acknowledge.
-      this.notify({ type: "text", text: payload.text, envelope });
     } else if (type === "collab/element" && validElement(payload.metadata)) {
       this.notify({ type: "element", metadata: payload.metadata, envelope });
       this.acknowledge(envelope);

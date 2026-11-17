@@ -207,18 +207,18 @@ test("an uninvited wallet that knows origin and room cannot act or read", async 
   assert.equal(hostP.room.policy.isMember(ctx.mallory.id), false);
 
   await malP.room.send("agent/action", { name: "danger", state: "started" });
-  await malP.room.send("collab/text", { text: "let me in" });
-  await hostP.room.send("collab/text", { text: "restricted secret" });
+  await malP.room.send("message/text", { text: "let me in" });
+  await hostP.room.send("message/text", { text: "restricted secret" });
   await hostP.room.send("agent/action", { kind: "tool-catalog", tools: [] });
   await waitFor(
-    () => aliceP.types(ctx.host.id).includes("collab/text"),
+    () => aliceP.types(ctx.host.id).includes("message/text"),
     "host text at alice",
   );
   await tick(20);
 
   assert.equal(hostP.types(ctx.mallory.id).length, 0);
   assert.equal(aliceP.types(ctx.mallory.id).length, 0);
-  assert.ok(aliceP.types(ctx.host.id).includes("collab/text"));
+  assert.ok(aliceP.types(ctx.host.id).includes("message/text"));
   const leaked = malP
     .inbox()
     .filter((e) => !e.body.type.startsWith("peer/"))
@@ -311,7 +311,7 @@ test("a stolen proof replayed by a different wallet over the wire is ignored", a
     participation: { policy: ctx.policy(), membership: aliceProof },
   });
   await waitFor(() => malP.room.directPeerCount > 0, "mallory linked");
-  await malP.room.send("collab/text", { text: "using alice's proof" });
+  await malP.room.send("message/text", { text: "using alice's proof" });
   await tick(30);
   assert.equal(hostP.types(ctx.mallory.id).length, 0);
   assert.equal(hostP.room.policy.roleOf(ctx.mallory.id), null);
@@ -340,19 +340,19 @@ test("remove and block take effect immediately, in both directions", async () =>
     () => aliceP.room.policy.isMember(ctx.host.id),
     "host admitted",
   );
-  await aliceP.room.send("collab/text", { text: "one" });
+  await aliceP.room.send("message/text", { text: "one" });
   await waitFor(
-    () => hostP.types(ctx.alice.id).includes("collab/text"),
+    () => hostP.types(ctx.alice.id).includes("message/text"),
     "alice text at host",
   );
 
   const before = aliceP.inbox().length;
   hostP.room.policy.remove(ctx.alice.id);
-  await aliceP.room.send("collab/text", { text: "two" });
-  await hostP.room.send("collab/text", { text: "after removal" });
+  await aliceP.room.send("message/text", { text: "two" });
+  await hostP.room.send("message/text", { text: "after removal" });
   await tick(30); // alice's heartbeats re-present the (now revoked) proof
   assert.equal(
-    hostP.types(ctx.alice.id).filter((t) => t === "collab/text").length,
+    hostP.types(ctx.alice.id).filter((t) => t === "message/text").length,
     1,
   );
   assert.equal(hostP.room.policy.isMember(ctx.alice.id), false);
@@ -360,11 +360,11 @@ test("remove and block take effect immediately, in both directions", async () =>
     aliceP
       .inbox()
       .slice(before)
-      .some((e) => e.body.type === "collab/text"),
+      .some((e) => e.body.type === "message/text"),
     false,
   );
   await assert.rejects(
-    hostP.room.send("collab/text", { text: "x" }, { to: ctx.alice.id }),
+    hostP.room.send("message/text", { text: "x" }, { to: ctx.alice.id }),
     /not a member/u,
   );
 
@@ -402,12 +402,12 @@ test("join, leave and reconnect keep the same verified identity", async () => {
     "reconnected alice linked",
   );
   assert.notEqual(second.room.session, firstSession);
-  await second.room.send("collab/text", { text: "back" });
+  await second.room.send("message/text", { text: "back" });
   await waitFor(
-    () => hostP.seen.some((b) => b.type === "collab/text"),
+    () => hostP.seen.some((b) => b.type === "message/text"),
     "alice text after reconnect",
   );
-  const texts = hostP.seen.filter((b) => b.type === "collab/text");
+  const texts = hostP.seen.filter((b) => b.type === "message/text");
   assert.equal(texts.length, 1);
   assert.equal(texts[0].issuer, ctx.alice.id);
   assert.equal(hostP.room.policy.roleOf(ctx.alice.id), "member");
@@ -441,14 +441,14 @@ test("work still in flight when a room leaves fails quietly, never unhandled", a
       privateMode: true,
     });
     participants.push({ leave: () => priv.close() });
-    const late = priv.send("collab/text", { text: "late" }).then(
+    const late = priv.send("message/text", { text: "late" }).then(
       () => "sent",
       (error) => error.message,
     );
     await priv.close();
     assert.equal(await late, "This wallet session is closed");
     await assert.rejects(
-      priv.send("collab/text", { text: "after" }),
+      priv.send("message/text", { text: "after" }),
       /This wallet session is closed/u,
     );
     await tick(10);
@@ -492,16 +492,16 @@ test("open mode is unaffected and carries a disclosure", async () => {
   const b = await join(hub, ctx.alice);
   assert.equal(a.room.participationMode, "open");
   assert.match(a.room.disclosure, /Open room/u);
-  await b.room.send("collab/text", { text: "hello public" });
-  await a.room.send("collab/text", { text: "hello back" });
+  await b.room.send("message/text", { text: "hello public" });
+  await a.room.send("message/text", { text: "hello back" });
   await waitFor(
     () =>
-      a.types(ctx.alice.id).includes("collab/text") &&
-      b.types(ctx.host.id).includes("collab/text"),
+      a.types(ctx.alice.id).includes("message/text") &&
+      b.types(ctx.host.id).includes("message/text"),
     "open-room texts delivered",
   );
-  assert.ok(a.types(ctx.alice.id).includes("collab/text"));
-  assert.ok(b.types(ctx.host.id).includes("collab/text"));
+  assert.ok(a.types(ctx.alice.id).includes("message/text"));
+  assert.ok(b.types(ctx.host.id).includes("message/text"));
   assert.throws(
     () =>
       new P2PRoom(ctx.host, ROOM, {
@@ -553,9 +553,9 @@ async function revocationWorld(t) {
 
 test("a revocation propagates to a second peer and that identity is then rejected", async (t) => {
   const { ctx, hostP, aliceP, bobP, revoke } = await revocationWorld(t);
-  await aliceP.room.send("collab/text", { text: "before revoke" });
+  await aliceP.room.send("message/text", { text: "before revoke" });
   await waitFor(
-    () => bobP.types(ctx.alice.id).includes("collab/text"),
+    () => bobP.types(ctx.alice.id).includes("message/text"),
     "alice text at bob",
   );
   const record = await revoke("wallet", ctx.alice.id);
@@ -574,7 +574,7 @@ test("a revocation propagates to a second peer and that identity is then rejecte
     { allow: false, reason: "revoked" },
   );
   const before = bobP.types(ctx.alice.id).length;
-  await aliceP.room.send("collab/text", { text: "after revoke" });
+  await aliceP.room.send("message/text", { text: "after revoke" });
   await aliceP.room.send("agent/action", { name: "danger", state: "started" });
   await tick(20);
   assert.equal(
@@ -676,20 +676,20 @@ test("a private member joins a restricted room, receives events, and advertises 
     false,
   );
   // She receives authorized room events...
-  await hostP.room.send("collab/text", { text: "for members" });
+  await hostP.room.send("message/text", { text: "for members" });
   await waitFor(
-    () => aliceP.types(ctx.host.id).includes("collab/text"),
+    () => aliceP.types(ctx.host.id).includes("message/text"),
     "private alice receives",
   );
   // ...her actions are signed, attributed, and audited...
-  const sent = await aliceP.room.send("collab/text", { text: "from private" });
+  const sent = await aliceP.room.send("message/text", { text: "from private" });
   assert.equal(sent.body.issuer, ctx.alice.id);
   await waitFor(
-    () => hostP.types(ctx.alice.id).includes("collab/text"),
+    () => hostP.types(ctx.alice.id).includes("message/text"),
     "host receives private text",
   );
   assert.deepEqual(
-    aliceP.room.audit().filter((a) => a.type === "collab/text").length,
+    aliceP.room.audit().filter((a) => a.type === "message/text").length,
     1,
   );
   // ...and she still cannot announce herself.
@@ -710,7 +710,7 @@ test("a private participant cannot read a restricted room without a valid proof"
     await ctx.proofFor(ctx.host.id, { role: "owner", scopes: ["*"] }),
   );
   const malP = await join(hub, ctx.mallory, { privateMode: true });
-  await hostP.room.send("collab/text", { text: "members only" });
+  await hostP.room.send("message/text", { text: "members only" });
   await tick(25);
   assert.equal(JSON.stringify(malP.inbox()).includes("members only"), false);
   // A stolen proof for another wallet does not admit her either.
@@ -721,7 +721,7 @@ test("a private participant cannot read a restricted room without a valid proof"
       membership: await ctx.proofFor(ctx.alice.id),
     },
   });
-  await hostP.room.send("collab/text", { text: "still members only" });
+  await hostP.room.send("message/text", { text: "still members only" });
   await tick(25);
   assert.equal(hostP.room.policy.isMember(ctx.mallory.id), false);
   assert.equal(
@@ -736,17 +736,17 @@ test("a private participant cannot act under another identity", async () => {
   const open = await join(hub, ctx.host);
   const priv = await join(hub, ctx.alice, { privateMode: true });
   // A forged issuer in the payload is just data; the envelope issuer is the signer.
-  const env = await priv.room.send("collab/text", {
+  const env = await priv.room.send("message/text", {
     text: "hi",
     issuer: ctx.host.id,
     walletId: ctx.host.id,
   });
   assert.equal(env.body.issuer, ctx.alice.id);
   await waitFor(
-    () => open.types(ctx.alice.id).includes("collab/text"),
+    () => open.types(ctx.alice.id).includes("message/text"),
     "open peer got it",
   );
-  assert.equal(open.types(ctx.host.id).includes("collab/text"), false);
+  assert.equal(open.types(ctx.host.id).includes("message/text"), false);
   assert.equal(
     priv.room.audit().every((a) => a.issuer === ctx.alice.id),
     true,
@@ -836,9 +836,9 @@ test("restricted delivery uses Trystero's send(data, { target }) contract", asyn
     () => hostP.room.policy.isMember(ctx.alice.id),
     "alice admitted",
   );
-  await hostP.room.send("collab/text", { text: "members only" });
+  await hostP.room.send("message/text", { text: "members only" });
   await waitFor(
-    () => calls.some((c) => c.type === "collab/text"),
+    () => calls.some((c) => c.type === "message/text"),
     "targeted send",
   );
   for (const call of calls) {
@@ -846,6 +846,6 @@ test("restricted delivery uses Trystero's send(data, { target }) contract", asyn
     if (call.options !== undefined)
       assert.ok(Array.isArray(call.options.target), "target is a peer list");
   }
-  const targeted = calls.find((c) => c.type === "collab/text");
+  const targeted = calls.find((c) => c.type === "message/text");
   assert.equal(targeted.options.target.length, 1, "only the member peer");
 });

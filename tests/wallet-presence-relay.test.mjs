@@ -50,7 +50,7 @@ test("a malformed page key is not signed into a human cursor", async () => {
   assert.equal(sent.length, 0, "an over-long page key is dropped");
 });
 
-test("the wallet chat list records agent collab/text as well as message/text", async () => {
+test("the wallet chat list records canonical message/text as well as legacy collab/text", async () => {
   const source = await appSource();
   const branch = extractIfContaining(
     source,

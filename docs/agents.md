@@ -28,7 +28,7 @@ The MCP command registers only tools covered by both the site's requested scopes
 
 ### Chat types
 
-Human and wheel chat use `collab/text`. Older agents may send `message/text`, which is still accepted. The canonical type name is under review.
+Human and wheel chat use `message/text`, the canonical chat type. Older agents may send `collab/text`, which is still accepted and earns the same signed delivery receipt.
 
 ### Tool error codes
 

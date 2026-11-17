@@ -231,7 +231,7 @@ test("verifyReceipt rejects forged, tampered and mis-bound receipts", async () =
     ).reason,
     "self-receipt",
   );
-  const other = await signEnvelope(bob, "collab/text", { text: "x" });
+  const other = await signEnvelope(bob, "message/text", { text: "x" });
   assert.equal(
     (await verifyReceipt(other, expected)).reason,
     "not-a-v1-receipt",

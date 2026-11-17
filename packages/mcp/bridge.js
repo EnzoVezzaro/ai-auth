@@ -275,7 +275,7 @@ export function createAgentBridge({
       // `to` is only the transport routing hint for the same recipient.
       const messageId = crypto.randomUUID();
       const envelope = await runtime.send(
-        "collab/text",
+        "message/text",
         { text, messageId, ...(to ? { target: to } : {}) },
         to ? { to } : {},
       );
@@ -283,7 +283,7 @@ export function createAgentBridge({
         sent: true,
         messageId,
         state: "sent-to-transport",
-        type: envelope?.body?.type ?? "collab/text",
+        type: envelope?.body?.type ?? "message/text",
         note: "Submitted to the transport; delivery is not confirmed.",
       };
     },

@@ -497,6 +497,7 @@ async function startRoom() {
       type === "peer/hello" ||
       type === "peer/goodbye" ||
       type === "message/text" ||
+      type === "collab/text" ||
       type === "presence/cursor";
     if (type === "message/text" || type === "collab/text") {
       state.messages.push({

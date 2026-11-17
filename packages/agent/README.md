@@ -30,10 +30,10 @@ const runtime = createAgentRuntime({
 });
 runtime.onConnectionState((s) => console.log(s.status, s.directPeerCount));
 await runtime.join();
-await runtime.send("collab/text", { text: "hello" });
+await runtime.send("message/text", { text: "hello" });
 ```
 
-Human and wheel chat also use `collab/text`. The legacy `message/text` type is still accepted. The canonical type name is under review.
+Human and wheel chat also use `message/text`, the canonical chat type. The legacy `collab/text` name is still accepted from older senders and earns the same signed delivery receipt.
 
 ## Keystore
 

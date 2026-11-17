@@ -89,8 +89,10 @@ function acknowledgeAddressedText(message, wallet, send) {
   const { direction, envelope } = message;
   if (direction !== "in" || !envelope?.body) return;
   const { type, issuer, payload } = envelope.body;
+  // Both chat names earn a receipt: message/text is canonical, collab/text
+  // is accepted from older senders.
   if (
-    type !== "collab/text" ||
+    (type !== "message/text" && type !== "collab/text") ||
     issuer === wallet?.id ||
     payload?.target !== wallet?.id ||
     !isAddressedTo(payload, wallet?.id)
