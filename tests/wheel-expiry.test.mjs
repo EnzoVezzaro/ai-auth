@@ -68,7 +68,10 @@ test("a live expiry source follows session renewal instead of freezing at mount"
       false,
       "renewal lifts the block without re-mounting the wheel",
     );
-    assert.doesNotMatch(wheel.shadow.querySelector(".hint").textContent, /expired/u);
+    assert.doesNotMatch(
+      wheel.shadow.querySelector(".hint").textContent,
+      /expired/u,
+    );
   } finally {
     wheel.dispose();
     Date.now = realNow;

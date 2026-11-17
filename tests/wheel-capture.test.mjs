@@ -9,7 +9,8 @@ import { createStubDom } from "./dom-stub.mjs";
 async function waitFor(predicate, label) {
   const deadline = Date.now() + 2000;
   while (!predicate()) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${label}`);
+    if (Date.now() > deadline)
+      throw new Error(`timed out waiting for ${label}`);
     await new Promise((resolve) => setImmediate(resolve));
   }
 }
@@ -64,7 +65,11 @@ test("auto-stop at the size cap yields a usable recording under the limit", asyn
   const chunk = Math.ceil(MEDIA_LIMITS.recordingBytes * 0.6);
   recorder.ondataavailable({ data: { size: chunk } });
   recorder.ondataavailable({ data: { size: chunk } });
-  assert.equal(recorder.state, "inactive", "the over-limit chunk stops capture");
+  assert.equal(
+    recorder.state,
+    "inactive",
+    "the over-limit chunk stops capture",
+  );
   const blob = await done;
   assert.ok(blob, "auto-stop still produces a blob");
   assert.equal(

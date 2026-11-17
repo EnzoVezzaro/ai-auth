@@ -13,7 +13,8 @@ globalThis.Option ??= class {
 async function waitFor(predicate, label) {
   const deadline = Date.now() + 2000;
   while (!predicate()) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${label}`);
+    if (Date.now() > deadline)
+      throw new Error(`timed out waiting for ${label}`);
     await new Promise((resolve) => setImmediate(resolve));
   }
 }
@@ -112,7 +113,11 @@ test("a revoked session stops a live recording instead of leaking the screen", a
     getVideoTracks: () => [track],
   };
   const wheel = mount(
-    { status: "direct-peer-connected", directPeerCount: 1, peers: [{ peerId: "p" }] },
+    {
+      status: "direct-peer-connected",
+      directPeerCount: 1,
+      peers: [{ peerId: "p" }],
+    },
     {
       media: {
         navigator: {
@@ -143,7 +148,11 @@ test("a revoked session stops a live recording instead of leaking the screen", a
 test("a revoked session discards staged sensitive media", async () => {
   let revoked = 0;
   const wheel = mount(
-    { status: "direct-peer-connected", directPeerCount: 1, peers: [{ peerId: "p" }] },
+    {
+      status: "direct-peer-connected",
+      directPeerCount: 1,
+      peers: [{ peerId: "p" }],
+    },
     {
       url: {
         createObjectURL: () => "blob:preview",

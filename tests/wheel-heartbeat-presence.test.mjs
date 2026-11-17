@@ -226,7 +226,8 @@ test("any signed peer event refreshes presence even when only the seed is stale"
       for (const listener of [...listeners]) listener({ peers });
     },
     emit(envelope) {
-      for (const listener of [...listeners]) listener({ direction: "in", envelope });
+      for (const listener of [...listeners])
+        listener({ direction: "in", envelope });
     },
   };
   peers.set(`${agent.id}:${session}`, {

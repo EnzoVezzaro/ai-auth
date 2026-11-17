@@ -18,7 +18,8 @@ const flush = async () => {
 async function waitFor(predicate, label) {
   const deadline = Date.now() + 2000;
   while (!predicate()) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${label}`);
+    if (Date.now() > deadline)
+      throw new Error(`timed out waiting for ${label}`);
     await new Promise((resolve) => setImmediate(resolve));
   }
 }
@@ -87,7 +88,10 @@ test("a failed send keeps the staged capture so it can be retried", async () => 
       () => wheel.shadow.querySelector(".preview").hidden === false,
       "staged screenshot preview",
     );
-    assert.equal(wheel.shadow.querySelector(".preview-body img")?.src, "blob:preview");
+    assert.equal(
+      wheel.shadow.querySelector(".preview-body img")?.src,
+      "blob:preview",
+    );
 
     wheel.shadow.querySelector('[data-action="confirm"]').dispatch("click");
     await flush();
