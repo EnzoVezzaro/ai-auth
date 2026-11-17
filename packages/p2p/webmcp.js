@@ -833,7 +833,8 @@ function allowedActionByName(api, name) {
 export function filterCatalogTools(tools, onSkip = () => {}) {
   const kept = [];
   for (const tool of tools) {
-    const name = typeof tool?.name === "string" ? tool.name : String(tool?.name);
+    const name =
+      typeof tool?.name === "string" ? tool.name : String(tool?.name);
     if (
       !isValidToolName(name) ||
       typeof tool.description !== "string" ||

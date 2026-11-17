@@ -860,7 +860,8 @@ test("CT-07: a denied call leaves no abort listener on the registration signal",
   let added = 0;
   let removed = 0;
   const add = registrationSignal.addEventListener.bind(registrationSignal);
-  const remove = registrationSignal.removeEventListener.bind(registrationSignal);
+  const remove =
+    registrationSignal.removeEventListener.bind(registrationSignal);
   registrationSignal.addEventListener = (...args) => {
     added += 1;
     return add(...args);

@@ -190,7 +190,11 @@ test("CT-04/MCP-01: invoke disambiguates two live sessions of one wallet", async
   });
   const ambiguous = await bridge.invoke({ name: "t", wallet: "agent:site" });
   assert.equal(ambiguous.ok, false);
-  assert.match(ambiguous.reason, /session/i, "the remedy names the catalog key");
+  assert.match(
+    ambiguous.reason,
+    /session/i,
+    "the remedy names the catalog key",
+  );
   assert.match(ambiguous.reason, /old-session/);
   assert.match(ambiguous.reason, /new-session/);
   assert.deepEqual(
@@ -567,7 +571,9 @@ test("CT-14/MCP-11: cancellations and timeouts are typed, not rejections", async
   assert.equal(out.rejected, false);
 
   client.callTool = async () => {
-    throw Object.assign(new Error("timed out"), { code: TOOL_ERROR_CODES.TIMEOUT });
+    throw Object.assign(new Error("timed out"), {
+      code: TOOL_ERROR_CODES.TIMEOUT,
+    });
   };
   out = await bridge.invoke({ name: "t" });
   assert.equal(out.code, TOOL_ERROR_CODES.TIMEOUT);

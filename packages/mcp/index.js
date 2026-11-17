@@ -117,7 +117,12 @@ export async function createAIAuthMcpServer({
         // because that would invite the caller to run the action twice.
         await publishSignedActionEvent(
           publishEvent,
-          await actionEnvelope(wallet, action, "started", `Started ${action.name}`),
+          await actionEnvelope(
+            wallet,
+            action,
+            "started",
+            `Started ${action.name}`,
+          ),
         ).catch(() => {});
         let output;
         try {

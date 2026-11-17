@@ -179,11 +179,19 @@ test("MCP-03: a failed completed-event publish is not an action failure", async 
     arguments: { workspaceId: "local-workspace" },
   });
   assert.equal(executions, 1, "the action is never retried");
-  assert.notEqual(output.isError, true, "the successful action stays successful");
+  assert.notEqual(
+    output.isError,
+    true,
+    "the successful action stays successful",
+  );
   assert.match(output.content[0].text, /"summary":"ready"/u);
   assert.doesNotMatch(JSON.stringify(output), /private-transport-token/u);
   assert.deepEqual(states, ["started", "completed"]);
-  assert.equal(output.publishWarning !== undefined, true, "publish failure is visible");
+  assert.equal(
+    output.publishWarning !== undefined,
+    true,
+    "publish failure is visible",
+  );
   assert.equal(output.isError, undefined);
 });
 
