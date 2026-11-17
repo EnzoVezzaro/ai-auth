@@ -252,9 +252,9 @@ function connectView() {
     )
     .join("");
   const result = state.consent
-    ? `<section class="panel"><div class="panel-head"><div><p class="mini-label">SIGNATURE VERIFIED</p><h2>Approval created</h2><p class="panel-copy">The wallet approved these permissions for ${esc(state.request.audience)}. The check confirmed the wallet, the site, the time limit and the permissions.</p></div><span class="status-tag"><span class="state-dot"></span> VERIFIED</span></div><div class="fingerprint">${esc(JSON.stringify(state.consent, null, 2))}</div><div class="button-row"><button class="button secondary" id="copy-consent">Copy signed approval</button><button class="button quiet" id="new-request">New request</button></div><div class="callout top-gap">This sample verifier runs in the wallet page. A real relying website must issue its own challenge and enforce its own authorization policy.</div></section>`
+    ? `<section class="panel"><div class="panel-head"><div><p class="mini-label">SIGNATURE VERIFIED</p><h2>Approval created</h2><p class="panel-copy">The wallet approved these permissions for ${esc(state.request.audience)}. The check confirmed the wallet, the site, the permissions and the lifetime you chose.</p></div><span class="status-tag"><span class="state-dot"></span> VERIFIED</span></div><div class="fingerprint">${esc(JSON.stringify(state.consent, null, 2))}</div><div class="button-row"><button class="button secondary" id="copy-consent">Copy signed approval</button><button class="button quiet" id="new-request">New request</button></div><div class="callout top-gap">This sample verifier runs in the wallet page. A real relying website must issue its own challenge and enforce its own authorization policy.</div></section>`
     : "";
-  return `${pageHead("SIGN-IN WITH AGENT", "Choose what this site may ask for.", "A one-use, origin-bound request is signed by your wallet. Permission is explicit and expires quickly.")}
+  return `${pageHead("SIGN-IN WITH AGENT", "Choose what this site may ask for.", "A one-use, origin-bound request is signed by your wallet. Permission is explicit and lasts only as long as you choose.")}
     <div class="grid-main"><div class="stack"><section class="panel"><div class="panel-head"><div><h2>Permission request</h2><p class="panel-copy">Only this exact website receives the approval.</p></div><span class="status-tag pending">REVIEW REQUIRED</span></div>
       <form id="permission-form"><div class="field"><label for="request-origin">Website origin</label><input class="control" id="request-origin" type="url" required value="${esc(location.origin)}"/><small>Use an origin only: scheme, host and optional port. No paths or wildcard hosts.</small></div><p class="scope-label">REQUESTED PERMISSIONS</p><div class="scope-list">${scopes}</div>${setupFormError()}<button class="button" type="submit">Review and approve selection</button></form>
       </section>${result}</div><aside class="stack"><section class="panel"><div class="panel-head"><div><p class="mini-label">WHAT GETS SIGNED</p><h3>One site. A few actions. A short expiry.</h3></div></div><div class="metric-line"><span>Origin</span><strong>Exact match</strong></div><div class="metric-line"><span>Challenge</span><strong>One use</strong></div><div class="metric-line"><span>Lifetime</span><strong>60 seconds</strong></div><div class="metric-line"><span>Permissions</span><strong>Only selected</strong></div></section><section class="panel"><p class="panel-copy">The signature proves this wallet approved a request. It does not prove a human reviewed it unless a human actually confirms the selection.</p></section></aside></div>`;
@@ -672,7 +672,11 @@ function bindView() {
       state.error = "";
       const data = new FormData(event.currentTarget);
       if (data.get("passphrase") !== data.get("confirmation"))
-        return fail(new Error("Recovery passphrases do not match"));
+        return fail(
+          new Error(
+            "Recovery passphrases do not match. Enter the same passphrase in both fields.",
+          ),
+        );
       state.wallet = await createWallet({
         name: data.get("name"),
         passphrase: data.get("passphrase"),
@@ -712,7 +716,12 @@ function bindView() {
     try {
       state.error = "";
       const file = $("#backup-file").files?.[0];
-      if (!file) return fail(new Error("Choose a recovery file first"));
+      if (!file)
+        return fail(
+          new Error(
+            "Choose a recovery file first, then click Unlock and restore.",
+          ),
+        );
       state.wallet = await importWalletBackup(
         await file.text(),
         $("#restore-passphrase").value,
@@ -750,9 +759,11 @@ function bindView() {
     )
       return;
     await state.room?.close();
+    await state.rtc?.close();
     await forgetWallet();
     state.wallet = null;
     state.room = null;
+    state.rtc = null;
     state.activity = [];
     render();
     toast("Wallet removed from this browser.");
@@ -774,7 +785,9 @@ function bindView() {
       ].map((input) => input.value);
       const request = await createPermissionRequest(origin, requested);
       if (!(await verifyPermissionRequest(request, { expectedOrigin: origin })))
-        throw new Error("Demo website challenge failed verification");
+        throw new Error(
+          "Demo website challenge failed verification. Refresh the site and click Connect agent to try again.",
+        );
       const approval = await approvePermissionRequest(
         state.wallet,
         request,
@@ -788,7 +801,7 @@ function bindView() {
       });
       if (!verified)
         throw new Error(
-          "Signed approval did not pass the demo website verifier",
+          "Signed approval did not pass the demo website verifier. Click New request and try again.",
         );
       if (
         await verifyPermissionConsent(approval, request, {
@@ -797,7 +810,9 @@ function bindView() {
           nonceGuard: guard,
         })
       )
-        throw new Error("Replay defense did not reject a duplicate approval");
+        throw new Error(
+          "Replay defense did not reject a duplicate approval. Reload this page and try again.",
+        );
       state.request = request;
       state.consent = approval;
       await appendActivity(state.wallet, "connect/consent-created", {
@@ -816,9 +831,13 @@ function bindView() {
     try {
       if (!state.wallet) throw new Error(WALLET_REQUIRED_MESSAGE);
       if (state.externalStatus || !state.externalRequest)
-        throw new Error("This wallet request is no longer active");
+        throw new Error(
+          "This wallet request is no longer active. Return to the site and click Connect agent to start again.",
+        );
       if (!externalHost || state.externalSource !== externalHost)
-        throw new Error("The requesting site tab is no longer available");
+        throw new Error(
+          "The requesting site tab is no longer available. Return to the site and click Connect agent to start again.",
+        );
       const approved = [
         ...event.currentTarget.querySelectorAll(
           "input[name=external-capability]:checked",
@@ -882,7 +901,7 @@ function bindView() {
       void startRoom().catch((error) => {
         state.externalRoomReady = false;
         toast(
-          `Your approval was sent, but finding other agents failed: ${error.message}`,
+          `Your approval was sent, but finding other agents failed: ${error.message} Reload the wallet to try again.`,
         );
       });
       await appendActivity(state.wallet, "connect/external-consent", {
@@ -900,7 +919,9 @@ function bindView() {
     try {
       if (!state.wallet) throw new Error(WALLET_REQUIRED_MESSAGE);
       if (!renewal || !externalSessionActive())
-        throw new Error("This session is no longer active");
+        throw new Error(
+          "This session is no longer active. Return to the site and click Connect agent to start a new one.",
+        );
       const consent = await approvePermissionRequest(
         state.wallet,
         renewal,
@@ -911,7 +932,9 @@ function bindView() {
         },
       );
       if (!state.lease.renew(consent.body.payload))
-        throw new Error("This session is no longer active");
+        throw new Error(
+          "This session is no longer active. Return to the site and click Connect agent to start a new one.",
+        );
       // Renewal keeps the session's original identity: replace the one grant
       // keyed by the original nonce rather than storing under the renewal
       // nonce. The narrower consent then supersedes the broader one everywhere.
@@ -1015,7 +1038,9 @@ function bindView() {
           requiredCapability: input.capabilities[0],
         }))
       )
-        throw new Error("The signed grant failed local verification");
+        throw new Error(
+          "The signed grant failed local verification. Check the recipient and capabilities, then try again.",
+        );
       await appendActivity(state.wallet, "capability/grant-issued", {
         recipient: input.recipient,
         resource: input.resource,
@@ -1074,7 +1099,7 @@ function bindView() {
       });
       render();
     } catch (error) {
-      toast(error.message);
+      toast(`${error.message} Try again once the connection is ready.`);
     }
   });
   $("#refresh-activity")?.addEventListener("click", async () => {
@@ -1419,7 +1444,9 @@ if (externalConnectMode) {
         return;
       try {
         if (!state.externalRoomReady || !state.transfers)
-          throw new Error("Wallet peer connection is not ready");
+          throw new Error(
+            "Wallet peer connection is not ready. Wait for the connection, then try again.",
+          );
         await state.transfers[method](...args);
         event.source.postMessage(
           { type: "ai-auth/transfer-result", id },
@@ -1430,7 +1457,7 @@ if (externalConnectMode) {
           {
             type: "ai-auth/transfer-result",
             id,
-            error: String(error.message || "Transfer failed"),
+            error: `${error.message || "Transfer failed"} Wait for the wallet peer connection, then try again.`,
           },
           event.origin,
         );
@@ -1459,7 +1486,9 @@ if (externalConnectMode) {
       try {
         await handleExternalSiteEvent(event.data);
       } catch (error) {
-        toast(`Could not sign the site event: ${error.message}`);
+        toast(
+          `Could not sign the site event: ${error.message} Reconnect from the site and try again.`,
+        );
       }
       return;
     }
@@ -1526,7 +1555,7 @@ if (externalConnectMode) {
       return;
     if (!(await verifyPopupPermissionRequest(event, externalHost))) {
       state.error =
-        "The requesting site or its permission request could not be verified";
+        "The requesting site or its permission request could not be verified. Return to the site and click Connect agent to try again.";
       render();
       return;
     }
@@ -1569,10 +1598,24 @@ try {
     if (!state.privateMode) await startRoom();
   }
   render();
-  if (externalConnectMode && externalHost)
-    externalHost.postMessage({ type: "ai-auth/connect-ready" }, "*");
+  if (externalConnectMode && externalHost) {
+    // A connect-ready signal is addressed to the opener we actually belong to,
+    // never to "*". Prefer the origin of an already verified connect-request;
+    // otherwise use the browser-provided referrer, which is the embedding
+    // page's origin and cannot be forged by page script.
+    let readyOrigin = state.externalOrigin;
+    if (!readyOrigin) {
+      try {
+        readyOrigin = new URL(document.referrer).origin;
+      } catch {
+        readyOrigin = "";
+      }
+    }
+    if (readyOrigin)
+      externalHost.postMessage({ type: "ai-auth/connect-ready" }, readyOrigin);
+  }
 } catch (error) {
-  state.error = error.message;
+  state.error = `${error.message} Reload the wallet to try again.`;
   render();
 }
 

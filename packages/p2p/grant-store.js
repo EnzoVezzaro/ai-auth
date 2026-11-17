@@ -31,6 +31,9 @@ export function memoryGrantAdapter({ backing = new Map() } = {}) {
     async put(key, record) {
       backing.set(key, structuredClone(record));
     },
+    async clear() {
+      backing.clear();
+    },
   };
 }
 
@@ -81,7 +84,24 @@ export function indexedDbGrantAdapter({
         transaction.onerror = () => reject(transaction.error);
       });
     },
+    async clear() {
+      const db = await open();
+      if (!db.objectStoreNames.contains(GRANT_STORE_NAME)) return;
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(GRANT_STORE_NAME, "readwrite");
+        transaction.objectStore(GRANT_STORE_NAME).clear();
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+      });
+    },
   };
+}
+
+/** Forget every durable grant, for example when the wallet is removed. */
+export async function clearGrants({ adapter = indexedDbGrantAdapter() } = {}) {
+  if (typeof adapter.clear !== "function")
+    throw new TypeError("A grant adapter with clear is required");
+  await adapter.clear();
 }
 
 /**

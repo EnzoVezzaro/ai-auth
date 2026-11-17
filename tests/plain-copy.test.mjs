@@ -38,7 +38,10 @@ test("a session with under a minute left says so, and an ended one says it has e
     sessionEndText(expiresAt, expiresAt - 30_000, "en-US"),
     /\(in less than a minute\)$/u,
   );
-  assert.equal(sessionEndText(expiresAt, expiresAt + 1), "Session has ended.");
+  assert.equal(
+    sessionEndText(expiresAt, expiresAt + 1),
+    "Session has ended. Click Connect agent to start a new one.",
+  );
 });
 
 test("request and kept-session times are plain sentences", () => {

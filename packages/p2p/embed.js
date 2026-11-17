@@ -8,6 +8,7 @@ import {
 import { createCloneDetector } from "./agent-identity.js";
 import {
   CANCELLED_MESSAGE,
+  RESUME_TIMEOUT_MESSAGE,
   approvalTimeoutMessage,
   renewalKeptText,
 } from "./copy.js";
@@ -432,12 +433,14 @@ export async function connectAIAuthModal({
     if (!consent && !activeConnection) cancelPending();
   };
 
-  // An explicit Resume is the only path that asks the wallet to restore. Any
-  // failure deletes just this agent's record and leaves the site to offer a
-  // fresh connect; no new scope is ever granted implicitly.
-  const failResume = (message) => {
+  // An explicit Resume is the only path that asks the wallet to restore. A
+  // real rejection (the wallet ended or refused the session) deletes just this
+  // agent's record and leaves the site to offer a fresh connect; no new scope
+  // is ever granted implicitly. A timeout is only a slow wallet, so the record
+  // stays for another Resume attempt and the error says so.
+  const failResume = (message, { keepRecord = false } = {}) => {
     resuming = false;
-    if (store && agentKey) store.remove(origin, agentKey);
+    if (!keepRecord && store && agentKey) store.remove(origin, agentKey);
     cleanup();
     rejectReady(new Error(message));
   };
@@ -540,7 +543,7 @@ export async function connectAIAuthModal({
         );
         clearTimeout(resumeTimer);
         resumeTimer = setTimeout(
-          () => failResume("The wallet did not confirm the saved session"),
+          () => failResume(RESUME_TIMEOUT_MESSAGE, { keepRecord: true }),
           resumeTimeoutMs,
         );
         return;

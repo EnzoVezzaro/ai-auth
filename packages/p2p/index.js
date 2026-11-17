@@ -1,3 +1,4 @@
+import { clearGrants } from "./grant-store.js";
 import { clearLinkRecords } from "./links.js";
 
 const encoder = new TextEncoder();
@@ -325,6 +326,9 @@ export async function forgetWallet() {
   } finally {
     db.close();
   }
+  // Grants live in the wallet's separate session store; clear them with the
+  // wallet so a removed key cannot leave resumable consent behind.
+  await clearGrants();
   await clearLinkRecords();
 }
 
