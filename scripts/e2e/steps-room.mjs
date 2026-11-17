@@ -1,6 +1,7 @@
 // Steps 4, 6, 7, 8 and 9: connection state, restricted membership, presence,
 // the interaction wheel and agent-to-agent events.
 import { COLLABORATION_LIMITS } from "../../packages/p2p/index.js";
+import { checkUninvitedTarget } from "./confidentiality.mjs";
 import { hasTextMessage } from "./messages.mjs";
 import {
   assert,
@@ -315,8 +316,8 @@ export async function step8(w, evidence) {
     target: a3.walletId,
   });
   evidence.targetToUninvited = toStranger.ok ? "sent" : toStranger.error;
-  // With the delivery bug from step 6 the uninvited target may still receive it.
-  evidence.uninvitedTargetReceived = await text(a3, "to the uninvited");
+  // A leak is a documented SDK defect (KNOWN-BUG), never a passing step.
+  checkUninvitedTarget(evidence, await text(a3, "to the uninvited"));
   // Element share: the password field is redacted and cannot be selected.
   await ha.page.getByRole("button", { name: "Share element" }).click();
   await ha.page.locator("#gift-code").click({ force: true });
