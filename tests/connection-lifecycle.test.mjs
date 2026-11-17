@@ -188,6 +188,22 @@ test("4. a normal runtime close makes the peer offline immediately", async (t) =
   assert.equal(b.runtime.connectionState.connected, false);
 });
 
+test("4b. a normal close removes the peer only through a signed goodbye on the wire", async (t) => {
+  // The default fake transport emits onPeerLeave directly, so test 4 cannot
+  // tell a real goodbye from a bare leave. This variant requires the envelope.
+  const hub = createHub({ goodbyeOnly: true });
+  const a = await makeRuntime(t, hub, "A");
+  const b = await makeRuntime(t, hub, "B");
+  await a.runtime.join();
+  await b.runtime.join();
+  await until(() => b.runtime.peers().length === 1);
+  assert.equal(hub.goodbyes, 0, "no goodbye before close");
+  await a.runtime.close();
+  await until(() => b.runtime.peers().length === 0);
+  assert.equal(hub.goodbyes, 1, "a goodbye envelope was actually sent");
+  assert.equal(b.runtime.connectionState.connected, false);
+});
+
 test("5. a crash without goodbye is removed when its heartbeat lease expires", async (t) => {
   const hub = createHub();
   let clock = 1_000_000;
@@ -212,11 +228,18 @@ test("5. a crash without goodbye is removed when its heartbeat lease expires", a
 test("6. a peer-lost transport event immediately leaves connected state", async (t) => {
   const hub = createHub();
   const a = await makeRuntime(t, hub, "A");
+  const b = await makeRuntime(t, hub, "B");
   await a.runtime.join();
-  assert.equal(a.runtime.connectionState.connected, false); // no peer yet
-  // NostrWebRTC/connection-state is exercised directly in connection-state.test.mjs:
-  // transport.error(peer-connect-failed) -> reconnecting, connected false.
-  assert.equal(typeof a.runtime.connectionState.connected, "boolean");
+  await b.runtime.join();
+  await until(() => a.runtime.connectionState.connected);
+  assert.equal(a.runtime.connectionState.connected, true);
+  // Drive the real NostrWebRTC error path, not just a boolean type check.
+  hub.emitError(await createSharedRoomTopic(ORIGIN, ROOM), {
+    code: "peer-connect-failed",
+  });
+  assert.equal(a.runtime.connectionState.status, "reconnecting");
+  assert.equal(a.runtime.connectionState.connected, false);
+  assert.equal(a.runtime.connectionState.directPeerCount, 0);
 });
 
 test("7. reconnection reuses the wallet identity but creates a new generation", async (t) => {
