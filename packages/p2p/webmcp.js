@@ -799,6 +799,49 @@ function allowedActionByName(api, name) {
   return api.actionsByName?.get(name);
 }
 
+// Structural checks for signed tool events arriving from peers. Catalogs and
+// responses otherwise reach application listeners with no schema bound at all,
+// so the same name/schema/size rules used for outgoing data are applied here.
+export function validInboundToolEvent(payload, { walletId, walletSession }) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    return false;
+  try {
+    boundedJson(payload);
+  } catch {
+    return false;
+  }
+  if (payload.kind === "tool-catalog") {
+    if (
+      !Array.isArray(payload.tools) ||
+      payload.tools.length > MAX_REMOTE_TOOL_COUNT
+    )
+      return false;
+    return payload.tools.every(
+      (tool) =>
+        tool &&
+        typeof tool === "object" &&
+        !Array.isArray(tool) &&
+        typeof tool.name === "string" &&
+        TOOL_NAME.test(tool.name) &&
+        typeof tool.description === "string" &&
+        validSchema(tool.inputSchema) &&
+        (tool.outputSchema === undefined || validSchema(tool.outputSchema)),
+    );
+  }
+  if (payload.kind === "tool-response") {
+    return (
+      typeof payload.requestId === "string" &&
+      /^[A-Za-z0-9_-]{8,80}$/u.test(payload.requestId) &&
+      payload.toWallet === walletId &&
+      payload.toSession === walletSession &&
+      (payload.error === undefined
+        ? payload.result !== undefined
+        : typeof payload.error === "string" && payload.error.length <= 240)
+    );
+  }
+  return true;
+}
+
 // Keep only well-formed, bounded tools; one bad tool never drops the rest.
 function boundedCatalogTools(tools) {
   const kept = [];

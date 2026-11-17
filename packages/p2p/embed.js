@@ -26,6 +26,7 @@ import {
 } from "./presence.js";
 import { isMessageId, isWalletId } from "./receipts.js";
 import { MAX_MESSAGE_CHARS } from "./message-limits.js";
+import { validInboundToolEvent } from "./webmcp.js";
 import {
   markVerifiedPageConnection,
   renewVerifiedPageConnection,
@@ -794,6 +795,15 @@ export async function connectAIAuthModal({
                 return true;
               }
             })())))
+    )
+      return;
+    if (
+      envelope.body.type === "agent/action" &&
+      TOOL_EVENT_KINDS.has(payload?.kind) &&
+      !validInboundToolEvent(payload, {
+        walletId: walletIdentity?.id,
+        walletSession,
+      })
     )
       return;
     if (

@@ -452,6 +452,79 @@ test("inbound events must come from the issuer bound to the peer's session", asy
   );
 });
 
+test("tool-catalog and tool-response payloads are structurally validated", async (t) => {
+  const ctx = await connected(t, { caps: ["tools.invoke", "presence.read"] });
+  const received = [];
+  ctx.connection.onEvent((e) => received.push(e));
+  const { peer, session } = await announcePeer(ctx);
+  received.length = 0;
+  const action = (extra) =>
+    peer.sign("agent/action", {
+      room: ROOM,
+      origin: ORIGIN,
+      session,
+      nonce: randomNonce(),
+      expiresAt: Date.now() + 60_000,
+      ...extra,
+    });
+  const dispatch = (envelope) =>
+    ctx.b.fromWallet({
+      type: "ai-auth/collaboration-event",
+      envelope,
+    });
+  const tool = {
+    name: "site.search",
+    description: "Search public records.",
+    inputSchema: { type: "object" },
+  };
+  const catalog = (tools) => ({ kind: "tool-catalog", tools });
+
+  await dispatch(await action(catalog([tool])));
+  assert.equal(received.length, 1, "a bounded catalog reaches listeners");
+  await dispatch(await action(catalog("nope")));
+  await dispatch(
+    await action(
+      catalog(
+        Array.from({ length: 33 }, (_, index) => ({
+          ...tool,
+          name: `site.tool-${index}`,
+        })),
+      ),
+    ),
+  );
+  await dispatch(await action(catalog([{ ...tool, name: "Bad/name" }])));
+  await dispatch(await action(catalog([{ ...tool, inputSchema: 7 }])));
+  await dispatch(
+    await action(catalog([{ ...tool, description: "x".repeat(9_000) }])),
+  );
+  assert.equal(
+    received.length,
+    1,
+    "malformed, oversized, or unbounded catalogs are dropped",
+  );
+
+  const response = (extra = {}) => ({
+    kind: "tool-response",
+    requestId: "request-12345678",
+    toWallet: ctx.wallet.id,
+    toSession: "wallet-session-1",
+    result: { ok: true },
+    ...extra,
+  });
+  await dispatch(await action(response()));
+  assert.equal(received.length, 2, "a bounded response reaches listeners");
+  await dispatch(await action(response({ requestId: "bad id" })));
+  await dispatch(await action(response({ toWallet: "someone-else" })));
+  await dispatch(await action(response({ toSession: "other-session" })));
+  await dispatch(await action(response({ result: "x".repeat(9_000) })));
+  await dispatch(await action(response({ error: 42 })));
+  assert.equal(
+    received.length,
+    2,
+    "malformed or oversized responses are dropped",
+  );
+});
+
 // ---- protected tool execution: fail closed ---------------------------------
 
 async function authorizedWorld(t) {
