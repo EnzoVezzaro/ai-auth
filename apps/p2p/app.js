@@ -750,9 +750,11 @@ function bindView() {
     )
       return;
     await state.room?.close();
+    await state.rtc?.close();
     await forgetWallet();
     state.wallet = null;
     state.room = null;
+    state.rtc = null;
     state.activity = [];
     render();
     toast("Wallet removed from this browser.");
