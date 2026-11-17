@@ -309,3 +309,40 @@ test("12. two runtimes cannot use one identity concurrently in this process", as
   );
   assert.equal(first.runtime.connectionState.connected, false); // no peer yet
 });
+
+test("13. an ICE failure in reconnecting schedules a fresh join", async (t) => {
+  const hub = createHub();
+  const transports = [];
+  // The established in-process transport, with onError exposed so the test can
+  // report the same peer-connect-failed a Trystero ICE failure produces.
+  const joinRoom = (config, topic) => {
+    const transport = hub.joinRoom(config, topic);
+    const handlers = new Set();
+    transport.onError = (fn) => {
+      handlers.add(fn);
+      return () => handlers.delete(fn);
+    };
+    transport.reportError = (error) => {
+      for (const fn of [...handlers]) fn(error);
+    };
+    transports.push(transport);
+    return transport;
+  };
+  const a = await makeRuntime(t, hub, "A", {
+    // A short lease makes the real checkLeases interval 1 s instead of 5 s.
+    runtime: { joinRoom, rejoinAfterMs: 50, leaseMs: 600 },
+  });
+  await a.runtime.join();
+  assert.equal(hub.joins, 1);
+
+  transports[0].reportError({ code: "peer-connect-failed" });
+  await until(() => a.runtime.connectionState.status === "reconnecting");
+
+  // A reconnecting runtime with no direct peers must rejoin after the delay.
+  // Before the fix noPeerSince is cleared here and no rejoin is ever scheduled.
+  await until(() => hub.joins >= 2, 4000);
+  assert.equal(
+    a.runtime.connectionState.generation,
+    a.runtime.agentRoom.session,
+  );
+});

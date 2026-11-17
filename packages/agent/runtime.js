@@ -167,9 +167,14 @@ export function createAgentRuntime(options = {}) {
       if (!have.has(peer.peerId)) state.addPeer(peer);
     for (const id of have) if (!want.has(id)) state.removePeer(id);
     state.tryTransition(snapshot.status);
+    // A reconnection attempt is also a period with no direct peers. Keeping
+    // noPeerSince set here is what lets checkLeases schedule the next retry;
+    // clearing it would make `reconnecting` terminal after an ICE failure.
     const waiting =
       snapshot.directPeerCount === 0 &&
-      ["signaling", "waiting-for-peers"].includes(snapshot.status);
+      ["signaling", "waiting-for-peers", "reconnecting"].includes(
+        snapshot.status,
+      );
     noPeerSince = waiting ? (noPeerSince ?? now()) : null;
   }
 
