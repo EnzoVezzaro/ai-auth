@@ -37,7 +37,9 @@ async function setup(t, hub, extra = {}) {
   return { runtime, keystore, dir };
 }
 
-const until = async (fn, ms = 3000) => {
+// Real timers under a loaded test run can take more than 3 s to deliver the
+// first catalog; the wait only bounds the failure path, not the expected time.
+const until = async (fn, ms = 10000) => {
   const end = Date.now() + ms;
   while (Date.now() < end) {
     if (await fn()) return;
