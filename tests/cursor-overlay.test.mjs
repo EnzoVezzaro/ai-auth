@@ -376,6 +376,55 @@ test("a pointer below the first viewport uses the document-size basis, not a cla
   assert.equal(node.style.top, "400px");
 });
 
+test("two live sessions of one identity keep two stable cursors", async (t) => {
+  const dom = makeDom();
+  const conn = makeConnection();
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/",
+  });
+  t.after(stop);
+  const agent = await makeWallet("Two tabs");
+  const sessionA = "session-AAAA1111";
+  const sessionB = "session-BBBB2222";
+  const cursorFor = (session, x, y, seq) => ({
+    type: "ai-auth-cursor",
+    v: 1,
+    pageKey: "/",
+    x,
+    y,
+    seq,
+    visible: true,
+    label: "Two tabs",
+    session,
+  });
+  conn.emit(envelope(agent, cursorFor(sessionA, 200_000, 200_000, 1)));
+  conn.emit(envelope(agent, cursorFor(sessionB, 800_000, 800_000, 2)));
+  const nodes = cursorNodes(conn, dom);
+  assert.equal(nodes.length, 2, "each tab is its own participant");
+  const fill = (node) => node.children[0].children[0].getAttribute("fill");
+  assert.equal(fill(nodes[0]), fill(nodes[1]), "one identity keeps one colour");
+  assert.match(nodes[0].textContent, /Two tabs/u);
+  assert.match(nodes[1].textContent, /Two tabs/u);
+
+  // A fresh update for session A reuses its node; neither cursor flip-flops.
+  conn.emit(envelope(agent, cursorFor(sessionA, 300_000, 300_000, 3)));
+  const afterUpdate = cursorNodes(conn, dom);
+  assert.equal(afterUpdate.length, 2);
+  assert.equal(afterUpdate[0], nodes[0], "session A keeps its own node");
+  assert.equal(afterUpdate[1], nodes[1], "session B keeps its own node");
+
+  // A goodbye for one tab removes only that tab's cursor.
+  conn.emit({
+    type: "peer/goodbye",
+    issuer: agent.id,
+    payload: { session: sessionA },
+  });
+  const remaining = cursorNodes(conn, dom);
+  assert.equal(remaining.length, 1);
+  assert.equal(remaining[0], nodes[1], "the other session's cursor survives");
+});
+
 test("peer/goodbye removes that participant's cursor at once", async (t) => {
   const dom = makeDom();
   const conn = makeConnection();
