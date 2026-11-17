@@ -1164,7 +1164,9 @@ export async function resumeAIAuthSession(options = {}) {
   // a foreign or tampered record would start a handshake and disclose consent
   // before the wallet has a chance to reject it.
   if (options.record && options.record.audience !== origin)
-    throw new TypeError("The supplied session record belongs to another origin");
+    throw new TypeError(
+      "The supplied session record belongs to another origin",
+    );
   const store =
     options.sessionStore ??
     (globalThis.sessionStorage

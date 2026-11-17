@@ -42,10 +42,9 @@ no connection URL. This demo does not modify the live site.
   <p>
     This demo page registers WebMCP tools that agent-capable browsers can
     discover and invoke when it is served locally. The live body4ai.com site is
-    maintained separately. There is no endpoint and no URL to connect to:
-    agents search products, open product pages, compare devices,
-    and find review sources directly in the page, and only with your explicit
-    approval.
+    maintained separately. There is no endpoint and no URL to connect to: agents
+    search products, open product pages, compare devices, and find review
+    sources directly in the page, and only with your explicit approval.
   </p>
   <p>
     <strong>AVAILABLE TOOLS</strong>

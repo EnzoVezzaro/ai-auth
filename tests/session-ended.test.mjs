@@ -35,7 +35,10 @@ async function makeWallet() {
   const publicKey = await crypto.subtle.exportKey("jwk", pair.publicKey);
   const id = await identityFor(publicKey);
   const wallet = { id, name: "Agent", publicKey, privateKey: pair.privateKey };
-  return { ...wallet, sign: (type, payload) => signEnvelope(wallet, type, payload) };
+  return {
+    ...wallet,
+    sign: (type, payload) => signEnvelope(wallet, type, payload),
+  };
 }
 
 async function makeGrant(wallet) {

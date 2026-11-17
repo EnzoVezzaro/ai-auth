@@ -8,7 +8,10 @@ import {
   identityFor,
   signEnvelope,
 } from "../packages/p2p/index.js";
-import { createSessionStore, recordFromConsent } from "../packages/p2p/session-store.js";
+import {
+  createSessionStore,
+  recordFromConsent,
+} from "../packages/p2p/session-store.js";
 import { resumeAIAuthSession } from "../packages/p2p/embed.js";
 import { memoryStorage } from "./helpers/app-source.mjs";
 
@@ -74,9 +77,7 @@ function fakeBrowser() {
     removeEventListener() {},
     showModal() {},
     close() {},
-    ...(tag === "iframe"
-      ? { contentWindow: { postMessage() {} } }
-      : {}),
+    ...(tag === "iframe" ? { contentWindow: { postMessage() {} } } : {}),
   });
   return {
     win: {

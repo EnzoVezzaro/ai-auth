@@ -284,7 +284,9 @@ export async function exerciseConnection(origin: string): Promise<void> {
   if (catalog) await client.callTool(catalog, "site.count", { q: "x" });
   client.close();
   mountAIAuthCollaboration(connection);
-  mountCollaborationWheel(connection.transfers, { capabilities: ["messages.send"] });
+  mountCollaborationWheel(connection.transfers, {
+    capabilities: ["messages.send"],
+  });
   connection.close("closed");
   void legacy;
 }
