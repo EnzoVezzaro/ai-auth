@@ -676,6 +676,78 @@ test("a non-object JSON Schema is published without dropping the catalog", async
   assert.deepEqual(tool.inputSchema, { type: "string" });
 });
 
+test("a toolchange event re-discovers tools and re-publishes the catalog", async (t) => {
+  const { connection, popupMessages } = await makeVerifiedConnection(
+    ["tools.invoke"],
+    { roomSession: WALLET_SESSION },
+  );
+  t.after(() => connection.close());
+  const listeners = new Set();
+  const calls = [];
+  const first = { name: "page.one", description: "One.", inputSchema: {} };
+  let tools = [first];
+  const modelContext = {
+    getTools: () => tools,
+    executeTool: async (tool) => {
+      calls.push(tool.name);
+      return "{}";
+    },
+    addEventListener(type, listener) {
+      if (type === "toolchange") listeners.add(listener);
+    },
+    removeEventListener(type, listener) {
+      listeners.delete(listener);
+    },
+    fireToolChange() {
+      for (const listener of [...listeners]) listener({ type: "toolchange" });
+    },
+  };
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    modelContext,
+    authorize: () => true,
+  });
+  t.after(() => api.close());
+  assert.deepEqual(api.tools, ["page.one"]);
+
+  tools = [
+    ...tools,
+    first,
+    { name: "page.two", description: "Two.", inputSchema: {} },
+  ];
+  modelContext.fireToolChange();
+  await waitFor(
+    () =>
+      catalogsIn(popupMessages).some((catalog) =>
+        catalog.tools.some((tool) => tool.name === "page.two"),
+      ),
+    "a catalog re-published after toolchange",
+  );
+  assert.deepEqual(api.tools, ["page.one", "page.two"]);
+  assert.deepEqual(
+    catalogsIn(popupMessages)
+      .at(-1)
+      .tools.map((tool) => tool.name),
+    ["page.one", "page.two"],
+  );
+  await api.execute("page.two");
+  assert.deepEqual(calls, ["page.two"]);
+
+  tools = Array.from({ length: 40 }, (_, index) => ({
+    name: `page.t${index}`,
+    description: "Generated.",
+    inputSchema: {},
+  }));
+  modelContext.fireToolChange();
+  await waitFor(() => api.tools.length === 32, "the capped re-discovery");
+  assert.equal(catalogsIn(popupMessages).at(-1).tools.length, 32);
+
+  api.close();
+  modelContext.fireToolChange();
+  await settle();
+  assert.equal(listeners.size, 0, "closing removes the toolchange listener");
+});
+
 test("the agent client drops catalogs above the 32-tool bound", async (t) => {
   const site = await makeWallet("Site wallet");
   const agent = await makeWallet("Agent wallet");
