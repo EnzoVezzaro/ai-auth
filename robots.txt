@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://enzovezzaro.github.io/ai-auth/sitemap.xml

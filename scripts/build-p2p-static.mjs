@@ -14,6 +14,16 @@ await mkdir(resolve(output, "docs"), { recursive: true });
 await mkdir(resolve(output, "landing"), { recursive: true });
 await cp(resolve(root, "index.html"), resolve(output, "index.html"));
 await cp(resolve(root, "landing.css"), resolve(output, "landing.css"));
+// Crawler files: the landing page is the only indexable page. The wallet and
+// the demo are crawlable so their noindex tags can be read, and they say no.
+await cp(resolve(root, "robots.txt"), resolve(output, "robots.txt"));
+await cp(resolve(root, "sitemap.xml"), resolve(output, "sitemap.xml"));
+const NOINDEX = '<meta name="robots" content="noindex, nofollow" />';
+const withNoindex = (page) => {
+  if (!page.includes("<head>"))
+    throw new Error("page has no <head> to mark noindex");
+  return page.replace("<head>", `<head>\n    ${NOINDEX}`);
+};
 
 // The landing page keeps its content in HTML and loads a small React island
 // for the 3D scenes. Split chunks keep WebGL code off the first paint and let
@@ -45,7 +55,7 @@ const walletEntry = (
   .replace('href="./styles.css"', `href="./styles.css?v=${version}"`)
   .replace('src="./app.js"', `src="./app.js?v=${version}"`)
   .replace("AI Auth Wallet v0.2.0", `AI Auth Wallet v${version}`);
-await writeFile(resolve(output, "wallet/index.html"), walletEntry);
+await writeFile(resolve(output, "wallet/index.html"), withNoindex(walletEntry));
 await cp(resolve(root, "styles.css"), resolve(output, "wallet/styles.css"));
 await build({
   entryPoints: [resolve(root, "apps/p2p/app.js")],
@@ -69,8 +79,12 @@ await build({
 // BODY4AI reference demo site, served under /body4ai/ (used by the E2E).
 const demoSource = resolve(root, "examples/body4ai/site");
 await mkdir(resolve(output, "body4ai"), { recursive: true });
-for (const name of ["index.html", "product.html", "site.css"])
-  await cp(resolve(demoSource, name), resolve(output, "body4ai", name));
+for (const name of ["index.html", "product.html"])
+  await writeFile(
+    resolve(output, "body4ai", name),
+    withNoindex(await readFile(resolve(demoSource, name), "utf8")),
+  );
+await cp(resolve(demoSource, "site.css"), resolve(output, "body4ai/site.css"));
 await build({
   entryPoints: [resolve(demoSource, "site.js")],
   outfile: resolve(output, "body4ai/site.js"),
