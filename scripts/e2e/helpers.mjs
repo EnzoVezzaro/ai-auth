@@ -116,6 +116,24 @@ export async function waitFor(
   );
 }
 
+/**
+ * Asserts an observable stays unchanged for a bounded window. Replaces a bare
+ * sleep for negative assertions, where a late event would otherwise pass as
+ * "nothing happened".
+ */
+export async function expectStable(
+  read,
+  { window = 1_000, interval = 100, message = "value" } = {},
+) {
+  const initial = await read();
+  const deadline = Date.now() + window;
+  while (Date.now() < deadline) {
+    await delay(interval);
+    assert.deepEqual(await read(), initial, `${message} changed during the wait`);
+  }
+  return initial;
+}
+
 /** Records ICE failures in the page so a failed run can say why. */
 export function iceDiagnosticsScript() {
   const NativePeerConnection = window.RTCPeerConnection;

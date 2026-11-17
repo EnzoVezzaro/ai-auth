@@ -11,6 +11,7 @@ import {
   registerAIAuthPageActions,
   signEnvelope,
 } from "../packages/p2p/index.js";
+import { until } from "./helpers/wait.mjs";
 
 globalThis.crypto ??= webcrypto;
 
@@ -576,9 +577,12 @@ test("popup connection timeout is cleared after signed consent", async () => {
   connection.close();
   connection.close();
   assert.equal(disconnects, 1);
-  // close() now defers the dialog/iframe teardown by one 500 ms grace period so
-  // the posted session-ended message reaches a live wallet frame first.
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  // close() defers teardown by a grace period so the posted session-ended
+  // message reaches a live wallet frame first. Wait for the state, not a tick.
+  await until(
+    () => popup.closed && listeners.size === 0,
+    { timeout: 3_000, message: "deferred dialog/iframe teardown after close" },
+  );
   assert.equal(popup.closed, true);
   assert.equal(listeners.size, 0);
 });

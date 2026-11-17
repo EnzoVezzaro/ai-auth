@@ -240,7 +240,7 @@ test("verifyReceipt rejects forged, tampered and mis-bound receipts", async () =
 });
 
 test("a receipt signed for another room is not accepted by a transfer in this room", async (t) => {
-  const { alice, bob, settle } = await trio(t, "room-a");
+  const { alice, settle } = await trio(t, "room-a");
   const stray = await wallet("stray");
   const payload = buildReceiptPayload({
     messageId: crypto.randomUUID(),
@@ -254,7 +254,6 @@ test("a receipt signed for another room is not accepted by a transfer in this ro
     alice.events.filter((event) => event.type === "receipt"),
     [],
   );
-  assert.ok(bob);
 });
 
 function ledgerWith(overrides = {}) {

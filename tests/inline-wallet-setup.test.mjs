@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { INLINE_WALLET_NOTICE } from "../packages/p2p/copy.js";
 import { inlineCreateWalletForm } from "../packages/p2p/wallet-setup-copy.js";
+import {
+  appSource,
+  extractFunction,
+  runFragment,
+} from "./helpers/app-source.mjs";
 
 test("R3 the no-wallet request screen renders an inline Create wallet action", () => {
   const html = inlineCreateWalletForm({ error: "" });
@@ -30,15 +34,26 @@ test("R3 the copy invites an inline action instead of a dead end", () => {
 });
 
 test("R3 the wallet request view uses the inline form and drops the redirect", async () => {
-  const source = await readFile(
-    new URL("../apps/p2p/app.js", import.meta.url),
-    "utf8",
-  );
-  const start = source.indexOf("function externalPermissionView()");
-  const end = source.indexOf("function walletRequired()");
-  assert.ok(start > -1 && end > start, "the request view is present");
-  const branch = source.slice(start, end);
-  assert.match(branch, /inlineCreateWalletForm/u);
-  assert.doesNotMatch(branch, /NO_WALLET_NOTICE/u);
-  assert.doesNotMatch(branch, /data-go-wallet/u);
+  // Run the real view with no wallet instead of grepping a source slice.
+  const view = extractFunction(await appSource(), "externalPermissionView");
+  const sandbox = runFragment(view, {
+    state: {
+      wallet: null,
+      error: "",
+      externalRequest: {
+        audience: "https://site.example",
+        capabilities: ["presence.read"],
+      },
+    },
+    pageHead: (_title, _subtitle, body) => body,
+    esc: (value) => String(value),
+    capabilityCopy: () => ({ title: "Read presence" }),
+    INLINE_WALLET_NOTICE,
+    inlineCreateWalletForm,
+  });
+  const html = sandbox.externalPermissionView();
+  assert.match(html, /id="create-wallet-form"/u, "the inline form is rendered");
+  assert.match(html, /Create a wallet here/u, "the inline notice is shown");
+  assert.doesNotMatch(html, /data-go-wallet/u, "no redirect-to-wallet button");
+  assert.doesNotMatch(html, /Create your wallet first/u, "no dead-end copy");
 });
