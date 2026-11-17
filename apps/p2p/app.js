@@ -1,13 +1,13 @@
 import { CollaborationTransfers } from "../../packages/p2p/collaboration.js";
 import {
-  EXTEND_LABEL,
-  EXTEND_MINUTES,
   WALLET_REQUIRED_MESSAGE,
   WALLET_SAVED_NOTICE,
   INLINE_WALLET_NOTICE,
   NO_WALLET_NOTICE,
   capabilityCopy,
   connectionStatusLabel,
+  extendLabel,
+  extensionPhrase,
   renewalKeptText,
   requestEndText,
   sessionEndText,
@@ -270,8 +270,13 @@ function externalPermissionView() {
   }
   if (state.externalStatus === "sent") {
     const grant = state.consent?.body?.payload;
+    // The copy must name the lifetime the wallet will actually grant, which
+    // can be a shorter site cap or Never rather than the 30-minute default.
+    const renewalTtl = state.renewal
+      ? defaultSessionTtl(sessionLimits(state.renewal))
+      : null;
     const renewalPanel = state.renewal
-      ? `<section class="panel" id="renewal-panel"><p class="mini-label">EXTENSION REQUESTED</p><h2>Keep ${esc(displayOrigin)} connected?</h2><p class="panel-copy">The site asks to extend your session for ${EXTEND_MINUTES} more minutes with the same permissions: ${esc(state.renewal.capabilities.map((capability) => capabilityCopy(capability).title).join(", "))}. Extending never adds permissions.</p><div class="button-row"><button class="button" id="approve-renewal">${EXTEND_LABEL}</button><button class="button quiet" id="decline-renewal">Don't allow</button></div></section>`
+      ? `<section class="panel" id="renewal-panel"><p class="mini-label">EXTENSION REQUESTED</p><h2>Keep ${esc(displayOrigin)} connected?</h2><p class="panel-copy">The site asks to extend your session ${esc(extensionPhrase(renewalTtl))} with the same permissions: ${esc(state.renewal.capabilities.map((capability) => capabilityCopy(capability).title).join(", "))}. Extending never adds permissions.</p><div class="button-row"><button class="button" id="approve-renewal">${esc(extendLabel(renewalTtl))}</button><button class="button quiet" id="decline-renewal">Don't allow</button></div></section>`
       : "";
     return `${pageHead("APPROVAL SENT", "Return to the requesting site.", "Your signed approval was sent to the site that opened this wallet. You can close this tab.")}
       <section class="panel"><p class="mini-label">APPROVED SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">Approved permissions: ${esc((grant?.capabilities ?? []).map((capability) => capabilityCopy(capability).title).join(", "))}</p><div class="metric-line"><span>Session</span><strong id="session-countdown">${esc(sessionEndText(grant?.expiresAt))}</strong></div>${grant?.idleTimeoutMs !== undefined ? `<div class="metric-line"><span>Ends after inactivity</span><strong>${esc(durationText(grant.idleTimeoutMs))}</strong></div>` : `<p class="help">Legacy short session from a site on an older SDK; it cannot be renewed.</p>`}<div class="button-row top-gap"><button class="button quiet" id="end-session">End session</button></div></section>${renewalPanel}`;

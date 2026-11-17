@@ -45,5 +45,5 @@ test("the wallet page links its copy module and its approval buttons use plain v
   );
   assert.match(source, /Allow selected permissions/u);
   assert.match(source, /Don't allow/u);
-  assert.match(source, /EXTEND_LABEL/u);
+  assert.match(source, /extendLabel/u);
 });
