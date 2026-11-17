@@ -44,6 +44,9 @@ const PASSIVE_EVENT_TYPES = new Set([
 // long enough to receive "session-ended" and close its room before we destroy
 // the iframe. Bounded so teardown still always happens promptly.
 const SESSION_ENDED_GRACE_MS = 500;
+// setTimeout clamps delays above this to 1ms, which would spin the expiry
+// re-check loop. Long waits are split into re-armed chunks of at most this size.
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const TOOL_EVENT_KINDS = new Set([
   "tool-catalog",
   "tool-request",
@@ -321,10 +324,17 @@ export async function connectAIAuthModal({
       activeConnection.close(status);
       return;
     }
-    expiryTimer = setTimeout(
-      scheduleExpiry,
-      Math.max(1, lease.deadline - Date.now()),
+    const deadline = lease.deadline;
+    // A Never grant has no deadline. Re-check expiry on activity instead of
+    // re-arming a 1ms timer forever (null - Date.now() is negative).
+    if (deadline === null) return;
+    // Cap the delay: setTimeout treats delays above the 32-bit maximum as 1ms,
+    // and re-arming on each fire keeps very long waits bounded.
+    const delay = Math.min(
+      MAX_TIMER_DELAY_MS,
+      Math.max(1, deadline - Date.now()),
     );
+    expiryTimer = setTimeout(scheduleExpiry, delay);
   };
   const recordActivity = () => {
     const active = lease?.touch();
@@ -344,7 +354,18 @@ export async function connectAIAuthModal({
     clearTimeout(timeout);
     clearTimeout(expiryTimer);
     clearTimeout(resumeTimer);
-    clearTimeout(pendingRenewal?.timer);
+    if (pendingRenewal) {
+      const renewal = pendingRenewal;
+      pendingRenewal = null;
+      clearTimeout(renewal.timer);
+      renewal.reject(
+        keptSessionError(
+          "renewal-declined",
+          consent?.body?.payload?.expiresAt,
+          "The AI Auth connection closed. ",
+        ),
+      );
+    }
     dialog.removeEventListener("cancel", onCancel);
     dialog.removeEventListener("close", onDialogClose);
     if (deferFrame) setTimeout(teardownFrame, SESSION_ENDED_GRACE_MS);
@@ -360,6 +381,18 @@ export async function connectAIAuthModal({
   };
   const onCancel = (event) => {
     event.preventDefault();
+    // A renewal re-shows the dialog, so Escape/Cancel there must decline only
+    // the extension - never tear down the still-active session.
+    if (pendingRenewal) {
+      const renewal = pendingRenewal;
+      pendingRenewal = null;
+      clearTimeout(renewal.timer);
+      hideDialog();
+      renewal.reject(
+        keptSessionError("renewal-declined", consent?.body?.payload?.expiresAt),
+      );
+      return;
+    }
     if (activeConnection) activeConnection.close();
     else cancelPending();
   };
@@ -435,7 +468,14 @@ export async function connectAIAuthModal({
       return;
     }
     if (event.data?.type === "ai-auth/wallet-setup") {
+      // The wallet is creating a key instead of asking for approval. Keep a
+      // bounded timeout armed so abandoning wallet creation still rejects the
+      // ready promise instead of waiting forever.
       clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        cleanup();
+        rejectReady(new Error(approvalTimeoutMessage(timeoutMs)));
+      }, timeoutMs);
       return;
     }
     if (event.data?.type === "ai-auth/connect-ready") {
