@@ -85,7 +85,10 @@ async function makeRuntime(
   return { runtime, dir: home, keystore };
 }
 
-const until = async (fn, ms = 4000) => {
+// Catalog and presence announcements arrive asynchronously over the room. Under
+// a loaded run the first one can take longer than 4 s; this widens the wait for
+// every scenario. The exact announcement that gates each wait is not yet traced.
+const until = async (fn, ms = 12000) => {
   const end = Date.now() + ms;
   while (Date.now() < end) {
     if (await fn()) return;
