@@ -112,17 +112,20 @@ test("FX1-04 a failing ended-flag write still revokes, notifies and reports", as
     room: null,
     rtc: null,
   };
-  const sandbox = runFragment(extractFunction(source, "expireExternalSession"), {
-    state,
-    externalHost: { postMessage: (data) => posted.push(data) },
-    markSessionEnded: async () => {
-      throw new Error("IndexedDB blocked");
+  const sandbox = runFragment(
+    extractFunction(source, "expireExternalSession"),
+    {
+      state,
+      externalHost: { postMessage: (data) => posted.push(data) },
+      markSessionEnded: async () => {
+        throw new Error("IndexedDB blocked");
+      },
+      toast: (message) => toasts.push(message),
+      roomGeneration: 0,
+      clearTimeout() {},
+      render() {},
     },
-    toast: (message) => toasts.push(message),
-    roomGeneration: 0,
-    clearTimeout() {},
-    render() {},
-  });
+  );
 
   await assert.doesNotReject(() => sandbox.expireExternalSession("ended"));
   assert.deepEqual(revoked, ["lease"], "the lease is revoked anyway");
@@ -131,7 +134,9 @@ test("FX1-04 a failing ended-flag write still revokes, notifies and reports", as
     "the site is still told the session ended",
   );
   assert.ok(
-    toasts.some((message) => /end|save|persist|store|record|flag/u.test(message)),
+    toasts.some((message) =>
+      /end|save|persist|store|record|flag/u.test(message),
+    ),
     "the persistence failure is reported to the user",
   );
 });

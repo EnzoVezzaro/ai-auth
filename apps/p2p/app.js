@@ -1191,7 +1191,8 @@ async function expireExternalSession(reason = "expired", endedBySite = false) {
   clearTimeout(state.sessionTimer);
   try {
     await markSessionEnded(
-      state.externalRequest?.nonce ?? state.consent?.body?.payload?.requestNonce,
+      state.externalRequest?.nonce ??
+        state.consent?.body?.payload?.requestNonce,
     );
   } catch {
     // A blocked grant store must not stop the lease revocation or the notice
