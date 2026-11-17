@@ -72,7 +72,7 @@ export function buildActions({ wishlist, executions }) {
 }
 
 /** Human approval panel: resolves true/false from the visitor's click. */
-export function askHuman({ target, action }) {
+export function askHuman({ target, action, signal }) {
   const panel = document.createElement("div");
   panel.dataset.approval = action.name;
   panel.setAttribute("role", "alertdialog");
@@ -89,10 +89,20 @@ export function askHuman({ target, action }) {
   panel.append(text, approve, deny);
   target.append(panel);
   return new Promise((resolve) => {
+    let settled = false;
     const done = (value) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener?.("abort", onAbort);
       panel.remove();
       resolve(value);
     };
+    function onAbort() {
+      // The SDK cancelled or timed out this call: the panel is now dead UI.
+      done(false);
+    }
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener?.("abort", onAbort, { once: true });
     approve.addEventListener("click", () => done(true));
     deny.addEventListener("click", () => done(false));
   });
@@ -110,7 +120,7 @@ export function makeAuthorize({ target, log }) {
       return false;
     }
     if (action.readOnly) return true;
-    const approved = await askHuman({ target, action });
+    const approved = await askHuman({ target, action, signal: context.signal });
     if (!approved) log("denied", action.name, "human declined");
     return approved;
   };
