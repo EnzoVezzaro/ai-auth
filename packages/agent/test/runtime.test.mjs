@@ -328,6 +328,54 @@ test("close is idempotent and join after close is refused", async (t) => {
   await assert.rejects(runtime.join(), /closed/i);
 });
 
+test("a join for another room never returns the in-flight join's promise", async (t) => {
+  const hub = createHub();
+  hub.failJoins = 3;
+  let releaseDelay;
+  let released = false;
+  const runtime = (
+    await setup(t, hub, {
+      room: undefined,
+      delay: () =>
+        new Promise((resolve) => {
+          if (released) return resolve();
+          releaseDelay = resolve;
+        }),
+      backoff: { baseMs: 1, maxMs: 1, maxAttempts: 3 },
+    })
+  ).runtime;
+  const first = runtime.join("first-room");
+  for (let i = 0; i < 200 && !releaseDelay; i += 1)
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.ok(releaseDelay, "the first join is waiting to retry");
+  const other = runtime.join("second-room");
+  released = true;
+  releaseDelay();
+  await assert.rejects(other, /already in progress/i);
+  await assert.rejects(first, /could not join/i);
+});
+
+test("a failed join releases the wallet identity for another runtime", async (t) => {
+  const hub = createHub();
+  hub.failJoins = 3;
+  const a = await setup(t, hub, {
+    backoff: { baseMs: 1, maxMs: 1, maxAttempts: 3 },
+  });
+  await assert.rejects(a.runtime.join(), /could not join/i);
+  const b = createAgentRuntime({
+    keystore: a.keystore,
+    origin: ORIGIN,
+    capabilities: CAPS,
+    room: "lobby",
+    joinRoom: hub.joinRoom,
+    delay: async () => {},
+    random: () => 0.5,
+  });
+  t.after(() => b.close());
+  await b.join();
+  assert.equal(b.connectionState.status, "waiting-for-peers");
+});
+
 test("the runtime never exposes private key material", async (t) => {
   const hub = createHub();
   const { runtime } = await setup(t, hub);

@@ -334,8 +334,11 @@ export function createAgentRuntime(options = {}) {
     );
     if (approvedRoom && requested !== approvedRoom)
       throw new Error(`Only the approved room "${approvedRoom}" can be joined`);
-    if (pending) return pending;
-    pending = (async () => {
+    if (pending) {
+      if (pending.room === requested) return pending.promise;
+      throw new Error(`A join to "${pending.room}" is already in progress`);
+    }
+    const promise = (async () => {
       const room = requested;
       if (core) await teardown({ goodbye: true });
       wallet ??= await keystore.unlock();
@@ -365,10 +368,18 @@ export function createAgentRuntime(options = {}) {
       );
       timer.unref?.();
       return api.connectionState;
-    })().finally(() => {
-      pending = null;
-    });
-    return pending;
+    })();
+    pending = { room: requested, promise };
+    try {
+      return await promise;
+    } catch (error) {
+      // Every connect attempt failed: another runtime may now own this wallet.
+      if (wallet && liveIdentities.get(wallet.id) === instanceId)
+        liveIdentities.delete(wallet.id);
+      throw error;
+    } finally {
+      if (pending?.promise === promise) pending = null;
+    }
   }
 
   async function stop({ forget, final }) {
