@@ -60,11 +60,14 @@ const CONNECTION_LABELS = Object.freeze({
   idle: "Not connected.",
   "approval-pending": "Waiting for your approval.",
   "wallet-authorized": "Approved. Connecting…",
+  connecting: "Connecting…",
   signaling: "Connecting…",
   "waiting-for-peers": "Connected. Waiting for other visitors or agents.",
   "direct-peer-connected": "Connected with a live partner.",
+  reconnecting: "Connection lost. Trying to reconnect…",
   degraded: "Connection is weak. Trying to recover.",
   expired: "Session expired.",
+  revoked: "The wallet ended this session.",
   disconnected: "Disconnected.",
 });
 
