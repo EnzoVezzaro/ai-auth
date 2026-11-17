@@ -236,6 +236,7 @@ export function createToolProvider({
         };
       return { result: value ?? null };
     } catch {
+      if (controller.signal.aborted) return cancelled();
       return {
         error: "The tool could not complete",
         code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
@@ -281,7 +282,10 @@ export function createToolProvider({
       return;
     }
     if (type === "agent/action" && validCancel(payload) && issuer !== ownId()) {
-      runningRequests.get(payload.requestId)?.abort();
+      const running = runningRequests.get(payload.requestId);
+      // A signed cancel only stops the request from that same issuer; another
+      // peer guessing a requestId must not be able to kill someone else's call.
+      if (running?.issuer === issuer) running.controller.abort();
       return;
     }
     if (type !== "agent/action" || !validRequest(payload) || issuer === ownId())
@@ -302,7 +306,10 @@ export function createToolProvider({
     seen.set(payload.requestId, now + REQUEST_MEMORY_MS);
     running += 1;
     const controller = new AbortController();
-    runningRequests.set(payload.requestId, controller);
+    runningRequests.set(payload.requestId, {
+      controller,
+      issuer: requester.wallet,
+    });
     execute(requester, payload, controller)
       .then((outcome) =>
         respond(requester, { requestId: payload.requestId, ...outcome }),
@@ -330,7 +337,8 @@ export function createToolProvider({
       if (closed) return;
       clearInterval(refresh);
       unsubscribe();
-      for (const controller of runningRequests.values()) controller.abort();
+      for (const running of runningRequests.values())
+        running.controller.abort();
       runningRequests.clear();
       const withdrawal = publish([]);
       closed = true;
