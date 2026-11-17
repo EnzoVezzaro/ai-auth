@@ -14,6 +14,9 @@ const MAX_PAGE = 50;
 const MAX_PAYLOAD_CHARS = 1_500;
 const SILENT_TYPES = new Set(["peer/heartbeat"]);
 const WALLET_ID = /^agent:[A-Za-z0-9_-]{20,100}$/u;
+// Mirrors ROOM_PATTERN in packages/agent/runtime.js so a bad room name is
+// rejected by the tool schema before a join attempt is made.
+const ROOM_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,99}$/u;
 
 // Code Mode's guest bridge is built from this source *inside* the vm context.
 // It runs in the guest realm, so every function, Promise, Error and JSON it
@@ -463,7 +466,7 @@ const SPECS = [
     "presence.read",
     false,
     "Join (or switch) the site room. Direct WebRTC; relays only signal.",
-    { room: z.string().max(100).optional() },
+    { room: z.string().regex(ROOM_PATTERN).optional() },
     (b, i) => b.join(i),
   ],
   [
@@ -554,7 +557,7 @@ const SPECS = [
     "ai_auth_code",
     "tools.invoke",
     false,
-    "Code Mode (opt-in with --code-mode): run a short script calling aiAuth.status/listTools/events/send/move/invoke. Guest code runs in a vm context with no host objects: aiAuth and console are guest-realm wrappers that exchange JSON strings through closures the guest cannot reach, and errors and promises are guest-realm too. vm is not a hard security boundary; the MCP process still runs with host privileges. 2 s timeout and 8 KB code limit.",
+    "Code Mode (opt-in with --code-mode): run a short script in a vm calling aiAuth.status(), aiAuth.listTools(), aiAuth.invoke(), aiAuth.send(), aiAuth.move() and aiAuth.events(). aiAuth.join(), aiAuth.leave() and aiAuth.act() are unavailable in the sandbox; use the MCP tools for those. Guest code gets guest-realm wrappers that exchange JSON strings through closures the guest cannot reach, and errors and promises are guest-realm too. vm is not a hard security boundary; the MCP process still runs with host privileges. 2 s timeout and 8 KB code limit.",
     { code: z.string().min(1).max(8_000) },
     (b, i, extra) => b.runCode(i, extra),
   ],
