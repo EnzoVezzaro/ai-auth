@@ -1184,9 +1184,15 @@ function scheduleSessionExpiry() {
 async function expireExternalSession(reason = "expired", endedBySite = false) {
   if (state.externalStatus !== "sent") return;
   clearTimeout(state.sessionTimer);
-  await markSessionEnded(
-    state.externalRequest?.nonce ?? state.consent?.body?.payload?.requestNonce,
-  );
+  try {
+    await markSessionEnded(
+      state.externalRequest?.nonce ?? state.consent?.body?.payload?.requestNonce,
+    );
+  } catch {
+    // A blocked grant store must not stop the lease revocation or the notice
+    // to the site. Report the failed persistence and finish ending locally.
+    toast("The session ended, but its saved record could not be updated.");
+  }
   state.lease?.revoke();
   state.renewal = null;
   if (externalHost && state.externalOrigin)

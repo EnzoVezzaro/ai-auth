@@ -92,6 +92,50 @@ test("FX1-01 markEnded only updates an existing record, never creating a stray o
   assert.equal(await store.get(ORIGIN, "never-saved"), null);
 });
 
+test("FX1-04 a failing ended-flag write still revokes, notifies and reports", async () => {
+  const source = await appSource();
+  const revoked = [];
+  const posted = [];
+  const toasts = [];
+  const state = {
+    externalOrigin: ORIGIN,
+    externalRequest: { nonce: "session-1" },
+    consent: { body: { payload: { requestNonce: "session-1" } } },
+    externalStatus: "sent",
+    externalPendingEvents: [],
+    lease: {
+      revoke() {
+        revoked.push("lease");
+      },
+    },
+    transfers: null,
+    room: null,
+    rtc: null,
+  };
+  const sandbox = runFragment(extractFunction(source, "expireExternalSession"), {
+    state,
+    externalHost: { postMessage: (data) => posted.push(data) },
+    markSessionEnded: async () => {
+      throw new Error("IndexedDB blocked");
+    },
+    toast: (message) => toasts.push(message),
+    roomGeneration: 0,
+    clearTimeout() {},
+    render() {},
+  });
+
+  await assert.doesNotReject(() => sandbox.expireExternalSession("ended"));
+  assert.deepEqual(revoked, ["lease"], "the lease is revoked anyway");
+  assert.ok(
+    posted.some((entry) => entry.type === "ai-auth/session-ended"),
+    "the site is still told the session ended",
+  );
+  assert.ok(
+    toasts.some((message) => /end|save|persist|store|record|flag/u.test(message)),
+    "the persistence failure is reported to the user",
+  );
+});
+
 test("FX1-01 touch and end keep the stable session id after a renewal", async () => {
   const source = await appSource();
   const wallet = await makeWallet();
