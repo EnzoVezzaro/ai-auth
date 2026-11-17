@@ -90,4 +90,4 @@ npx -y @enzovezzaro/ai-auth-mcp serve \
 
 ## Next
 
-Read the [site integration guide](site-integration.md) for the full option list, cursors, presence, and WebMCP tools. See [agent adapters](AGENT_ADAPTERS.md) for connecting specific coding tools.
+Read the [site integration guide](site-integration.md) for the full option list, cursors, presence, and WebMCP tools. See [agents and MCP](agents.md) for connecting specific coding tools.

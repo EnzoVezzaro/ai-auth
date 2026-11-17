@@ -77,7 +77,7 @@ The code is capped at 8 KB. It runs in a worker thread that the host terminates 
 
 `--http PORT` listens on `127.0.0.1:PORT`. The printed endpoint contains a random secret in the path, `/mcp/<secret>`. That secret is the credential for the agent. The CLI keeps it in `<keystore-dir>/http-secret` with mode `0600` and reuses it after a restart. Share the URL only with the client you intend to drive the agent. If you tunnel the port, use a tunnel you control. Stop the process to end the agent's presence.
 
-A reachable endpoint does not prove a live site connection. See [connection lifecycle](CONNECTION_LIFECYCLE.md) for the strict definition of `connected`.
+A reachable endpoint does not prove a live site connection. See [session lifecycle](lifecycle.md) for the strict definition of `connected`.
 
 ## Library use
 

@@ -124,7 +124,7 @@ test("DTC-07: idle reset describes inbound vs local presence correctly", async (
 });
 
 test("DTC-08: trust limits describe bounded catch-up and epoch propagation", async () => {
-  const doc = await read("docs/explanation/trust-limits.md");
+  const doc = await read("docs/lifecycle.md");
   assert.doesNotMatch(doc, /gets nothing retroactively/u);
   assert.doesNotMatch(
     doc,

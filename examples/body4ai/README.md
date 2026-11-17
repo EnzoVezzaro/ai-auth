@@ -19,7 +19,7 @@ For the full multi-agent browser test, run `npm run test:e2e:body4ai`.
 
 ## Use the SDK in your own site
 
-Install `@enzovezzaro/ai-auth-wallet` and follow the [SDK guide](../../docs/SDK_GUIDE.md). The connect instruction carries only public data: origin, room, wallet URL and capabilities. A signature proves control of a key, not a human identity. Tool calls also need the page's own approval step, so keep private data out of tool results. See [security](../../docs/SECURITY.md) and the [agents guide](../../docs/agents.md) for local agents.
+Install `@enzovezzaro/ai-auth-wallet` and follow the [site integration guide](../../docs/site-integration.md). The connect instruction carries only public data: origin, room, wallet URL and capabilities. A signature proves control of a key, not a human identity. Tool calls also need the page's own approval step, so keep private data out of tool results. See [security](../../docs/SECURITY.md) and the [agents guide](../../docs/agents.md) for local agents.
 
 ## Hosting
 
