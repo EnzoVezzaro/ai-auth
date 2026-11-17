@@ -566,7 +566,8 @@ export function mountAIAuthCollaboration(
 export interface AIAuthPageAction {
   name: string;
   description: string;
-  inputSchema: Record<string, unknown> & { type: "object"; properties: object };
+  /** JSON Schema: an object, or a boolean schema (true/false). */
+  inputSchema: Record<string, unknown> | boolean;
   requiredCapability: "tools.invoke";
   readOnly?: boolean;
   /** When true, a remote requester always needs a participation policy that authorizes it. */

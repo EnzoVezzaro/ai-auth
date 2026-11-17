@@ -487,7 +487,7 @@ test("catalog descriptions are truncated and oversized names are rejected", asyn
   await assert.rejects(
     mountAIAuthInPageAgent({
       connection: other.connection,
-      actions: [countAction({ runs: 0 }, { name: `site.${"a".repeat(60)}` })],
+      actions: [countAction({ runs: 0 }, { name: `site.${"a".repeat(130)}` })],
       authorize: () => true,
     }),
     /Page actions need a name/u,
@@ -534,6 +534,98 @@ test("discovered WebMCP tool names peers cannot route are not advertised", async
   });
   t.after(() => api.close());
   assert.deepEqual(api.tools, []);
+});
+
+test("spec-valid dotted names up to 128 characters are accepted", async (t) => {
+  const { connection, popupMessages } = await makeVerifiedConnection(
+    ["tools.invoke"],
+    { roomSession: WALLET_SESSION },
+  );
+  t.after(() => connection.close());
+  const longName = `Peer.Search.${"x".repeat(88)}`;
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    modelContext: {
+      getTools: () => [
+        { name: "Peer.Search", description: "Dotted.", inputSchema: {} },
+        {
+          name: longName,
+          description: "Long.",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ],
+      executeTool: async () => "{}",
+    },
+    authorize: () => true,
+  });
+  t.after(() => api.close());
+  assert.equal(longName.length, 100);
+  assert.deepEqual(api.tools, ["Peer.Search", longName]);
+  assert.deepEqual(
+    catalogsIn(popupMessages)[0].tools.map(({ name }) => name),
+    ["Peer.Search", longName],
+  );
+});
+
+test("a tool name containing a slash is still rejected", async (t) => {
+  const { connection } = await makeVerifiedConnection(["tools.invoke"], {
+    roomSession: WALLET_SESSION,
+  });
+  t.after(() => connection.close());
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    modelContext: {
+      getTools: () => [
+        {
+          name: "peer/bad",
+          description: "Slash.",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ],
+      executeTool: async () => "{}",
+    },
+    authorize: () => true,
+  });
+  t.after(() => api.close());
+  assert.deepEqual(api.tools, []);
+});
+
+test("a non-object JSON Schema is published without dropping the catalog", async (t) => {
+  const { connection, popupMessages } = await makeVerifiedConnection(
+    ["tools.invoke"],
+    { roomSession: WALLET_SESSION },
+  );
+  t.after(() => connection.close());
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    actions: [
+      countAction(
+        { runs: 0 },
+        {
+          name: "site.text",
+          description: "Handle a text value.",
+          inputSchema: { type: "string" },
+        },
+      ),
+      countAction(
+        { runs: 0 },
+        {
+          name: "site.huge",
+          description: "Oversized.",
+          inputSchema: { type: "string", description: "x".repeat(5_000) },
+        },
+      ),
+    ],
+    authorize: () => true,
+  });
+  t.after(() => api.close());
+  assert.ok(api.tools.includes("site.text"));
+  assert.deepEqual(
+    catalogsIn(popupMessages)[0].tools.map(({ name }) => name),
+    ["site.text"],
+  );
+  const [tool] = catalogsIn(popupMessages)[0].tools;
+  assert.deepEqual(tool.inputSchema, { type: "string" });
 });
 
 test("the agent client drops catalogs above the 32-tool bound", async (t) => {

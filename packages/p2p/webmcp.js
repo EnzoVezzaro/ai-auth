@@ -72,7 +72,13 @@ function validateInput(input, schema) {
   }
   return input;
 }
-const TOOL_NAME = /^[a-z][a-z0-9._-]{0,63}$/u;
+// WebMCP tool names: 1-128 chars from [A-Za-z0-9_.-] (draft index.bs).
+const TOOL_NAME = /^[A-Za-z0-9_.-]{1,128}$/u;
+// JSON Schema is an object or a boolean; other values are not schemas.
+const validSchema = (schema) =>
+  schema !== null &&
+  schema !== undefined &&
+  (typeof schema === "object" || typeof schema === "boolean");
 const TOOL_EVENT_KINDS = new Set([
   "tool-catalog",
   "tool-request",
@@ -136,7 +142,7 @@ function validToolRequest(payload, { walletId, requestNonce, walletSession }) {
     typeof payload.requestId === "string" &&
     /^[A-Za-z0-9_-]{8,80}$/u.test(payload.requestId) &&
     typeof payload.name === "string" &&
-    /^[a-z][a-z0-9._-]{0,63}$/u.test(payload.name) &&
+    TOOL_NAME.test(payload.name) &&
     payload.input !== null &&
     typeof payload.input === "object" &&
     !Array.isArray(payload.input) &&
@@ -175,17 +181,15 @@ function protectedGate(action, requester, policy) {
 function validateAction(action) {
   if (
     !action ||
-    !/^[a-z][a-z0-9._-]{0,63}$/u.test(action.name ?? "") ||
+    !TOOL_NAME.test(action.name ?? "") ||
     typeof action.description !== "string" ||
     !action.description.trim() ||
     typeof action.execute !== "function" ||
-    !action.inputSchema ||
-    action.inputSchema.type !== "object" ||
-    !action.inputSchema.properties ||
+    !validSchema(action.inputSchema) ||
     typeof action.requiredCapability !== "string"
   ) {
     throw new TypeError(
-      "Page actions need a name, description, object input schema, capability, and execute function",
+      "Page actions need a name, description, JSON Schema input, capability, and execute function",
     );
   }
   actionCapability(action.requiredCapability);
@@ -230,9 +234,7 @@ export async function registerAIAuthPageActions({
               typeof tool?.name === "string" &&
               TOOL_NAME.test(tool.name) &&
               typeof tool?.description === "string" &&
-              tool?.inputSchema?.type === "object" &&
-              tool?.inputSchema?.properties &&
-              typeof tool.inputSchema.properties === "object",
+              validSchema(tool?.inputSchema),
           )
           .slice(0, MAX_REMOTE_TOOL_COUNT)
           .map((tool) => ({
@@ -986,7 +988,7 @@ export function createAIAuthAgentClient(
       if (closed) throw new Error("The AI Auth agent client is closed");
       if (
         typeof name !== "string" ||
-        !/^[a-z][a-z0-9._-]{0,63}$/u.test(name) ||
+        !TOOL_NAME.test(name) ||
         ![
           "started",
           "progress",
