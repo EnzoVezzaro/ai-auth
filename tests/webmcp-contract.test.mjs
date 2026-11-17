@@ -839,6 +839,44 @@ test("actions default to not read-only and every action still needs approval", a
   assert.deepEqual(decisions, ["site.write", "site.read"]);
 });
 
+test("CT-07: a denied call leaves no abort listener on the registration signal", async (t) => {
+  const counter = { runs: 0 };
+  const { connection } = await makeVerifiedConnection(["tools.invoke"]);
+  t.after(() => connection.close());
+  let registrationSignal;
+  const modelContext = {
+    registerTool: (_definition, options) => {
+      registrationSignal = options.signal;
+    },
+  };
+  const api = await registerAIAuthPageActions({
+    actions: [countAction(counter)],
+    connection,
+    modelContext,
+    authorize: async () => true,
+  });
+  t.after(() => api.close());
+  assert.ok(registrationSignal, "the registration signal is observable");
+  let added = 0;
+  let removed = 0;
+  const add = registrationSignal.addEventListener.bind(registrationSignal);
+  const remove = registrationSignal.removeEventListener.bind(registrationSignal);
+  registrationSignal.addEventListener = (...args) => {
+    added += 1;
+    return add(...args);
+  };
+  registrationSignal.removeEventListener = (...args) => {
+    removed += 1;
+    return remove(...args);
+  };
+  const before = added - removed;
+  // Invalid input returns before the main try/finally: the followers must
+  // still be detached on this early path.
+  assert.equal(api.isFailure(await api.execute("site.count", 42)), true);
+  assert.equal(added - removed, before, "no abort listener is leaked");
+  assert.equal(counter.runs, 0);
+});
+
 test("a throwing approval gate denies the action", async (t) => {
   const counter = { runs: 0 };
   const { connection } = await makeVerifiedConnection(["tools.invoke"]);
