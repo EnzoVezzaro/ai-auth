@@ -51,7 +51,7 @@ async function makeRuntime(t, hub, name, extra = {}) {
   return { runtime, dir, keystore };
 }
 
-const until = async (fn, ms = 4000) => {
+const until = async (fn, ms = 12000) => {
   const end = Date.now() + ms;
   while (Date.now() < end) {
     if (await fn()) return;

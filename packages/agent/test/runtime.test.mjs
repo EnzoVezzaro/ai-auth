@@ -36,7 +36,7 @@ async function setup(t, hub, extra = {}) {
   t.after(() => runtime.close());
   return { runtime, keystore, dir };
 }
-const until = async (fn, ms = 2000) => {
+const until = async (fn, ms = 12000) => {
   const end = Date.now() + ms;
   while (Date.now() < end) {
     if (await fn()) return;

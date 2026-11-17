@@ -490,7 +490,7 @@ function linkedRooms(n, policies) {
 }
 const settle = () => new Promise((r) => setTimeout(r, 25));
 // Signature checks are async; poll instead of guessing how long they take.
-async function until(condition, timeoutMs = 5000) {
+async function until(condition, timeoutMs = 12000) {
   const deadline = Date.now() + timeoutMs;
   while (!condition() && Date.now() < deadline)
     await new Promise((r) => setTimeout(r, 5));

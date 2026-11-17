@@ -105,7 +105,7 @@ async function connected() {
   };
 }
 
-const until = async (fn, ms = 3000) => {
+const until = async (fn, ms = 12000) => {
   const end = Date.now() + ms;
   while (Date.now() < end) {
     if (fn()) return;

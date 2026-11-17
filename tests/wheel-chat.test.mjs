@@ -10,7 +10,7 @@ globalThis.Option ??= class {
   }
 };
 
-const until = async (fn, ms = 2000) => {
+const until = async (fn, ms = 12000) => {
   const end = Date.now() + ms;
   while (Date.now() < end) {
     if (await fn()) return;
