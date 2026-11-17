@@ -160,7 +160,21 @@ test("an agent's cursor is labeled with its name when the room has one", async (
   t.after(() => client.close());
   client.publishCursor({ x: 0.5, y: 0.5 });
   assert.equal(sent[0].type, "presence/cursor");
-  assert.equal(sent[0].payload.label, "ChatGPT agent A");
+  const published = sent[0].payload;
+  assert.equal(published.type, "ai-auth-cursor", "the agent publishes v1");
+  assert.equal(published.v, 1);
+  assert.equal(
+    published.x,
+    500000,
+    "0..1 fractions scale into the tracker range",
+  );
+  assert.equal(published.y, 500000);
+  assert.equal(published.pageKey, null, "no page argument means site-wide");
+  assert.equal(published.seq, 1, "seq increments per sender");
+  assert.equal(published.visible, true);
+  assert.equal(published.label, "ChatGPT agent A");
+  client.publishCursor({ x: 0.25, y: 0.75 });
+  assert.equal(sent[1].payload.seq, 2, "each publish increments the sequence");
 
   const anonymous = { ...room, wallet: { id: named.id } };
   const other = createAIAuthAgentClient(anonymous);
@@ -168,6 +182,42 @@ test("an agent's cursor is labeled with its name when the room has one", async (
   sent.length = 0;
   other.publishCursor({ x: 0.1, y: 0.2 });
   assert.equal(sent[0].payload.label, "Agent " + named.id.slice(6, 26));
+});
+
+test("an agent can scope its v1 cursor to a page and hide it", async (t) => {
+  const agent = await makeWallet("Agent");
+  const sent = [];
+  const room = {
+    wallet: agent,
+    session: "agent-room-session",
+    peers: new Map(),
+    subscribe: () => () => {},
+    async send(type, payload) {
+      sent.push({ type, payload });
+    },
+  };
+  const client = createAIAuthAgentClient(room);
+  t.after(() => client.close());
+  client.publishCursor({
+    x: 0.5,
+    y: 0.5,
+    page: "/product?id=7",
+    visible: false,
+    scroll: 0.2,
+  });
+  const payload = sent[0].payload;
+  assert.equal(
+    payload.pageKey,
+    "/product?id=7",
+    "the optional page scopes the cursor",
+  );
+  assert.equal(payload.visible, false);
+  assert.equal(payload.scroll, 0.2);
+  assert.throws(
+    () => client.publishCursor({ x: 0.5, y: 0.5, page: "p".repeat(201) }),
+    TypeError,
+    "an invalid page key is rejected",
+  );
 });
 
 test("a new peer receives the agent's current cursor and last activity without the agent moving", async (t) => {
@@ -216,7 +266,9 @@ test("a new peer receives the agent's current cursor and last activity without t
     types.includes("agent/action"),
     "the last activity is re-sent to the newcomer",
   );
-  assert.equal(sent.find((m) => m.type === "presence/cursor").payload.x, 0.4);
+  const resent = sent.find((m) => m.type === "presence/cursor").payload;
+  assert.equal(resent.type, "ai-auth-cursor", "late joiners get the v1 cursor");
+  assert.equal(resent.x, 400000);
 
   sent.length = 0;
   deliver(hello);

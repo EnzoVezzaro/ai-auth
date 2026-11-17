@@ -243,6 +243,51 @@ test("move publishes the agent cursor and act publishes a signed activity status
   assert.equal(published.at(-1)[1].visible, false);
 });
 
+test("status reports which page each peer is on and move accepts a page", async () => {
+  const rt = fakeRuntime();
+  rt.peers = () => [{ id: "agent:peer", name: "Peer", stale: false }];
+  const published = [];
+  const bridge = createAgentBridge({
+    runtime: rt,
+    clientFactory: () => ({
+      catalogs: [],
+      publishCursor: (c) => (published.push(c), { body: {} }),
+      publishAction: () => ({ body: {} }),
+    }),
+  });
+  rt.emit({
+    direction: "in",
+    envelope: {
+      body: {
+        type: "presence/cursor",
+        issuer: "agent:peer",
+        payload: {
+          type: "ai-auth-cursor",
+          v: 1,
+          pageKey: "/product",
+          x: 1,
+          y: 2,
+          seq: 1,
+          visible: true,
+        },
+      },
+    },
+  });
+  const peer = bridge.status().peers.find((p) => p.id === "agent:peer");
+  assert.equal(
+    peer?.pageKey,
+    "/product",
+    "the peer's page is visible to agents",
+  );
+
+  await bridge.move({ x: 0.5, y: 0.5, page: "/product" });
+  assert.equal(
+    published.at(-1).page,
+    "/product",
+    "move forwards the page argument",
+  );
+});
+
 test("room tools are executed by the agent runtime with no page involved", async () => {
   const rt = fakeRuntime();
   let registered = null;

@@ -20,11 +20,14 @@ const clean = (value, max) =>
   value.length <= max &&
   !/[\u0000-\u001f]/u.test(value);
 
-/** Validate cursor fields; never clamps silently. */
+/** Validate cursor fields; never clamps silently. A null pageKey is site-wide. */
 export function validateCursor(input) {
   if (!input || typeof input !== "object") return bad("not-an-object");
-  const { pageKey, x, y, selector, label, seq } = input;
-  if (typeof pageKey !== "string" || !pageKey || !clean(pageKey, 200))
+  const { pageKey, x, y, selector, label, seq, visible, scroll } = input;
+  if (
+    pageKey !== null &&
+    (typeof pageKey !== "string" || !pageKey || !clean(pageKey, 200))
+  )
     return bad("bad-page-key");
   for (const value of [x, y])
     if (!Number.isFinite(value) || value < 0 || value > MAX_COORDINATE)
@@ -33,6 +36,13 @@ export function validateCursor(input) {
     return bad("bad-selector");
   if (label !== undefined && !clean(label, 60)) return bad("bad-label");
   if (!Number.isSafeInteger(seq) || seq < 0) return bad("bad-seq");
+  if (visible !== undefined && typeof visible !== "boolean")
+    return bad("bad-visible");
+  if (
+    scroll !== undefined &&
+    (!Number.isFinite(scroll) || scroll < 0 || scroll > 1)
+  )
+    return bad("bad-scroll");
   return {
     ok: true,
     cursor: Object.freeze({
@@ -40,6 +50,8 @@ export function validateCursor(input) {
       x,
       y,
       seq,
+      ...(visible === undefined ? {} : { visible }),
+      ...(scroll === undefined ? {} : { scroll }),
       ...(selector === undefined ? {} : { selector }),
       ...(label === undefined ? {} : { label }),
     }),
@@ -53,11 +65,52 @@ export function buildCursorPayload(fields) {
   return { type: CURSOR_TYPE, v: CURSOR_VERSION, ...result.cursor };
 }
 
-/** Parse a received cursor payload (type and version checked). */
+// Legacy normalized cursors have no sequence of their own. A receipt counter
+// gives each converted cursor a monotonic seq so repeated movement is not
+// discarded as stale by the tracker.
+let legacySeq = 0;
+
+function fromLegacy(payload) {
+  const { x, y, visible = true, scroll, selector, label, pageKey } = payload;
+  for (const value of [x, y])
+    if (!Number.isFinite(value) || value < 0 || value > 1)
+      return bad("bad-coordinate");
+  if (typeof visible !== "boolean") return bad("bad-visible");
+  if (
+    scroll !== undefined &&
+    (!Number.isFinite(scroll) || scroll < 0 || scroll > 1)
+  )
+    return bad("bad-scroll");
+  if (label !== undefined && !clean(label, 60)) return bad("bad-label");
+  if (selector !== undefined && (!clean(selector, 200) || !selector))
+    return bad("bad-selector");
+  return validateCursor({
+    pageKey: pageKey ?? null,
+    x: Math.round(x * MAX_COORDINATE),
+    y: Math.round(y * MAX_COORDINATE),
+    seq: ++legacySeq,
+    visible,
+    ...(scroll === undefined ? {} : { scroll }),
+    ...(selector === undefined ? {} : { selector }),
+    ...(label === undefined ? {} : { label }),
+  });
+}
+
+/** Parse a received cursor payload: canonical v1 or the legacy normalized form. */
 export function parseCursorPayload(payload) {
-  if (payload?.type !== CURSOR_TYPE || payload.v !== CURSOR_VERSION)
+  if (!payload || typeof payload !== "object") return bad("not-an-object");
+  if (payload.type === CURSOR_TYPE) {
+    if (payload.v !== CURSOR_VERSION) return bad("bad-version");
+    return validateCursor(payload);
+  }
+  // A payload that names a type/version/seq but not v1 is not legacy noise.
+  if (
+    payload.type !== undefined ||
+    payload.v !== undefined ||
+    payload.seq !== undefined
+  )
     return bad("not-a-v1-cursor");
-  return validateCursor(payload);
+  return fromLegacy(payload);
 }
 
 const view = (entry, now, offlineAfterMs) =>
@@ -161,7 +214,9 @@ export function createPresenceTracker({
     /** Cursors visible on one page/route; offline peers are excluded. */
     cursorsFor(pageKey) {
       return this.list().filter(
-        (peer) => peer.state === "online" && peer.cursor?.pageKey === pageKey,
+        (peer) =>
+          peer.state === "online" &&
+          (peer.cursor?.pageKey === null || peer.cursor?.pageKey === pageKey),
       );
     },
     subscribe(listener) {

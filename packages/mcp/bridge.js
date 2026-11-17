@@ -2,6 +2,7 @@ import vm from "node:vm";
 import { z } from "zod";
 import {
   createAIAuthAgentClient,
+  parseCursorPayload,
   TOOL_ERROR_CODES,
 } from "@enzovezzaro/ai-auth-wallet";
 
@@ -114,6 +115,7 @@ export function createAgentBridge({
   providedTools = [],
 }) {
   const ring = [];
+  const peerPages = new Map();
   let seq = 0;
   let client = null;
   const getClient = () => (client ??= clientFactory(runtime.agentRoom));
@@ -127,6 +129,13 @@ export function createAgentBridge({
       return;
     seq += 1;
     const { type, issuer, payload } = envelope.body;
+    if (type === "presence/cursor") {
+      const parsed = parseCursorPayload(payload);
+      if (parsed.ok) {
+        if (parsed.cursor.pageKey === null) peerPages.delete(issuer);
+        else peerPages.set(issuer, parsed.cursor.pageKey);
+      }
+    } else if (type === "peer/goodbye") peerPages.delete(issuer);
     const { kind, text } = payload ?? {};
     ring.push({
       seq,
@@ -160,9 +169,12 @@ export function createAgentBridge({
         authorization: state.authorization,
         joinedRoom: state.connected ? runtime.room : null,
         directPeerCount: state.directPeerCount,
-        peers: runtime
-          .peers()
-          .map(({ id, name, stale }) => ({ id, name, stale })),
+        peers: runtime.peers().map(({ id, name, stale }) => ({
+          id,
+          name,
+          stale,
+          pageKey: peerPages.get(id) ?? null,
+        })),
         provides: [...providedTools],
         diagnostics: state.diagnostics ?? {},
         note: "Presence lasts only while this MCP process runs.",
@@ -193,9 +205,20 @@ export function createAgentBridge({
       };
     },
     // Moves this agent's cursor on the shared page (normalized 0..1 coordinates).
-    move({ x, y, visible = true }) {
-      getClient().publishCursor({ x, y, visible });
-      return { moved: true, x, y, visible };
+    move({ x, y, visible = true, page }) {
+      getClient().publishCursor({
+        x,
+        y,
+        visible,
+        ...(page === undefined ? {} : { page }),
+      });
+      return {
+        moved: true,
+        x,
+        y,
+        visible,
+        ...(page === undefined ? {} : { page }),
+      };
     },
     // Publishes a signed activity status that people and agents on the page see.
     act({ name, state, summary }) {
@@ -374,11 +397,12 @@ const SPECS = [
     "ai_auth_move",
     "presence.read",
     false,
-    "Move this agent's cursor on the shared page. x and y are fractions of the page width and height (0 to 1); visible false hides it.",
+    "Move this agent's cursor on the shared page. x and y are fractions of the page width and height (0 to 1); visible false hides it; page scopes the cursor to a route (null means site-wide).",
     {
       x: z.number().min(0).max(1),
       y: z.number().min(0).max(1),
       visible: z.boolean().optional(),
+      page: z.string().max(200).nullable().optional(),
     },
     (b, i) => b.move(i),
   ],
