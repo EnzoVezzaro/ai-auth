@@ -592,6 +592,42 @@ async function authorizedWorld(t) {
   return { ...ctx, host, remote, policy, requests, toolRequest };
 }
 
+test("a first signed tool request introduces its caller's session", async (t) => {
+  const ctx = await connected(t, { caps: ["tools.invoke"] });
+  const requests = [];
+  ctx.connection.onEvent((event) => requests.push(event));
+  const caller = await makeWallet("Caller");
+  const requestFrom = (wallet) =>
+    signEnvelope(wallet, "agent/action", {
+      kind: "tool-request",
+      requestId: `request-${randomNonce().slice(0, 20)}`,
+      name: "page.echo",
+      input: {},
+      targetWallet: ctx.wallet.id,
+      targetNonce: ctx.request.nonce,
+      targetSession: "wallet-session-1",
+      room: ROOM,
+      origin: ORIGIN,
+      session: "caller-session-1",
+      nonce: randomNonce(),
+      expiresAt: Date.now() + 60_000,
+    });
+  // A caller that has not announced presence can still be first contact: the
+  // signed request binds its session just like a tool catalog does.
+  await ctx.b.fromWallet({
+    type: "ai-auth/collaboration-event",
+    envelope: await requestFrom(caller),
+  });
+  assert.equal(requests.length, 1, "the request reaches the site");
+  // Binding the session must not let a different issuer take it over.
+  const other = await makeWallet("Other");
+  await ctx.b.fromWallet({
+    type: "ai-auth/collaboration-event",
+    envelope: await requestFrom(other),
+  });
+  assert.equal(requests.length, 1, "the bound session is not stolen");
+});
+
 test("an authorized identity's tool request reaches listeners", async (t) => {
   const w = await authorizedWorld(t);
   await w.toolRequest();

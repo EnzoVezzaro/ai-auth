@@ -825,16 +825,17 @@ export async function connectAIAuthModal({
         payload.summary.length > 240)
     )
       return;
-    // Only a presence announcement may introduce a new session. Every other
-    // event must arrive on a session already bound to the issuer that signed
-    // it; verifying then binds the signature to that same issuer.
-    // A tool provider announces itself through its catalog just as a peer
-    // announces through presence; both may introduce a new session.
-    const announcement =
-      ANNOUNCEMENT_TYPES.has(envelope.body.type) ||
-      (envelope.body.type === "agent/action" &&
-        payload.kind === "tool-catalog");
+    // A presence announcement, a tool catalog or a first tool request may
+    // introduce a session; everything else must arrive on a session already
+    // bound to the issuer that signed it. A tool caller, like a tool provider,
+    // need not advertise presence, so its signed first request is its
+    // announcement. Never let it claim a session bound to someone else.
     const boundIssuer = issuerBySession.get(payload.session);
+    const isPresence = ANNOUNCEMENT_TYPES.has(envelope.body.type);
+    const isToolAction =
+      envelope.body.type === "agent/action" &&
+      ["tool-catalog", "tool-request"].includes(payload.kind);
+    const announcement = isPresence || (isToolAction && !boundIssuer);
     if (
       !announcement &&
       (!boundIssuer || boundIssuer !== envelope.body.issuer)
