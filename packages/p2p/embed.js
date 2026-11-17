@@ -429,7 +429,13 @@ export async function connectAIAuthModal({
     if (!record || !payload || data.sessionId !== record.sessionId)
       return false;
     if (data.wallet?.id && data.wallet.id !== record.walletId) return false;
-    if (payload.requestNonce !== record.sessionId) return false;
+    // A renewed consent carries the renewal nonce but stays bound to the
+    // original session id, which this record keeps as its stable key.
+    if (
+      payload.requestNonce !== record.sessionId &&
+      payload.renewsNonce !== record.sessionId
+    )
+      return false;
     const scopes = payload.capabilities;
     if (
       !Array.isArray(scopes) ||
