@@ -8,7 +8,7 @@ import {
   sessionEndText,
 } from "./copy.js";
 
-const DEFAULT_SDK_SOURCE = "https://esm.sh/@enzovezzaro/ai-auth-wallet";
+const DEFAULT_SDK_SOURCE = "https://esm.sh/@enzovezzaro/ai-auth-wallet@0.9.1";
 const ROOM_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,99}$/u;
 const CAPABILITY_PATTERN = /^[a-z][a-z0-9]*(?:[.:/_-][a-z0-9]+)*$/u;
 
