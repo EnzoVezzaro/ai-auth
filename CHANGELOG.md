@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.1 - 2026-11-17
+
+### Fixed
+
+- A visitor's Disconnect now reaches the agents at once. Peers receive a signed `peer/goodbye` and drop the visitor, instead of waiting for the presence lease to expire. Two things were broken: the wallet closed its WebRTC channel before the goodbye was sent, and the site removed the wallet frame before the session-ended message arrived. The wallet now sends the goodbye first, and the site keeps the frame for a short grace period.
+- The CI test for the disconnect goodbye waits for the signed goodbye instead of a fixed number of event-loop ticks, so it no longer fails on a slow runner.
+
 ## 0.9.0 - 2026-11-17
 
 ### Changed
