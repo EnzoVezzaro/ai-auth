@@ -1,22 +1,30 @@
-# AI Auth local agent runtime
+# @enzovezzaro/ai-auth-runtime
 
-`@enzovezzaro/ai-auth-runtime` is a provider-neutral plugin host for local agent applications. It does not start an HTTP server, open a socket, create an account, or depend on an AI Auth backend. The host supplies each identity, policy, storage, presence, and transport adapter.
+A provider-neutral plugin host for local agent applications. Version 0.1.0.
+
+This package does not start a server, open a socket, create an account or depend on an AI Auth backend. The host supplies each identity, policy, store, presence view and transport.
 
 ## Plugin API v2
 
-Each plugin declares a unique `id`, a `slot`, `apiVersion: PLUGIN_API_VERSION`, an `implementation` that meets its slot contract, and an `initialize(context)` function. A plugin may declare `dependsOn` IDs and a `close()` function.
+Each plugin declares a unique `id`, a `slot`, `apiVersion: PLUGIN_API_VERSION`, an `implementation` for that slot and an `initialize(context)` function. A plugin may declare `dependsOn` ids and a `close()` function.
 
-| Slot            | Required method                                      | Local adapter contract                                   |
-| --------------- | ---------------------------------------------------- | -------------------------------------------------------- |
-| `identity`      | `identify(publicKey)`                                | Resolve a key to its stable agent identity.              |
-| `authorization` | `allows(subject, capability, resource?)`             | Return `true` only for the exact permitted operation.    |
-| `storage`       | `getTenant(tenantId)`                                | Resolve a host-owned local workspace store.              |
-| `presence`      | `getTenant(tenantId)`                                | Resolve a host-owned presence view.                      |
-| `transport`     | `forwardTenant(tenant, path, method, data, request)` | Forward through a host-selected local or peer transport. |
-| `observability` | `record(event, fields?)`                             | Record a sanitized local event.                          |
+| Slot            | Required method                                      | What the adapter does                        |
+| --------------- | ---------------------------------------------------- | -------------------------------------------- |
+| `identity`      | `identify(publicKey)`                                | Resolve a public key to a stable agent id.   |
+| `authorization` | `allows(subject, capability, resource?)`             | Allow only the exact permitted operation.    |
+| `storage`       | `getTenant(tenantId)`                                | Resolve a host-owned local workspace store.  |
+| `presence`      | `getTenant(tenantId)`                                | Resolve a host-owned presence view.          |
+| `transport`     | `forwardTenant(tenant, path, method, data, request)` | Forward through a host-selected local route. |
+| `observability` | `record(event, fields?)`                             | Record a sanitized local event.              |
 
-The default host requires identity, authorization, storage, presence, and transport. Observability is optional. `createPluginHost` validates slot and method contracts before startup, starts dependencies first, and closes initialized plugins in reverse order. Plugins run as trusted code and are not sandboxed.
+The default host requires identity, authorization, storage, presence and transport. Observability is optional.
+
+`createPluginHost(plugins, options)` validates the slots and methods before startup. It starts dependencies first. If startup fails, it closes the plugins that already initialized in reverse order. `host.get(slot)` returns a plugin, and `host.close()` closes them all.
+
+Plugins run as trusted code. They are not sandboxed.
 
 ## Authorization helpers
 
-`createScopeAuthorizationProvider()` checks exact membership in `subject.capabilities`. `createCallbackAuthorizationProvider(policy)` accepts only a synchronous literal `true` (`policy(...) === true`): promises and other non-`true` return values deny access, but a policy that throws propagates its exception, since the call is not wrapped in `try/catch`. Callers that need a denial instead of a thrown error must catch it themselves.
+`createScopeAuthorizationProvider()` allows a capability only when it appears in `subject.capabilities`.
+
+`createCallbackAuthorizationProvider(policy)` allows a call only when `policy(subject, capability, resource) === true`. Promises and other return values deny. If the policy throws, the error propagates to the caller. Catch it yourself if you need a denial instead.
