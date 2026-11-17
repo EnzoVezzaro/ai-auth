@@ -292,8 +292,10 @@ export function createToolProvider({
       return;
     const now = Date.now();
     const requester = { wallet: issuer, session: payload.session };
+    // requestId is chosen by the caller, so it is unique only per requester.
+    const requestKey = `${issuer}:${payload.session}:${payload.requestId}`;
     for (const [id, until] of seen) if (until <= now) seen.delete(id);
-    if (seen.has(payload.requestId)) return;
+    if (seen.has(requestKey)) return;
     if (running >= CONCURRENCY) {
       // A silent drop makes the caller wait for its full timeout with no hint.
       void respond(requester, {
@@ -303,7 +305,7 @@ export function createToolProvider({
       });
       return;
     }
-    seen.set(payload.requestId, now + REQUEST_MEMORY_MS);
+    seen.set(requestKey, now + REQUEST_MEMORY_MS);
     running += 1;
     const controller = new AbortController();
     runningRequests.set(payload.requestId, {
