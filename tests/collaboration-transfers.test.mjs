@@ -242,7 +242,7 @@ test("expired consent or a lost peer stops an in-flight attachment", async () =>
   }
 });
 
-test("attachment chunks are not queued for a peer that connects later", async () => {
+test("attachment chunks are queued until a peer connects like other events", async () => {
   const core = { receive() {} };
   const adapter = new NostrWebRTC(core);
   const envelope = {
@@ -252,14 +252,14 @@ test("attachment chunks are not queued for a peer that connects later", async ()
     },
   };
   adapter.forward(envelope);
-  assert.equal(adapter.outbox.length, 0);
+  assert.equal(adapter.outbox.length, 1, "a dropped chunk must be retryable");
   let sent = 0;
   adapter.sendAction = async () => {
     sent++;
   };
   adapter.directPeers.add("late-peer");
   await adapter.flushOutbox();
-  assert.equal(sent, 0);
+  assert.equal(sent, 1, "the queued chunk is retried when a peer joins");
 });
 
 test("codec parameters normalize for outgoing and incoming media", async () => {
