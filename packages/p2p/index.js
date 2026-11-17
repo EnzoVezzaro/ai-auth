@@ -471,7 +471,18 @@ export {
   connectAIAuthModal,
   connectAIAuthPopup,
   mountAIAuthCollaboration,
+  resumeAIAuthSession,
 } from "./embed.js";
+export {
+  createSessionStore,
+  listResumableSessions,
+  recordFromConsent,
+  verifyStoredConsent,
+  agentKeyFor,
+  SESSION_RECORD_VERSION,
+} from "./session-store.js";
+export { inlineCreateWalletForm } from "./wallet-setup-copy.js";
+export { canResumeSession } from "./resume-verification.js";
 export {
   registerAIAuthPageActions,
   mountAIAuthInPageAgent,

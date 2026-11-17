@@ -1,11 +1,16 @@
 # BODY4AI — agent connect integration
 
-Everything an agent needs to connect to body4ai comes from the
-`@enzovezzaro/ai-auth-wallet` SDK: a copyable connect instruction, the signed
-wallet handshake, and a connect panel whose UI reflects the live connection
-state. Nothing here starts a chat session with external agents, and there is
-no `/mcp` server endpoint — WebMCP is the in-page tool surface and the wallet
-handshake authenticates the agent.
+> **Demo example only.** This folder is a sample consumer of the AI Auth SDK,
+> not the real or official Body4AI site or production code. The live Body4AI
+> website (body4ai.com) is maintained separately in its own repository; nothing
+> here is deployed to it.
+
+This demo shows everything an agent needs to connect to a Body4AI-style
+catalog using the `@enzovezzaro/ai-auth-wallet` SDK: a copyable connect
+instruction, the signed wallet handshake, and a connect panel whose UI reflects
+the live connection state. Nothing here starts a chat session with external
+agents, and there is no `/mcp` server endpoint — WebMCP is the in-page tool
+surface and the wallet handshake authenticates the agent.
 
 ## 1. Install or bundle the SDK
 
@@ -24,21 +29,22 @@ Or load the prebuilt browser bundle from your static wallet host:
 
 ## 2. Add a mount point
 
-This replaces the old "BODY4AI MCP / READ ONLY" section. Delete all three
-traces of the endpoint in that block: the `/mcp` URL, its copy button, and any
-copy that says "This endpoint" or "The MCP reads the published catalog" — WebMCP
-has no endpoint and no connection URL.
+In a real Body4AI integration you would replace the old "BODY4AI MCP / READ
+ONLY" section with the block below: remove all three traces of the endpoint in
+that block — the `/mcp` URL, its copy button, and any copy that says "This
+endpoint" or "The MCP reads the published catalog". WebMCP has no endpoint and
+no connection URL. This demo does not modify the live site.
 
 ```html
 <section id="agent-connect" aria-labelledby="agent-connect-heading">
   <p><strong>BODY4AI WEBMCP / IN-PAGE · READ ONLY</strong></p>
   <h2 id="agent-connect-heading">Connect your agent to the catalog.</h2>
   <p>
-    This page registers WebMCP tools that agent-capable browsers discover and
-    invoke while you are on body4ai.com. There is no endpoint and no URL to
-    connect to: agents search products, open product pages, compare devices,
-    and find review sources directly in the page, and only with your explicit
-    approval.
+    This demo page registers WebMCP tools that agent-capable browsers can
+    discover and invoke when it is served locally. The live body4ai.com site is
+    maintained separately. There is no endpoint and no URL to connect to: agents
+    search products, open product pages, compare devices, and find review
+    sources directly in the page, and only with your explicit approval.
   </p>
   <p>
     <strong>AVAILABLE TOOLS</strong>
@@ -57,8 +63,8 @@ has no endpoint and no connection URL.
 
 ## 3. Mount the connect panel
 
-Copy `agent-connect.js` into the body4ai repo (e.g. `src/agent-connect.js`)
-and import it from the page:
+To adapt this pattern in your own site repository, copy `agent-connect.js`
+into that repo (e.g. `src/agent-connect.js`) and import it from the page:
 
 ```html
 <script type="module">

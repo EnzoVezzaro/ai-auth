@@ -47,7 +47,10 @@ test("a fine pointer keeps the mouse and keyboard picker behaviour", () => {
   try {
     const action = shadow.querySelector('[data-action="element"]');
     assert.equal(action.getAttribute("aria-disabled"), "false");
-    assert.equal(shadow.querySelector(".picker p").textContent, MOUSE_INSTRUCTIONS);
+    assert.equal(
+      shadow.querySelector(".picker p").textContent,
+      MOUSE_INSTRUCTIONS,
+    );
   } finally {
     dispose();
   }

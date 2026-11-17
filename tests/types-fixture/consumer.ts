@@ -68,6 +68,7 @@ import {
   createRevocation,
   createRevocationGossip,
   createRevokedLinkSet,
+  createSessionStore,
   createSharedRoomTopic,
   createWallet,
   deriveLinkId,
@@ -88,9 +89,11 @@ import {
   mountCollaborationWheel,
   randomNonce,
   readActivity,
+  recordFromConsent,
   registerAIAuthPageActions,
   renewExecutionGrant,
   resolveDuration,
+  resumeAIAuthSession,
   sessionLimits,
   signEnvelope,
   unlink,
@@ -113,6 +116,7 @@ import type {
   AIAuthConnectInstruction,
   AIAuthPageAction,
   AIAuthPageConnection,
+  AIAuthSessionRecord,
   CapabilityGrant,
   ConnectionSnapshot,
   DeliveryLedger,
@@ -280,7 +284,9 @@ export async function exerciseConnection(origin: string): Promise<void> {
   if (catalog) await client.callTool(catalog, "site.count", { q: "x" });
   client.close();
   mountAIAuthCollaboration(connection);
-  mountCollaborationWheel(connection.transfers, { capabilities: ["messages.send"] });
+  mountCollaborationWheel(connection.transfers, {
+    capabilities: ["messages.send"],
+  });
   connection.close("closed");
   void legacy;
 }
@@ -466,6 +472,37 @@ export async function exerciseAgentAndReceipts(
   void extractSafeText;
   void isSensitiveElement;
   void SENSITIVE_SELECTOR;
+}
+
+export async function exerciseSessionResume(
+  walletUrl: string,
+  capabilities: string[],
+): Promise<void> {
+  const store = createSessionStore({ storage: sessionStorage });
+  const record: AIAuthSessionRecord = recordFromConsent(undefined, {
+    origin: "https://site.example",
+    room: "research",
+    participant: { instanceId: "instance-1", sessionId: "session-1" },
+    now: () => Date.now(),
+  });
+  void record;
+  // origin is optional; resumeAIAuthSession defaults it from location.
+  const connection = await resumeAIAuthSession({
+    walletUrl,
+    capabilities,
+    storage: sessionStorage,
+    sessionStore: store,
+    resumeTimeoutMs: 1_000,
+    now: Date.now(),
+  });
+  connection?.close("closed");
+  await connectAIAuthModal({
+    walletUrl,
+    capabilities,
+    storage: sessionStorage,
+    sessionStore: store,
+    resumeTimeoutMs: 1_000,
+  }).catch(() => undefined);
 }
 
 export const fixtureVersion = {

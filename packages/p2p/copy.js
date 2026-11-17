@@ -15,6 +15,8 @@ export const EXTEND_LABEL = `Extend for ${EXTEND_MINUTES} more minutes`;
 export const DISCONNECTED_BY_USER_MESSAGE = "You disconnected.";
 export const NO_WALLET_NOTICE =
   "No wallet is saved in this browser yet. Create your wallet first, then connect.";
+export const INLINE_WALLET_NOTICE =
+  "Create a wallet here in this browser to finish connecting to this site.";
 export const WALLET_SAVED_NOTICE =
   "Your wallet is still saved in this browser.";
 

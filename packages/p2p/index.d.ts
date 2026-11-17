@@ -419,10 +419,11 @@ export type AIAuthLifecycleEvent =
     }
   | { type: "disconnected"; reason: "closed" | "expired" };
 
-export function connectAIAuthModal(options: {
+export interface AIAuthConnectOptions {
   walletUrl: string;
   capabilities: string[];
   room?: string;
+  /** Defaults to the current site's location.origin. */
   origin?: string;
   timeoutMs?: number;
   windowObject?: Window;
@@ -438,10 +439,124 @@ export function connectAIAuthModal(options: {
     policy: import("./membership.js").ParticipationPolicy;
     now?: number | (() => number);
   };
-}): Promise<AIAuthPageConnection>;
+  /** A session store, or a sessionStorage-compatible backing for the default one. */
+  sessionStore?: AIAuthSessionStore;
+  storage?: AIAuthSessionStorage;
+  /** Internal: resume this record instead of asking for fresh consent. */
+  resumeRecord?: AIAuthSessionRecord;
+  resumeTimeoutMs?: number;
+}
+
+export function connectAIAuthModal(
+  options: AIAuthConnectOptions,
+): Promise<AIAuthPageConnection>;
 
 /** @deprecated Use connectAIAuthModal. */
 export const connectAIAuthPopup: typeof connectAIAuthModal;
+
+/** A public, per-agent session record stored only in the site's sessionStorage. */
+export interface AIAuthSessionRecord {
+  readonly schemaVersion: number;
+  readonly audience: string;
+  readonly agentKey: string;
+  readonly walletId: string;
+  readonly publicKey: unknown;
+  readonly instanceId: string;
+  readonly sessionId: string;
+  readonly consent: unknown;
+  readonly expiresAt: number | null;
+  readonly idleTimeoutMs: number | null;
+  readonly capabilities: readonly string[];
+  readonly room: string;
+  readonly lastActivity: number;
+  readonly savedAt: number;
+}
+
+export interface AIAuthSessionStore {
+  list(
+    origin: string,
+    options?: { now?: number; room?: string; capabilities?: string[] },
+  ): Promise<AIAuthSessionRecord[]>;
+  save(
+    origin: string,
+    record: AIAuthSessionRecord,
+  ): Promise<AIAuthSessionRecord>;
+  touch(origin: string, agentKey: string, at?: number): boolean;
+  remove(origin: string, agentKey: string): void;
+  clear(origin: string): void;
+}
+
+export interface AIAuthSessionStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+export function createSessionStore(options?: {
+  storage?: AIAuthSessionStorage;
+  now?: () => number;
+}): AIAuthSessionStore;
+
+export function listResumableSessions(
+  store: AIAuthSessionStore,
+  options?: {
+    origin?: string;
+    room?: string;
+    capabilities?: string[];
+    now?: number;
+  },
+): Promise<AIAuthSessionRecord[]>;
+
+/** Build a public-only session record from an already-verified consent. */
+export function recordFromConsent(
+  consent: unknown,
+  options: {
+    origin: string;
+    room: string;
+    participant?: { instanceId: string; sessionId: string };
+    now?: () => number;
+  },
+): AIAuthSessionRecord;
+
+export function verifyStoredConsent(
+  consent: unknown,
+  options: { origin: string; walletId: string; room?: string; now?: number },
+): Promise<boolean>;
+
+export function agentKeyFor(options: {
+  walletId: string;
+  instanceId: string;
+}): string;
+
+export const SESSION_RECORD_VERSION: number;
+
+/**
+ * Explicit resume after a visitor clicks a Resume action. Returns null when
+ * there is no valid record; rejects and drops that agent's record when the
+ * wallet cannot confirm the session.
+ */
+export function resumeAIAuthSession(
+  options: AIAuthConnectOptions & {
+    /** A specific record to resume, subject to the same origin checks. */
+    record?: AIAuthSessionRecord;
+    now?: number;
+  },
+): Promise<AIAuthPageConnection | null>;
+
+export function inlineCreateWalletForm(options?: { error?: string }): string;
+
+export function canResumeSession(
+  consent: unknown,
+  options: {
+    audience: string;
+    sessionId: string;
+    room: string;
+    walletId: string;
+    endedIds?: Set<string>;
+    lastActivity?: number;
+    now?: number;
+  },
+): Promise<boolean>;
 
 export function mountAIAuthCollaboration(
   connection: AIAuthPageConnection,
