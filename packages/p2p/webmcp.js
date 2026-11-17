@@ -21,12 +21,22 @@ export const TOOL_ERROR_CODES = Object.freeze({
   AUTH_EXPIRED: "AUTH_EXPIRED",
   CANCELLED: "CANCELLED",
   TIMEOUT: "TIMEOUT",
+  NOT_JOINED: "NOT_JOINED",
+  DENIED: "DENIED",
 });
 
 function toolError(code, message) {
   const error = new Error(message);
   error.code = code;
   return error;
+}
+
+// A peer's failure carries its own code when available; an older peer that
+// only sends a message is treated as a refusal, not as a missing tool.
+function responseErrorCode(code) {
+  return typeof code === "string" && Object.hasOwn(TOOL_ERROR_CODES, code)
+    ? code
+    : TOOL_ERROR_CODES.DENIED;
 }
 
 function validateInput(input, schema) {
@@ -74,12 +84,18 @@ function validateInput(input, schema) {
   return input;
 }
 // WebMCP tool names: 1-128 chars from [A-Za-z0-9_.-] (draft index.bs).
-const TOOL_NAME = /^[A-Za-z0-9_.-]{1,128}$/u;
+// Shared with the publish path and the wallet so a name the SDK accepts is
+// never rejected later in the chain.
+export const TOOL_NAME_PATTERN = /^[A-Za-z0-9_.-]{1,128}$/u;
+const TOOL_NAME = TOOL_NAME_PATTERN;
+export const isValidToolName = (name) =>
+  typeof name === "string" && TOOL_NAME_PATTERN.test(name);
 // JSON Schema is an object or a boolean; other values are not schemas.
-const validSchema = (schema) =>
+export const isValidToolSchema = (schema) =>
   schema !== null &&
   schema !== undefined &&
   (typeof schema === "object" || typeof schema === "boolean");
+const validSchema = isValidToolSchema;
 const TOOL_EVENT_KINDS = new Set([
   "tool-catalog",
   "tool-request",
@@ -310,7 +326,12 @@ export async function registerAIAuthPageActions({
   // Results created by refusal paths, so callers can tell failure from data.
   const failures = new WeakSet();
   const refuse = (error) => {
-    const result = { error };
+    const result = {
+      error,
+      // Keep the machine-readable reason so a caller can tell invalid input
+      // (TOOL_UNAVAILABLE) from a refusal (DENIED) after the wire hop.
+      ...(typeof error?.code === "string" ? { code: error.code } : {}),
+    };
     failures.add(result);
     return result;
   };
@@ -415,6 +436,12 @@ export async function registerAIAuthPageActions({
     };
     follow(executionSignal);
     follow(registrationSignal);
+    // Every early return below must detach its followers; only the main
+    // execution block currently has a finally that does this.
+    const cleanupFollowers = () => {
+      for (const [source, abort] of abortFollowers)
+        source.removeEventListener("abort", abort);
+    };
     const executionContext = {
       signal: executionController.signal,
       requester,
@@ -430,11 +457,13 @@ export async function registerAIAuthPageActions({
         "needs-human",
         `Blocked ${action.name}: not authorized`,
       );
+      cleanupFollowers();
       return refuse("This requester is not authorized to run this tool");
     }
     try {
       validateInput(input, action.inputSchema);
     } catch (error) {
+      cleanupFollowers();
       return refuse(error.message);
     }
     // Actions start only after an explicit human decision. The site supplies
@@ -468,6 +497,7 @@ export async function registerAIAuthPageActions({
       }
       if (executionController.signal.aborted) {
         await announce(action, "cancelled", `Stopped ${action.name}`);
+        cleanupFollowers();
         return refuse("This action was stopped before it began");
       }
       if (!approved) {
@@ -475,17 +505,20 @@ export async function registerAIAuthPageActions({
           await publishAction({
             name: action.name,
             capability: action.requiredCapability,
-            state: "needs-human",
-            summary: `Human approval required for ${action.name}`,
+            state: "denied",
+            summary: `Human approval declined for ${action.name}`,
           });
         } catch {
           // A failed announcement must not leak authorization details.
         }
+        cleanupFollowers();
         return refuse("This action needs explicit human approval");
       }
     }
-    if (executionController.signal.aborted || registrationSignal.aborted)
+    if (executionController.signal.aborted || registrationSignal.aborted) {
+      cleanupFollowers();
       return refuse("This action was stopped before it began");
+    }
     const event = {
       name: action.name,
       capability: action.requiredCapability,
@@ -535,8 +568,7 @@ export async function registerAIAuthPageActions({
           : "This page action failed. Check the site for details.",
       );
     } finally {
-      for (const [source, abort] of abortFollowers)
-        source.removeEventListener("abort", abort);
+      cleanupFollowers();
     }
   }
 
@@ -691,7 +723,17 @@ function wireAgentBridge(
     for (const [requestId, expiresAt] of processedRequestIds)
       if (expiresAt <= Date.now()) processedRequestIds.delete(requestId);
     if (processedRequestIds.has(payload.requestId)) return;
-    if (processedRequestIds.size >= 256) return;
+    if (processedRequestIds.size >= 256) {
+      void connection.publishAgentEvent({
+        kind: "tool-response",
+        requestId: payload.requestId,
+        toWallet: envelope.body.issuer,
+        toSession: payload.session,
+        error: "This site is busy; retry shortly",
+        code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
+      });
+      return;
+    }
     processedRequestIds.set(payload.requestId, payload.expiresAt);
     const controller = new AbortController();
     runningRequests.set(payload.requestId, {
@@ -713,7 +755,12 @@ function wireAgentBridge(
           toSession: envelope.body.payload.session,
           // Denials and failures are errors, never successful results.
           ...(api.isFailure(result)
-            ? { error: String(result.error).slice(0, 240) }
+            ? {
+                error: String(result.error).slice(0, 240),
+                ...(typeof result.code === "string"
+                  ? { code: result.code }
+                  : {}),
+              }
             : { result: boundedJson(result) }),
         }),
       )
@@ -724,6 +771,7 @@ function wireAgentBridge(
           toWallet: envelope.body.issuer,
           toSession: envelope.body.payload.session,
           error: "The site tool could not complete",
+          code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
         }),
       )
       .finally(() => runningRequests.delete(payload.requestId));
@@ -843,18 +891,32 @@ export function validInboundToolEvent(payload, { walletId, walletSession }) {
 }
 
 // Keep only well-formed, bounded tools; one bad tool never drops the rest.
-function boundedCatalogTools(tools) {
+// The wallet uses the same filter when relaying a signed catalog, so the SDK,
+// the publish path and the wallet agree on which tools are callable.
+export function filterCatalogTools(tools, onSkip = () => {}) {
   const kept = [];
   for (const tool of tools) {
-    if (typeof tool?.name !== "string" || !TOOL_NAME.test(tool.name)) continue;
+    const name =
+      typeof tool?.name === "string" ? tool.name : String(tool?.name);
+    if (
+      !isValidToolName(name) ||
+      typeof tool.description !== "string" ||
+      tool.description.length > 240 ||
+      !isValidToolSchema(tool.inputSchema)
+    ) {
+      onSkip(name);
+      continue;
+    }
     try {
       kept.push(boundedJson(tool, 4_096));
     } catch {
       // Oversized or non-serializable tool: skip it.
+      onSkip(name);
     }
   }
   return kept;
 }
+const boundedCatalogTools = filterCatalogTools;
 
 /**
  * Creates the agent-side half of the signed shared-room WebMCP protocol.
@@ -1040,7 +1102,12 @@ export function createAIAuthAgentClient(
     clearTimeout(request.timer);
     request.signal?.removeEventListener("abort", request.abortHandler);
     if (typeof payload.error === "string")
-      request.reject(new Error(String(payload.error).slice(0, 240)));
+      request.reject(
+        toolError(
+          responseErrorCode(payload.code),
+          String(payload.error).slice(0, 240),
+        ),
+      );
     else {
       try {
         request.resolve(boundedJson(payload.result));
@@ -1115,6 +1182,7 @@ export function createAIAuthAgentClient(
           "failed",
           "cancelled",
           "needs-human",
+          "denied",
         ].includes(state) ||
         typeof summary !== "string" ||
         summary.length > 240

@@ -32,6 +32,7 @@ import {
   renewVerifiedPageConnection,
   revokeVerifiedPageConnection,
 } from "./session.js";
+import { TOOL_NAME_PATTERN } from "./webmcp.js";
 
 const CAPABILITY_FOR_EVENT = {
   "peer/hello": "presence.read",
@@ -781,7 +782,7 @@ export async function connectAIAuthModal({
         !/^[A-Za-z0-9_-]{8,80}$/u.test(payload.requestId) ||
         (payload.kind === "tool-request" &&
           (typeof payload.name !== "string" ||
-            !/^[a-z][a-z0-9._-]{0,63}$/u.test(payload.name) ||
+            !TOOL_NAME_PATTERN.test(payload.name) ||
             payload.input === null ||
             typeof payload.input !== "object" ||
             Array.isArray(payload.input) ||
@@ -810,7 +811,7 @@ export async function connectAIAuthModal({
       envelope.body.type === "agent/action" &&
       !TOOL_EVENT_KINDS.has(payload?.kind) &&
       (typeof payload.name !== "string" ||
-        !/^[a-z][a-z0-9._-]{0,63}$/u.test(payload.name) ||
+        !TOOL_NAME_PATTERN.test(payload.name) ||
         ![
           "started",
           "progress",
@@ -818,21 +819,23 @@ export async function connectAIAuthModal({
           "failed",
           "cancelled",
           "needs-human",
+          "denied",
         ].includes(payload.state) ||
         typeof payload.summary !== "string" ||
         payload.summary.length > 240)
     )
       return;
-    // Only a presence announcement may introduce a new session. Every other
-    // event must arrive on a session already bound to the issuer that signed
-    // it; verifying then binds the signature to that same issuer.
-    // A tool provider announces itself through its catalog just as a peer
-    // announces through presence; both may introduce a new session.
-    const announcement =
-      ANNOUNCEMENT_TYPES.has(envelope.body.type) ||
-      (envelope.body.type === "agent/action" &&
-        payload.kind === "tool-catalog");
+    // A presence announcement, a tool catalog or a first tool request may
+    // introduce a session; everything else must arrive on a session already
+    // bound to the issuer that signed it. A tool caller, like a tool provider,
+    // need not advertise presence, so its signed first request is its
+    // announcement. Never let it claim a session bound to someone else.
     const boundIssuer = issuerBySession.get(payload.session);
+    const isPresence = ANNOUNCEMENT_TYPES.has(envelope.body.type);
+    const isToolAction =
+      envelope.body.type === "agent/action" &&
+      ["tool-catalog", "tool-request"].includes(payload.kind);
+    const announcement = isPresence || (isToolAction && !boundIssuer);
     if (
       !announcement &&
       (!boundIssuer || boundIssuer !== envelope.body.issuer)
@@ -1135,7 +1138,7 @@ export async function connectAIAuthModal({
           throw new Error("This wallet did not approve site action sharing");
         if (
           typeof name !== "string" ||
-          !/^[a-z][a-z0-9._-]{0,63}$/u.test(name) ||
+          !TOOL_NAME_PATTERN.test(name) ||
           ![
             "started",
             "progress",
@@ -1143,6 +1146,7 @@ export async function connectAIAuthModal({
             "failed",
             "cancelled",
             "needs-human",
+            "denied",
           ].includes(state) ||
           typeof summary !== "string" ||
           summary.length > 240
