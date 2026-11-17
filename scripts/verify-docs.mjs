@@ -2,7 +2,7 @@
 // missing pages, raw Markdown leaking into the article, dead internal links,
 // or a raw .md URL that no longer serves Markdown. Run after `npm run build`.
 import assert from "node:assert/strict";
-import { access, readFile, readdir } from "node:fs/promises";
+import { access, readFile, readdir, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
@@ -32,21 +32,52 @@ assert.ok(
   await exists(resolve(output, "index.html")),
   "the docs index was not published",
 );
-assert.ok(
-  await exists(resolve(root, "dist-p2p", "README.html")),
-  "the linked root README was not published",
-);
+for (const linked of [
+  "README.html",
+  "CHANGELOG.html",
+  "packages/agent/README.html",
+  "packages/mcp/README.html",
+  "packages/runtime/README.html",
+])
+  assert.ok(
+    await exists(resolve(root, "dist-p2p", linked)),
+    `a docs page links to ${linked} but it was not published`,
+  );
 
 for (const name of sourceDocs) {
   const page = name.replace(/\.md$/u, ".html");
-  const rawPath = resolve(output, name);
+  const rawPath = resolve(output, "raw", name);
   const pagePath = resolve(output, page);
+  const mdUrl = resolve(output, name);
 
   assert.ok(await exists(rawPath), `${name}: raw Markdown was not published`);
   const raw = await readFile(rawPath, "utf8");
-  assert.match(raw, /^#\s+\S/u, `${name}: the .md URL must stay raw Markdown`);
+  assert.match(raw, /^#\s+\S/u, `${name}: the raw copy must stay Markdown`);
 
-  assert.ok(await exists(pagePath), `${name}: styled HTML page was not built`);
+  // /docs/<name>.md must serve styled HTML, not text/markdown plain text.
+  const mdStat = await stat(mdUrl).catch(() => null);
+  assert.ok(
+    mdStat?.isDirectory(),
+    `${name}: the .md URL must be a directory that serves an HTML index`,
+  );
+  const mdIndex = resolve(mdUrl, "index.html");
+  assert.ok(await exists(mdIndex), `${name}: the .md URL has no styled index`);
+  const mdHtml = await readFile(mdIndex, "utf8");
+  assert.match(
+    mdHtml,
+    /<link rel="stylesheet" href="\.\.\/docs\.css">/u,
+    `${name}: the .md page has a broken stylesheet link`,
+  );
+  for (const match of mdHtml.matchAll(/href="([^"]+)"/gu)) {
+    const href = match[1].split("#")[0];
+    if (!href || href.startsWith("/") || /^\w+:/u.test(href)) continue;
+    const target = resolve(mdUrl, href);
+    assert.ok(
+      (await exists(target)) || (await exists(resolve(target, "index.html"))),
+      `${name}: the .md page has a broken link to ${match[1]}`,
+    );
+  }
+  assert.ok(await exists(pagePath), `${name}: the .html page was not built`);
   const html = await readFile(pagePath, "utf8");
   assert.match(
     html,
@@ -71,19 +102,20 @@ for (const name of sourceDocs) {
   assert.match(
     html,
     new RegExp(
-      `href="\\./${name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}"`,
+      `href="\\./raw/${name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}"`,
       "u",
     ),
     `${page}: missing the raw Markdown link`,
   );
 
-  for (const match of html.matchAll(
-    /href="\.\/([\w.-]+\.html)(?:#[^"]*)?"/gu,
-  )) {
-    const target = match[1];
+  for (const match of html.matchAll(/href="([^"]+)"/gu)) {
+    const href = match[1].split("#")[0];
+    if (!href || href.startsWith("/") || /^\w+:/u.test(href)) continue;
+    const targetPath = resolve(output, href);
     assert.ok(
-      await exists(resolve(output, target)),
-      `${page}: dead internal link to ${target}`,
+      (await exists(targetPath)) ||
+        (await exists(resolve(targetPath, "index.html"))),
+      `${page}: dead internal link to ${match[1]}`,
     );
   }
 }

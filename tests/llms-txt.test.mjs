@@ -44,10 +44,10 @@ test("every link is https and points at the live site, the repository, or an npm
     );
 });
 
-test("site links to published docs match files the build copies", async () => {
+test("site links to raw published docs match files the build copies", async () => {
   const siteDocs = links()
-    .filter((url) => url.startsWith(`${SITE}docs/`))
-    .map((url) => url.slice(`${SITE}docs/`.length));
+    .filter((url) => url.startsWith(`${SITE}docs/raw/`))
+    .map((url) => url.slice(`${SITE}docs/raw/`.length));
   assert.ok(siteDocs.length > 0, "at least one published doc is linked");
   for (const name of siteDocs)
     assert.ok(

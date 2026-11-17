@@ -1,6 +1,6 @@
 import { build } from "esbuild";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { renderDocPage } from "./render-docs.mjs";
 
 const root = resolve(import.meta.dirname, "..");
@@ -101,10 +101,11 @@ await build({
   sourcemap: false,
 });
 
-// Docs are rendered to styled HTML at .html URLs. Raw Markdown stays at the
-// .md URLs for llms.txt and for anyone who wants the source. Every doc in the
-// index is rendered, so internal links such as [limits](limits.md) become
-// .html links that resolve instead of leading to a dead end.
+// Docs are rendered to styled HTML at .html URLs. The .md URLs are directories
+// with an index.html, so a static host redirects them to a styled page too
+// (browsers treat text/markdown as plain text). Raw Markdown moves to docs/raw/
+// for llms.txt and source readers. Every doc in the index is rendered, so
+// internal links such as [limits](limits.md) become .html links that resolve.
 const DOC_PAGES = [
   { file: "README.md", label: "Index", nav: true },
   { file: "ARCHITECTURE.md", label: "Architecture", nav: true },
@@ -126,6 +127,7 @@ const DOC_PAGES = [
   { file: "evidence.md", label: "Evidence" },
 ];
 const navDocs = DOC_PAGES.filter((doc) => doc.nav);
+await mkdir(resolve(output, "docs", "raw"), { recursive: true });
 for (const doc of DOC_PAGES) {
   const markdown = await readFile(resolve(root, "docs", doc.file), "utf8");
   const title = markdown.match(/^#\s+(.+)$/mu)?.[1] ?? doc.label;
@@ -134,13 +136,62 @@ for (const doc of DOC_PAGES) {
     title,
     name: doc.file,
     docs: navDocs,
-    rawPath: `./${doc.file}`,
+    rawPath: `./raw/${doc.file}`,
   });
+  // A clean HTML alias plus a directory at the .md URL. The directory makes
+  // /docs/<name>.md redirect to /docs/<name>.md/ and serve this page as HTML.
+  // Its links need one extra ../ because the page is one level deeper.
   await writeFile(
     resolve(output, "docs", doc.file.replace(/\.md$/u, ".html")),
     page,
   );
-  await writeFile(resolve(output, "docs", doc.file), markdown);
+  // At /docs/<name>.md/ every relative link needs one more level. Anchors and
+  // absolute URLs stay as they are; ./x becomes ../x and ../x becomes ../../x.
+  const mdPage = page.replace(/href="([^"]*)"/gu, (_, href) => {
+    if (href.startsWith("#") || href.startsWith("/") || /^\w+:/u.test(href))
+      return `href="${href}"`;
+    if (href.startsWith("../")) return `href="../../${href.slice(3)}"`;
+    if (href.startsWith("./")) return `href="../${href.slice(2)}"`;
+    return `href="../${href}"`;
+  });
+  await mkdir(resolve(output, "docs", doc.file), { recursive: true });
+  await writeFile(resolve(output, "docs", doc.file, "index.html"), mdPage);
+  await writeFile(resolve(output, "docs", "raw", doc.file), markdown);
+}
+// A few docs link outside docs/: publish those targets too so no page has a
+// dead link. They keep their original path so ../ links resolve as written.
+const EXTRA_PAGES = [
+  { source: "CHANGELOG.md", output: "CHANGELOG.html", title: "Changelog" },
+  {
+    source: "packages/agent/README.md",
+    output: "packages/agent/README.html",
+    title: "Agent package",
+  },
+  {
+    source: "packages/mcp/README.md",
+    output: "packages/mcp/README.html",
+    title: "MCP package",
+  },
+  {
+    source: "packages/runtime/README.md",
+    output: "packages/runtime/README.html",
+    title: "Runtime package",
+  },
+];
+for (const extra of EXTRA_PAGES) {
+  const markdown = await readFile(resolve(root, extra.source), "utf8");
+  const target = resolve(output, extra.output);
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(
+    target,
+    renderDocPage({
+      markdown,
+      title: extra.title,
+      name: "",
+      docs: [],
+      rawPath: `https://github.com/EnzoVezzaro/ai-auth/blob/main/${extra.source}`,
+    }),
+  );
 }
 // /docs/ serves the same index as /docs/README.html.
 await cp(
@@ -182,7 +233,7 @@ if (
   !wallet.includes(`href="./styles.css?v=${version}"`) ||
   !architecture.includes('href="./docs.css"') ||
   !architecture.includes("<table>") ||
-  !architecture.includes('href="./ARCHITECTURE.md"')
+  !architecture.includes('href="./raw/ARCHITECTURE.md"')
 ) {
   throw new Error("Static landing or docs page has a broken asset reference");
 }

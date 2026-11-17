@@ -239,7 +239,7 @@ export function renderDocPage({ markdown, title, name, docs, rawPath }) {
   const nav = docs
     .map(
       (doc) =>
-        `<a href="${escapeHtml(doc.file)}"${doc.file === name ? ' aria-current="page"' : ""}>${escapeHtml(doc.label)}</a>`,
+        `<a href="./${escapeHtml(doc.file)}"${doc.file === name ? ' aria-current="page"' : ""}>${escapeHtml(doc.label)}</a>`,
     )
     .join("\n");
   return `<!doctype html>

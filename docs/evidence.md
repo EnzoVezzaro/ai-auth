@@ -6,4 +6,4 @@ These documents record what has been tested and reviewed. They are not tutorials
 - [Feature traceability](TRACEABILITY.md) maps features to code and tests.
 - [Generic integration review](GENERIC_INTEGRATION_REVIEW.md) records the review of the SDK boundary and the browser evidence.
 
-Two dated snapshots are kept for history under [docs/archive/](archive/). They describe past milestones and should not be read as the current state of the project.
+Two dated snapshots are kept for history under [docs/archive/](https://github.com/EnzoVezzaro/ai-auth/tree/main/docs/archive). They describe past milestones and should not be read as the current state of the project.
