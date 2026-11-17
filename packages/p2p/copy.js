@@ -40,9 +40,11 @@ export function clockTime(timestamp, locale) {
 export function sessionEndText(expiresAt, now = Date.now(), locale) {
   if (expiresAt === null)
     return "No time limit. The session stays active and resumable after a refresh until you end it.";
-  if (!Number.isFinite(expiresAt)) return "The session end time is not known.";
+  if (!Number.isFinite(expiresAt))
+    return "The session end time is not known. Click Connect agent to start a new session.";
   const remaining = expiresAt - now;
-  if (remaining <= 0) return "Session has ended.";
+  if (remaining <= 0)
+    return "Session has ended. Click Connect agent to start a new one.";
   return `Session ends at ${clockTime(expiresAt, locale)} (in ${minutesPhrase(remaining)})`;
 }
 

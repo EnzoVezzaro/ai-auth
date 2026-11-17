@@ -672,7 +672,11 @@ function bindView() {
       state.error = "";
       const data = new FormData(event.currentTarget);
       if (data.get("passphrase") !== data.get("confirmation"))
-        return fail(new Error("Recovery passphrases do not match"));
+        return fail(
+          new Error(
+            "Recovery passphrases do not match. Enter the same passphrase in both fields.",
+          ),
+        );
       state.wallet = await createWallet({
         name: data.get("name"),
         passphrase: data.get("passphrase"),
@@ -712,7 +716,12 @@ function bindView() {
     try {
       state.error = "";
       const file = $("#backup-file").files?.[0];
-      if (!file) return fail(new Error("Choose a recovery file first"));
+      if (!file)
+        return fail(
+          new Error(
+            "Choose a recovery file first, then click Unlock and restore.",
+          ),
+        );
       state.wallet = await importWalletBackup(
         await file.text(),
         $("#restore-passphrase").value,
@@ -776,7 +785,9 @@ function bindView() {
       ].map((input) => input.value);
       const request = await createPermissionRequest(origin, requested);
       if (!(await verifyPermissionRequest(request, { expectedOrigin: origin })))
-        throw new Error("Demo website challenge failed verification");
+        throw new Error(
+          "Demo website challenge failed verification. Refresh the site and click Connect agent to try again.",
+        );
       const approval = await approvePermissionRequest(
         state.wallet,
         request,
@@ -790,7 +801,7 @@ function bindView() {
       });
       if (!verified)
         throw new Error(
-          "Signed approval did not pass the demo website verifier",
+          "Signed approval did not pass the demo website verifier. Click New request and try again.",
         );
       if (
         await verifyPermissionConsent(approval, request, {
@@ -799,7 +810,9 @@ function bindView() {
           nonceGuard: guard,
         })
       )
-        throw new Error("Replay defense did not reject a duplicate approval");
+        throw new Error(
+          "Replay defense did not reject a duplicate approval. Reload this page and try again.",
+        );
       state.request = request;
       state.consent = approval;
       await appendActivity(state.wallet, "connect/consent-created", {
@@ -818,9 +831,13 @@ function bindView() {
     try {
       if (!state.wallet) throw new Error(WALLET_REQUIRED_MESSAGE);
       if (state.externalStatus || !state.externalRequest)
-        throw new Error("This wallet request is no longer active");
+        throw new Error(
+          "This wallet request is no longer active. Return to the site and click Connect agent to start again.",
+        );
       if (!externalHost || state.externalSource !== externalHost)
-        throw new Error("The requesting site tab is no longer available");
+        throw new Error(
+          "The requesting site tab is no longer available. Return to the site and click Connect agent to start again.",
+        );
       const approved = [
         ...event.currentTarget.querySelectorAll(
           "input[name=external-capability]:checked",
@@ -884,7 +901,7 @@ function bindView() {
       void startRoom().catch((error) => {
         state.externalRoomReady = false;
         toast(
-          `Your approval was sent, but finding other agents failed: ${error.message}`,
+          `Your approval was sent, but finding other agents failed: ${error.message} Reload the wallet to try again.`,
         );
       });
       await appendActivity(state.wallet, "connect/external-consent", {
@@ -902,7 +919,9 @@ function bindView() {
     try {
       if (!state.wallet) throw new Error(WALLET_REQUIRED_MESSAGE);
       if (!renewal || !externalSessionActive())
-        throw new Error("This session is no longer active");
+        throw new Error(
+          "This session is no longer active. Return to the site and click Connect agent to start a new one.",
+        );
       const consent = await approvePermissionRequest(
         state.wallet,
         renewal,
@@ -913,7 +932,9 @@ function bindView() {
         },
       );
       if (!state.lease.renew(consent.body.payload))
-        throw new Error("This session is no longer active");
+        throw new Error(
+          "This session is no longer active. Return to the site and click Connect agent to start a new one.",
+        );
       // Renewal keeps the session's original identity: replace the one grant
       // keyed by the original nonce rather than storing under the renewal
       // nonce. The narrower consent then supersedes the broader one everywhere.
@@ -1017,7 +1038,9 @@ function bindView() {
           requiredCapability: input.capabilities[0],
         }))
       )
-        throw new Error("The signed grant failed local verification");
+        throw new Error(
+          "The signed grant failed local verification. Check the recipient and capabilities, then try again.",
+        );
       await appendActivity(state.wallet, "capability/grant-issued", {
         recipient: input.recipient,
         resource: input.resource,
@@ -1076,7 +1099,7 @@ function bindView() {
       });
       render();
     } catch (error) {
-      toast(error.message);
+      toast(`${error.message} Try again once the connection is ready.`);
     }
   });
   $("#refresh-activity")?.addEventListener("click", async () => {
@@ -1421,7 +1444,9 @@ if (externalConnectMode) {
         return;
       try {
         if (!state.externalRoomReady || !state.transfers)
-          throw new Error("Wallet peer connection is not ready");
+          throw new Error(
+            "Wallet peer connection is not ready. Wait for the connection, then try again.",
+          );
         await state.transfers[method](...args);
         event.source.postMessage(
           { type: "ai-auth/transfer-result", id },
@@ -1432,7 +1457,7 @@ if (externalConnectMode) {
           {
             type: "ai-auth/transfer-result",
             id,
-            error: String(error.message || "Transfer failed"),
+            error: `${error.message || "Transfer failed"} Wait for the wallet peer connection, then try again.`,
           },
           event.origin,
         );
@@ -1461,7 +1486,9 @@ if (externalConnectMode) {
       try {
         await handleExternalSiteEvent(event.data);
       } catch (error) {
-        toast(`Could not sign the site event: ${error.message}`);
+        toast(
+          `Could not sign the site event: ${error.message} Reconnect from the site and try again.`,
+        );
       }
       return;
     }
@@ -1528,7 +1555,7 @@ if (externalConnectMode) {
       return;
     if (!(await verifyPopupPermissionRequest(event, externalHost))) {
       state.error =
-        "The requesting site or its permission request could not be verified";
+        "The requesting site or its permission request could not be verified. Return to the site and click Connect agent to try again.";
       render();
       return;
     }
@@ -1585,13 +1612,10 @@ try {
       }
     }
     if (readyOrigin)
-      externalHost.postMessage(
-        { type: "ai-auth/connect-ready" },
-        readyOrigin,
-      );
+      externalHost.postMessage({ type: "ai-auth/connect-ready" }, readyOrigin);
   }
 } catch (error) {
-  state.error = error.message;
+  state.error = `${error.message} Reload the wallet to try again.`;
   render();
 }
 
