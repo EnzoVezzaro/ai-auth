@@ -8,7 +8,10 @@ async function bounded(promise, description, ms = 1_000) {
     return await Promise.race([
       promise,
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`Timed out: ${description}`)), ms);
+        timer = setTimeout(
+          () => reject(new Error(`Timed out: ${description}`)),
+          ms,
+        );
       }),
     ]);
   } finally {
@@ -59,9 +62,8 @@ function stubDocument() {
 async function loadSiteTools() {
   const stub = stubDocument();
   globalThis.document = stub.document;
-  const { askHuman, makeAuthorize } = await import(
-    "../examples/body4ai/site/tools.js"
-  );
+  const { askHuman, makeAuthorize } =
+    await import("../examples/body4ai/site/tools.js");
   return { askHuman, makeAuthorize, ...stub };
 }
 
@@ -74,7 +76,11 @@ test("CT-05: cancelling a pending approval removes the site's panel", async () =
     },
   };
   const decision = bounded(
-    askHuman({ target, action: { name: "wishlist.add" }, signal: controller.signal }),
+    askHuman({
+      target,
+      action: { name: "wishlist.add" },
+      signal: controller.signal,
+    }),
     "approval decision after abort",
   );
   const panel = target.child;
@@ -91,18 +97,38 @@ test("CT-05: cancelling a pending approval removes the site's panel", async () =
 
 test("CT-10: approval panels are labelled, focused, uniquely id'd and Escape-dismissible", async () => {
   const { askHuman, created } = await loadSiteTools();
-  const targetA = { append(node) { this.child = node; } };
-  const targetB = { append(node) { this.child = node; } };
+  const targetA = {
+    append(node) {
+      this.child = node;
+    },
+  };
+  const targetB = {
+    append(node) {
+      this.child = node;
+    },
+  };
   const first = bounded(
-    askHuman({ target: targetA, action: { name: "wishlist.add" }, signal: new AbortController().signal }),
+    askHuman({
+      target: targetA,
+      action: { name: "wishlist.add" },
+      signal: new AbortController().signal,
+    }),
     "first approval",
   );
   void bounded(
-    askHuman({ target: targetB, action: { name: "wishlist.add" }, signal: new AbortController().signal }),
+    askHuman({
+      target: targetB,
+      action: { name: "wishlist.add" },
+      signal: new AbortController().signal,
+    }),
     "second approval",
   ).catch(() => {});
   const [panelA, textA, approveA, , panelB, , approveB] = created;
-  assert.notEqual(approveA.id, approveB.id, "concurrent panels do not share ids");
+  assert.notEqual(
+    approveA.id,
+    approveB.id,
+    "concurrent panels do not share ids",
+  );
   assert.equal(panelA.attrs["aria-labelledby"], textA.id);
   assert.equal(approveA.focused, true, "focus moves into the dialog");
   panelA.listeners.keydown[0]({ key: "Escape" });
@@ -113,7 +139,11 @@ test("CT-10: approval panels are labelled, focused, uniquely id'd and Escape-dis
 
 test("CT-12: a local WebMCP call with no requester is not denied", async () => {
   const { makeAuthorize } = await loadSiteTools();
-  const target = { append(node) { this.child = node; } };
+  const target = {
+    append(node) {
+      this.child = node;
+    },
+  };
   const authorize = makeAuthorize({ target, log: () => {} });
   const local = await authorize(
     { name: "catalog.search", readOnly: true },
@@ -122,7 +152,11 @@ test("CT-12: a local WebMCP call with no requester is not denied", async () => {
   );
   assert.equal(local, true, "read-only local tools need no remote gate");
 
-  const target2 = { append(node) { this.child = node; } };
+  const target2 = {
+    append(node) {
+      this.child = node;
+    },
+  };
   const gate = makeAuthorize({ target: target2, log: () => {} });
   const decision = bounded(
     gate(
@@ -132,7 +166,10 @@ test("CT-12: a local WebMCP call with no requester is not denied", async () => {
     ),
     "local approval",
   );
-  assert.ok(target2.child, "a local side-effecting tool shows an on-page prompt");
+  assert.ok(
+    target2.child,
+    "a local side-effecting tool shows an on-page prompt",
+  );
   assert.match(target2.child.children[0].textContent, /on this page/iu);
   target2.child.children[1].listeners.click[0]();
   assert.equal(await decision, true);
@@ -146,7 +183,10 @@ test("CT-05: a timed-out human gate removes the panel through its signal", async
       this.child = node;
     },
   };
-  const authorize = makeAuthorize({ target, log: (...args) => logs.push(args) });
+  const authorize = makeAuthorize({
+    target,
+    log: (...args) => logs.push(args),
+  });
   const controller = new AbortController();
   const decision = bounded(
     authorize(

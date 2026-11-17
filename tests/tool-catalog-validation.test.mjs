@@ -31,8 +31,16 @@ async function makeWallet() {
   );
   const publicKey = await crypto.subtle.exportKey("jwk", pair.publicKey);
   const id = await identityFor(publicKey);
-  const identity = { id, name: "Wallet", publicKey, privateKey: pair.privateKey };
-  return { ...identity, sign: (type, payload) => signEnvelope(identity, type, payload) };
+  const identity = {
+    id,
+    name: "Wallet",
+    publicKey,
+    privateKey: pair.privateKey,
+  };
+  return {
+    ...identity,
+    sign: (type, payload) => signEnvelope(identity, type, payload),
+  };
 }
 
 // Real connectAIAuthModal flow: the wallet side of the publish path.
@@ -73,7 +81,9 @@ async function connected(t) {
       await fn({ source: popup, origin: WALLET_ORIGIN, data });
   };
   await fromWallet({ type: "ai-auth/connect-ready" });
-  const request = sent.find((m) => m.type === "ai-auth/connect-request").request;
+  const request = sent.find(
+    (m) => m.type === "ai-auth/connect-request",
+  ).request;
   const consent = await approvePermissionRequest(wallet, request, caps);
   await fromWallet({
     type: "ai-auth/connect-consent",
@@ -149,10 +159,22 @@ test("CT-03: one invalid tool is skipped, not the whole catalog", async () => {
     event: {
       kind: "tool-catalog",
       tools: [
-        { name: "good.one", description: "ok", inputSchema: { type: "object" } },
-        { name: "bad name", description: "ok", inputSchema: { type: "object" } },
+        {
+          name: "good.one",
+          description: "ok",
+          inputSchema: { type: "object" },
+        },
+        {
+          name: "bad name",
+          description: "ok",
+          inputSchema: { type: "object" },
+        },
         { name: "bool.schema", description: "ok", inputSchema: true },
-        { name: "no.props", description: "ok", inputSchema: { type: "object" } },
+        {
+          name: "no.props",
+          description: "ok",
+          inputSchema: { type: "object" },
+        },
       ],
     },
   });
@@ -161,7 +183,9 @@ test("CT-03: one invalid tool is skipped, not the whole catalog", async () => {
     sent[0][1].tools.map((tool) => tool.name),
     ["good.one", "bool.schema", "no.props"],
   );
-  const skipped = debugCalls.filter((call) => call[0] === "wallet-skipped-tool");
+  const skipped = debugCalls.filter(
+    (call) => call[0] === "wallet-skipped-tool",
+  );
   assert.deepEqual(
     skipped.map((call) => call[1]),
     ["bad name"],
