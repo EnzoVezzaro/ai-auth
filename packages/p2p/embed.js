@@ -1293,11 +1293,24 @@ export async function resumeAIAuthSession(options = {}) {
         now: options.now,
       });
   if (records.length === 0) return null;
+  const record = records[0];
+  // A caller-supplied record is data, not proof. Re-verify its signed consent
+  // before connectAIAuthModal builds a lease or exposes a connected-looking
+  // state from claims the wallet has not confirmed.
+  if (
+    !(await verifyStoredConsent(record.consent, {
+      origin,
+      walletId: record.walletId,
+      room: options.room,
+      now: options.now,
+    }))
+  )
+    throw new TypeError("The supplied session record could not be verified");
   return connectAIAuthModal({
     ...options,
     origin,
     sessionStore: store,
-    resumeRecord: records[0],
+    resumeRecord: record,
   });
 }
 
