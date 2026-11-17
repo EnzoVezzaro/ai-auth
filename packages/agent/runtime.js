@@ -6,6 +6,9 @@ import {
   NostrWebRTC,
   P2PRoom,
   createConnectionState,
+  RECEIPT_TYPE,
+  buildReceiptPayload,
+  isAddressedTo,
 } from "@enzovezzaro/ai-auth-wallet";
 import { signingIdentityFor } from "./keystore.js";
 import { withNodeRtc } from "./rtc.js";
@@ -77,6 +80,32 @@ function validateRoom(room) {
   if (typeof room !== "string" || !ROOM_PATTERN.test(room))
     throw new TypeError("room must be 1–100 safe characters");
   return room;
+}
+
+// A headless runtime mounts no wheel, so the runtime itself signs the receipt
+// an addressed chat message earns. Like the wheel's receipt it proves only that
+// this wallet accepted the message, never that anyone read it.
+function acknowledgeAddressedText(message, wallet, send) {
+  const { direction, envelope } = message;
+  if (direction !== "in" || !envelope?.body) return;
+  const { type, issuer, payload } = envelope.body;
+  if (
+    type !== "collab/text" ||
+    issuer === wallet?.id ||
+    payload?.target !== wallet?.id ||
+    !isAddressedTo(payload, wallet?.id)
+  )
+    return;
+  try {
+    const receipt = buildReceiptPayload({
+      messageId: payload.messageId,
+      sender: issuer,
+      receiver: wallet.id,
+    });
+    void send(RECEIPT_TYPE, receipt, { to: issuer }).catch(() => {});
+  } catch {
+    // Malformed ids from an untrusted peer earn no receipt.
+  }
 }
 
 /**
@@ -179,6 +208,9 @@ export function createAgentRuntime(options = {}) {
   }
 
   function observe(message) {
+    acknowledgeAddressedText(message, wallet, (type, payload, options) =>
+      api.send(type, payload, options),
+    );
     if (message.direction === "state" && message.reason === "peer-lost") {
       // A transport channel died. Everyone seen through it is immediately
       // stale; recovery requires a new authenticated session.

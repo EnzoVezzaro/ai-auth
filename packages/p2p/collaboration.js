@@ -7,9 +7,11 @@ import {
   isWalletId,
   verifyReceipt,
 } from "./receipts.js";
+import { MAX_MESSAGE_CHARS } from "./message-limits.js";
 
+export { MAX_MESSAGE_CHARS };
 export const COLLABORATION_LIMITS = Object.freeze({
-  textCharacters: 4000,
+  textCharacters: MAX_MESSAGE_CHARS,
   elementBytes: 4096,
   screenshotBytes: 512 * 1024,
   recordingBytes: 1024 * 1024,
@@ -19,6 +21,7 @@ const CHUNK_BYTES = 24 * 1024;
 const CHUNK_INTERVAL_MS = 1800;
 const TRANSFER_TTL_MS = 3 * 60 * 1000;
 const MAX_TRANSFERS = 4;
+const MAX_COMPLETED = 256;
 const MEDIA_TYPES = {
   screenshot: new Set(["image/png", "image/jpeg", "image/webp"]),
   recording: new Set(["video/webm", "video/mp4"]),
@@ -89,6 +92,9 @@ export class CollaborationTransfers {
     this.authorize = authorize;
     this.listeners = new Set();
     this.transfers = new Map();
+    // Completed transfer keys → expiry. A re-delivered chunk must not rebuild
+    // a finished transfer and fire a second notify/acknowledge.
+    this.completed = new Map();
     this.closed = false;
     this.sending = false;
     this.unsubscribe = room.subscribe((event) => {
@@ -123,7 +129,9 @@ export class CollaborationTransfers {
   async sendText(text, options) {
     this.checkAuthorization();
     if (!validText(text))
-      throw new TypeError("Messages must contain 1–4000 characters");
+      throw new TypeError(
+        `Messages must contain 1–${MAX_MESSAGE_CHARS} characters`,
+      );
     return this.room.send("collab/text", {
       text,
       ...this.addressing(options),
@@ -210,6 +218,11 @@ export class CollaborationTransfers {
     if (type === "collab/text" && validText(payload.text)) {
       this.notify({ type: "text", text: payload.text, envelope });
       this.acknowledge(envelope);
+    } else if (type === "message/text" && validText(payload.text)) {
+      // Legacy chat from site code and old agents. Shown as a normal message
+      // from that peer; nothing new sends it and it carries no signed target
+      // or message id, so there is no receipt to acknowledge.
+      this.notify({ type: "text", text: payload.text, envelope });
     } else if (type === "collab/element" && validElement(payload.metadata)) {
       this.notify({ type: "element", metadata: payload.metadata, envelope });
       this.acknowledge(envelope);
@@ -242,6 +255,8 @@ export class CollaborationTransfers {
     const now = Date.now();
     for (const [key, transfer] of this.transfers)
       if (transfer.expiresAt <= now) this.transfers.delete(key);
+    for (const [key, until] of this.completed)
+      if (until <= now) this.completed.delete(key);
     const { id, kind, name, size, total, index, data, session } = payload ?? {};
     const limit = mediaLimit(kind);
     const mime = mediaMime(kind, payload?.mime);
@@ -272,6 +287,7 @@ export class CollaborationTransfers {
     )
       return;
     const key = `${issuer}:${session}:${id}`;
+    if (this.completed.has(key)) return;
     let transfer = this.transfers.get(key);
     if (!transfer) {
       if (this.transfers.size >= MAX_TRANSFERS) return;
@@ -300,6 +316,9 @@ export class CollaborationTransfers {
     transfer.count++;
     if (transfer.count === total) {
       this.transfers.delete(key);
+      this.completed.set(key, now + TRANSFER_TTL_MS);
+      while (this.completed.size > MAX_COMPLETED)
+        this.completed.delete(this.completed.keys().next().value);
       this.acknowledge(envelope, id);
       this.notify({
         type: "attachment",
@@ -316,6 +335,7 @@ export class CollaborationTransfers {
     this.closed = true;
     this.unsubscribe();
     this.transfers.clear();
+    this.completed.clear();
     this.listeners.clear();
   }
 }

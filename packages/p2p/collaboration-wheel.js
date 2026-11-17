@@ -97,7 +97,15 @@ class Wheel {
     const off = [];
     this.unsubscribers = off;
     off.push(this.connection.subscribe((event) => this.onEvent(event)));
-    off.push(this.ledger.subscribe((entry) => this.renderEntry(entry)));
+    // Ledger renders share the inbox queue with incoming messages so the log
+    // keeps arrival order even when identity verification is asynchronous.
+    off.push(
+      this.ledger.subscribe((entry) => {
+        this.inbox = this.inbox
+          .then(() => this.renderEntry(entry))
+          .catch(() => {});
+      }),
+    );
     const network = this.options.network;
     if (typeof network?.onConnectionState === "function")
       off.push(network.onConnectionState(() => this.refresh()));
@@ -419,7 +427,11 @@ class Wheel {
     const text = this.ui.input.value.trim();
     if (!text || this.ui.input.disabled || this.sendingText) return;
     this.sendingText = true;
+    // Clear and lock synchronously: a double Enter/click must not enqueue the
+    // same draft twice while the first send is awaiting the transport.
     this.ui.input.value = "";
+    this.ui.input.disabled = true;
+    this.ui.send.disabled = true;
     try {
       await this.deliver("text", text, (o) =>
         this.connection.sendText(text, o),
@@ -432,6 +444,7 @@ class Wheel {
       this.say(error.message || "Could not send message.");
     } finally {
       this.sendingText = false;
+      this.refresh();
     }
   }
 
@@ -617,9 +630,13 @@ class Wheel {
         "Submitted to the peer transport. Waiting for a signed receipt.",
       );
       if (staged.url) this.releaseUrl(staged.url);
-      this.ui
-        .action(staged.kind === "element" ? "element" : "screenshot")
-        .focus();
+      const next =
+        staged.kind === "element"
+          ? "element"
+          : staged.kind === "recording"
+            ? "record"
+            : "screenshot";
+      this.ui.action(next).focus();
     } catch (error) {
       // Keep the draft: a transport failure must not destroy the capture.
       // A fresh message id lets the same staged item be sent again; the failed

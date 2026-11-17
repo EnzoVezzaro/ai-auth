@@ -67,6 +67,24 @@ test("events are bounded, cursor-based and marked untrusted", () => {
   assert.equal(bridge.events({ limit: 9999 }).events.length <= 50, true);
 });
 
+test("events clamp a cursor ahead of the ring instead of wedging", () => {
+  const rt = fakeRuntime();
+  const bridge = createAgentBridge({ runtime: rt, clientFactory: () => ({}) });
+  for (let i = 0; i < 5; i++)
+    rt.emit(inbound("collab/text", { text: `m${i}` }));
+  const ahead = bridge.events({ since: 1000 });
+  assert.equal(ahead.dropped, true, "a cursor past the ring must signal loss");
+  assert.equal(ahead.events.length, 0);
+  assert.equal(ahead.nextCursor, 5, "the cursor is clamped to the ring head");
+  rt.emit(inbound("collab/text", { text: "fresh" }));
+  const next = bridge.events({ since: ahead.nextCursor });
+  assert.deepEqual(
+    next.events.map((e) => e.payload.text),
+    ["fresh"],
+  );
+  assert.equal(next.nextCursor, 6);
+});
+
 test("heartbeats are not buffered; oversized payloads are truncated", () => {
   const rt = fakeRuntime();
   const bridge = createAgentBridge({ runtime: rt, clientFactory: () => ({}) });
@@ -177,13 +195,16 @@ test("send and join/leave delegate to the runtime", async () => {
   const rt = fakeRuntime();
   const bridge = createAgentBridge({ runtime: rt, clientFactory: () => ({}) });
   await bridge.join({ room: "r1" });
-  await bridge.send({ text: "hi" });
+  const sent = await bridge.send({ text: "hi" });
   await bridge.leave();
   assert.deepEqual(
     rt.calls.map((c) => c[0]),
     ["join", "send", "leave"],
   );
-  assert.deepEqual(rt.calls[1].slice(1, 3), ["message/text", { text: "hi" }]);
+  assert.equal(rt.calls[1][1], "collab/text");
+  assert.equal(rt.calls[1][2].text, "hi");
+  assert.equal(rt.calls[1][2].messageId, sent.messageId);
+  assert.equal(sent.state, "sent-to-transport");
 });
 
 test("actions only cover scopes the site requested and declare read-only where true", () => {

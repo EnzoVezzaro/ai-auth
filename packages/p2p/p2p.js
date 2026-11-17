@@ -963,12 +963,8 @@ export class NostrWebRTC {
         this.onStatus("The recipient is not connected as a verified member");
         return;
       }
-      if (envelope?.body?.type === "collab/attachment") {
-        this.onStatus(
-          "Attachment transfer stopped: no direct peer is connected",
-        );
-        return;
-      }
+      // Attachments use the same retry queue as every other event: one chunk
+      // sent during a channel close must not lose the whole transfer.
       if (this.enqueueOutbound({ envelope, expiresAt, to }))
         this.onDiagnostic({
           stage: "event-queued-until-direct-peer",
@@ -988,13 +984,11 @@ export class NostrWebRTC {
         }),
       )
       .catch(() => {
-        if (envelope?.body?.type === "collab/attachment") {
-          this.onStatus("An attachment chunk could not be sent");
-          return;
-        }
         if (this.enqueueOutbound({ envelope, expiresAt, to }, { front: true }))
           this.onStatus(
-            "A peer message could not be sent; it is queued for retry",
+            envelope?.body?.type === "collab/attachment"
+              ? "An attachment chunk could not be sent; it is queued for retry"
+              : "A peer message could not be sent; it is queued for retry",
           );
       });
   }

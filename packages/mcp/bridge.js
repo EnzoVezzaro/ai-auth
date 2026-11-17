@@ -3,6 +3,8 @@ import { z } from "zod";
 import {
   createAIAuthAgentClient,
   parseCursorPayload,
+  MAX_MESSAGE_CHARS,
+  RECEIPT_TYPE,
   TOOL_ERROR_CODES,
 } from "@enzovezzaro/ai-auth-wallet";
 
@@ -10,6 +12,7 @@ const MAX_EVENTS = 200;
 const MAX_PAGE = 50;
 const MAX_PAYLOAD_CHARS = 1_500;
 const SILENT_TYPES = new Set(["peer/heartbeat"]);
+const WALLET_ID = /^agent:[A-Za-z0-9_-]{20,100}$/u;
 
 // Code Mode's guest bridge is built from this source *inside* the vm context.
 // It runs in the guest realm, so every function, Promise, Error and JSON it
@@ -136,13 +139,19 @@ export function createAgentBridge({
         else peerPages.set(issuer, parsed.cursor.pageKey);
       }
     } else if (type === "peer/goodbye") peerPages.delete(issuer);
-    const { kind, text } = payload ?? {};
+    const { kind, text, messageId, target } = payload ?? {};
+    const receipt = type === RECEIPT_TYPE;
     ring.push({
       seq,
       type,
       from: issuer,
       at: Date.now(),
       ...(kind ? { kind } : {}),
+      // Chat and receipts carry a message id so an agent can match its own
+      // outgoing messages to the signed receipts that acknowledge them.
+      ...(messageId ? { messageId } : {}),
+      ...(target ? { target } : {}),
+      ...(receipt ? { receiver: payload.receiver } : {}),
       payload:
         kind === "tool-catalog"
           ? { kind }
@@ -192,15 +201,30 @@ export function createAgentBridge({
       await runtime.leave();
       return { connection: runtime.connectionState.status };
     },
-    async send({ text, to }) {
+    async send({ text, to } = {}) {
+      if (
+        typeof text !== "string" ||
+        text.length < 1 ||
+        text.length > MAX_MESSAGE_CHARS
+      )
+        throw new TypeError(
+          `text must contain 1–${MAX_MESSAGE_CHARS} characters`,
+        );
+      if (to !== undefined && !WALLET_ID.test(to))
+        throw new TypeError("Invalid recipient wallet id");
+      // `target` is signed into the payload, so non-targets drop the message.
+      // `to` is only the transport routing hint for the same recipient.
+      const messageId = crypto.randomUUID();
       const envelope = await runtime.send(
-        "message/text",
-        { text },
+        "collab/text",
+        { text, messageId, ...(to ? { target: to } : {}) },
         to ? { to } : {},
       );
       return {
         sent: true,
-        type: envelope?.body?.type ?? "message/text",
+        messageId,
+        state: "sent-to-transport",
+        type: envelope?.body?.type ?? "collab/text",
         note: "Submitted to the transport; delivery is not confirmed.",
       };
     },
@@ -227,12 +251,18 @@ export function createAgentBridge({
     },
     events({ since = 0, limit = 20 } = {}) {
       const page = Math.min(Math.max(1, Math.trunc(limit) || 1), MAX_PAGE);
-      const fresh = ring.filter((event) => event.seq > since);
-      const events = fresh.slice(0, page);
+      const latest = ring.at(-1)?.seq ?? since;
+      // A cursor past the ring (or before its first retained seq) is clamped
+      // into range; otherwise every later event would stay hidden forever.
+      const cursor = Math.min(
+        Math.max(since, (ring[0]?.seq ?? since) - 1),
+        latest,
+      );
+      const events = ring.filter((event) => event.seq > cursor).slice(0, page);
       return {
         events,
-        nextCursor: events.length ? events.at(-1).seq : since,
-        dropped: ring.length > 0 && since < ring[0].seq - 1,
+        nextCursor: events.length ? events.at(-1).seq : cursor,
+        dropped: (ring.length > 0 && since < ring[0].seq - 1) || since > latest,
         untrusted: true,
       };
     },
@@ -390,7 +420,10 @@ const SPECS = [
     "messages.send",
     false,
     "Send a signed text message to the room (or one peer).",
-    { text: z.string().min(1).max(2_000), to: z.string().max(200).optional() },
+    {
+      text: z.string().min(1).max(MAX_MESSAGE_CHARS),
+      to: z.string().max(200).optional(),
+    },
     (b, i) => b.send(i),
   ],
   [
