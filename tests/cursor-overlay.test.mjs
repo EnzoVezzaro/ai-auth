@@ -3,7 +3,7 @@ import test from "node:test";
 import { webcrypto } from "node:crypto";
 import { createAIAuthAgentClient, identityFor } from "../packages/p2p/index.js";
 import { mountAIAuthCollaboration } from "../packages/p2p/embed.js";
-import { MAX_COORDINATE } from "../packages/p2p/presence.js";
+import { MAX_COORDINATE, OFFLINE_AFTER_MS } from "../packages/p2p/presence.js";
 
 globalThis.crypto ??= webcrypto;
 
@@ -374,6 +374,57 @@ test("a pointer below the first viewport uses the document-size basis, not a cla
   const node = cursorNodes(conn, dom)[0];
   assert.equal(node.style.left, "500px");
   assert.equal(node.style.top, "400px");
+});
+
+test("peer/goodbye removes that participant's cursor at once", async (t) => {
+  const dom = makeDom();
+  const conn = makeConnection();
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/",
+  });
+  t.after(stop);
+  const agent = await makeWallet("Leaving");
+  const shown = await agentPayload(agent, { x: 0.3, y: 0.3 });
+  conn.emit(envelope(agent, shown.payload));
+  assert.equal(cursorNodes(conn, dom).length, 1, "cursor is shown");
+  conn.emit({
+    type: "peer/goodbye",
+    issuer: agent.id,
+    payload: { session: "room-session" },
+  });
+  assert.equal(
+    cursorNodes(conn, dom).length,
+    0,
+    "the departing peer's cursor is removed immediately",
+  );
+});
+
+test("an idle cursor is dimmed and then removed, not kept forever", async (t) => {
+  const agent = await makeWallet("Idle");
+  const dom = makeDom();
+  t.mock.timers.enable({ apis: ["Date", "setInterval"] });
+  const conn = makeConnection();
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/",
+  });
+  t.after(stop);
+  const shown = await agentPayload(agent, { x: 0.3, y: 0.3 });
+  conn.emit(envelope(agent, shown.payload));
+  const node = cursorNodes(conn, dom)[0];
+  assert.ok(node, "cursor is shown");
+
+  t.mock.timers.tick(OFFLINE_AFTER_MS + 2_000);
+  assert.ok(Number(node.style.opacity) < 1, "the idle cursor is dimmed");
+  assert.equal(cursorNodes(conn, dom).length, 1, "idle is not yet goodbye");
+
+  t.mock.timers.tick(120_000);
+  assert.equal(
+    cursorNodes(conn, dom).length,
+    0,
+    "a long-idle cursor is removed, not kept until reload",
+  );
 });
 
 test("the overlay's own human cursor is published page-scoped", (t) => {

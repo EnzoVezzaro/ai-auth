@@ -1383,6 +1383,10 @@ function createCursorNode(document) {
   return { node, path, label };
 }
 
+// A cursor is dimmed once it goes idle (OFFLINE_AFTER_MS) and dropped after a
+// longer grace period; an explicit goodbye drops it immediately.
+const CURSOR_REMOVE_AFTER_MS = 60_000;
+
 // Cursor fractions are relative to the whole document, never the viewport.
 // The sender and the overlay receiver share this basis so a point below the
 // first viewport is rendered where it was published (docs/PROTOCOL.md §8).
@@ -1431,11 +1435,7 @@ export function mountAIAuthCollaboration(
   };
   const show = (key, issuer, cursor) => {
     if (cursor.pageKey !== null && cursor.pageKey !== viewerPage) {
-      const old = cursors.get(key);
-      if (old) {
-        old.node.remove();
-        cursors.delete(key);
-      }
+      removeCursor(key);
       return;
     }
     let entry = cursors.get(key);
@@ -1452,21 +1452,39 @@ export function mountAIAuthCollaboration(
     entry.seenAt = Date.now();
     place(entry.node, cursor);
   };
+  const removeCursor = (key) => {
+    const entry = cursors.get(key);
+    if (!entry) return;
+    entry.node.remove();
+    cursors.delete(key);
+  };
+  const cursorKey = (issuer, session) => `${issuer}:${session ?? "default"}`;
   const fadeIdle = () => {
     const now = Date.now();
-    for (const entry of cursors.values())
-      if (now - entry.seenAt > OFFLINE_AFTER_MS)
-        entry.node.style.opacity = "0.35";
+    for (const [key, entry] of cursors) {
+      const age = now - entry.seenAt;
+      if (age > CURSOR_REMOVE_AFTER_MS) removeCursor(key);
+      else if (age > OFFLINE_AFTER_MS) entry.node.style.opacity = "0.35";
+    }
   };
   const idleTimer = setInterval(fadeIdle, 2_000);
   idleTimer.unref?.();
   const unsubscribe = connection.onEvent((envelope) => {
+    if (envelope.body.type === "peer/goodbye") {
+      removeCursor(
+        cursorKey(
+          envelope.body.issuer,
+          envelope.body.payload?.session ?? "default",
+        ),
+      );
+      return;
+    }
     if (envelope.body.type !== "presence/cursor") return;
     const parsed = parseCursorPayload(envelope.body.payload);
     if (!parsed.ok) return;
     const session = envelope.body.payload.session ?? "default";
     show(
-      `${envelope.body.issuer}:${session}`,
+      cursorKey(envelope.body.issuer, session),
       envelope.body.issuer,
       parsed.cursor,
     );
