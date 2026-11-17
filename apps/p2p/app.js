@@ -108,7 +108,6 @@ const capabilityOptions = [
   "messages.send",
   "content.share",
   "tools.invoke",
-  "tasks.delegate",
 ].map((id) => [id, capabilityCopy(id).title, capabilityCopy(id).detail]);
 const esc = (value) =>
   String(value ?? "").replace(

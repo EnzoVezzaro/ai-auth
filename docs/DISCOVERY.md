@@ -32,7 +32,7 @@
 | `name`         | Optional, at most 80 characters. A claim.                                                                                                |
 | `walletUrl`    | Optional URL, `https`, or `http` for localhost only. No credentials or query string.                                                     |
 | `docsUrl`      | Same URL rule.                                                                                                                           |
-| `capabilities` | Optional unique subset of `presence.read`, `messages.send`, `content.share`, `tools.invoke`, `tasks.delegate`. A wish list, not a grant. |
+| `capabilities` | Optional unique subset of `presence.read`, `messages.send`, `content.share`, `tools.invoke`, `tasks.delegate`. A wish list, not a grant. `tasks.delegate` is still accepted for compatibility but is no longer offered as a default choice: no task or command protocol exists yet, so it grants no working handoff. |
 | `rooms`        | Optional, at most 8 of `{ name, mode }`; `mode` is `open` or `restricted`. Room names are public metadata, not access control.           |
 | `issuers`      | Optional, at most 8 wallet ids the site says issue memberships. A claim; trust policy stays local to the verifier.                       |
 | `webmcp`       | Optional boolean: the page registers WebMCP tools.                                                                                       |

@@ -12,6 +12,9 @@ const MEANING = {
   "messages.send": "send signed text messages to peers in the room",
   "tools.invoke":
     "list and call the site's WebMCP tools (the site owner still approves each call)",
+  // Accepted for compatibility, but no task/command protocol exists yet.
+  "tasks.delegate":
+    "legacy task-delegation scope: no task protocol is implemented yet, so it grants no working handoff",
 };
 
 export function renderPreview({ origin, room, walletId, requested, source }) {

@@ -94,10 +94,6 @@ const CAPABILITY_COPY = Object.freeze({
     title: "Use the page's tools (you approve each use)",
     detail: "The site still chooses and checks each tool action.",
   },
-  "tasks.delegate": {
-    title: "Hand off a task",
-    detail: "Let an authorized peer take over one limited task.",
-  },
 });
 
 export function capabilityCopy(capability) {
