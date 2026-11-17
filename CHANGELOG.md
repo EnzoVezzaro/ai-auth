@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.0 - 2026-11-16
+
+### Added
+
+- Sessions persist per agent in the site origin's `sessionStorage`. The stored record holds public data only: the signed consent, identifiers, capabilities and times. No key material is stored on the site.
+- `listResumableSessions` lists the records that can still be resumed, and `resumeAIAuthSession` resumes one. Resume happens only after the visitor clicks it. The wallet confirms the session still exists and never grants a new scope.
+- Inline wallet creation on the request screen, so a visitor with no wallet does not have to leave the page to create one.
+- Type declarations for `recordFromConsent`, and for the resume and connect options `storage`, `sessionStore`, `resumeRecord` and `resumeTimeoutMs`.
+
+### Changed
+
+- `connectAIAuthModal` never resumes on its own. After a page reload, a site that wants to resume must call `resumeAIAuthSession`.
+
+### Fixed
+
+- A site that ends a session tells the wallet, so the wallet records it as ended and it cannot be resumed.
+- The wallet checks the origin of resume requests and bounds the activity time a site supplies on resume.
+- Resume applies the consent version check and the agent-descriptor check, as a fresh connect does.
+- A resume record supplied to `resumeAIAuthSession` must match the origin before any handshake starts.
+- Capability chips in the connect panel show plain titles instead of raw permission IDs.
+- On touch devices, element sharing explains that it is unavailable, instead of showing a picker that cannot be used.
+
 ## 0.6.2 - 2026-11-16
 
 ### Fixed
