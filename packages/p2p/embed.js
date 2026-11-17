@@ -1030,8 +1030,11 @@ export async function connectAIAuthModal({
               renews: consent.body.payload.requestNonce,
             },
           );
-          if (closed || pendingRenewal)
-            throw new Error("The AI Auth connection is closed");
+          if (closed) throw new Error("The AI Auth connection is closed");
+          // A concurrent renew() may have published its pendingRenewal while
+          // this challenge was being created. Join that pending renewal instead
+          // of reporting the misleading "connection is closed" error.
+          if (pendingRenewal) return pendingRenewal.promise;
           const renewal = { request: renewalRequest };
           renewal.promise = new Promise((resolve, reject) => {
             renewal.resolve = resolve;
