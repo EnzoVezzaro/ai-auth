@@ -422,6 +422,12 @@ export async function registerAIAuthPageActions({
     };
     follow(executionSignal);
     follow(registrationSignal);
+    // Every early return below must detach its followers; only the main
+    // execution block currently has a finally that does this.
+    const cleanupFollowers = () => {
+      for (const [source, abort] of abortFollowers)
+        source.removeEventListener("abort", abort);
+    };
     const executionContext = {
       signal: executionController.signal,
       requester,
@@ -437,11 +443,13 @@ export async function registerAIAuthPageActions({
         "needs-human",
         `Blocked ${action.name}: not authorized`,
       );
+      cleanupFollowers();
       return refuse("This requester is not authorized to run this tool");
     }
     try {
       validateInput(input, action.inputSchema);
     } catch (error) {
+      cleanupFollowers();
       return refuse(error.message);
     }
     // Actions start only after an explicit human decision. The site supplies
@@ -475,6 +483,7 @@ export async function registerAIAuthPageActions({
       }
       if (executionController.signal.aborted) {
         await announce(action, "cancelled", `Stopped ${action.name}`);
+        cleanupFollowers();
         return refuse("This action was stopped before it began");
       }
       if (!approved) {
@@ -488,11 +497,14 @@ export async function registerAIAuthPageActions({
         } catch {
           // A failed announcement must not leak authorization details.
         }
+        cleanupFollowers();
         return refuse("This action needs explicit human approval");
       }
     }
-    if (executionController.signal.aborted || registrationSignal.aborted)
+    if (executionController.signal.aborted || registrationSignal.aborted) {
+      cleanupFollowers();
       return refuse("This action was stopped before it began");
+    }
     const event = {
       name: action.name,
       capability: action.requiredCapability,
@@ -542,8 +554,7 @@ export async function registerAIAuthPageActions({
           : "This page action failed. Check the site for details.",
       );
     } finally {
-      for (const [source, abort] of abortFollowers)
-        source.removeEventListener("abort", abort);
+      cleanupFollowers();
     }
   }
 
@@ -698,7 +709,16 @@ function wireAgentBridge(
     for (const [requestId, expiresAt] of processedRequestIds)
       if (expiresAt <= Date.now()) processedRequestIds.delete(requestId);
     if (processedRequestIds.has(payload.requestId)) return;
-    if (processedRequestIds.size >= 256) return;
+    if (processedRequestIds.size >= 256) {
+      void connection.publishAgentEvent({
+        kind: "tool-response",
+        requestId: payload.requestId,
+        toWallet: envelope.body.issuer,
+        toSession: payload.session,
+        error: "This site is busy; retry shortly",
+      });
+      return;
+    }
     processedRequestIds.set(payload.requestId, payload.expiresAt);
     const controller = new AbortController();
     runningRequests.set(payload.requestId, {
