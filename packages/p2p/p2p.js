@@ -735,14 +735,17 @@ export class NostrWebRTC {
       topic,
     );
     this.stopTransportError = this.transport.onError((error) => {
-      this.lifecycle.recordError(error?.code ?? error?.message);
-      if (error?.code === "peer-connect-failed") this.lifecycle.invalidate();
+      // A transport error can arrive without an error object. Read the code
+      // once so every branch below is null-safe.
+      const code = error?.code;
+      this.lifecycle.recordError(code ?? error?.message);
+      if (code === "peer-connect-failed") this.lifecycle.invalidate();
       this.onStatus(
-        error.code === "peer-connect-failed"
+        code === "peer-connect-failed"
           ? error.turnConfigured
             ? "Direct ICE failed while using relay configuration"
             : "Direct ICE failed after SDP exchange; this network may block peer candidates"
-          : error.code === "relay-failed"
+          : code === "relay-failed"
             ? "Could not reach a Nostr relay"
             : "The peer collaboration room reported an error",
       );
