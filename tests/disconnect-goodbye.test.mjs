@@ -96,13 +96,15 @@ test("a site disconnect sends peer/goodbye and removes the peer at once", async 
     // expireExternalSession now awaits the durable ended-flag write, so both
     // the function and the branch must run in one async scope.
     await vm.runInContext(`(async () => { ${expire}\n${branch} })()`, context);
-    // expireExternalSession closes the room fire-and-forget; let the signed
-    // goodbye finish signing and reach the stub transport.
-    for (let i = 0; i < 20; i += 1)
-      await new Promise((resolve) => setImmediate(resolve));
-    const goodbye = envelopes.find(
-      (envelope) => envelope.body.type === "peer/goodbye",
-    );
+    // expireExternalSession closes the room fire-and-forget, and the goodbye is
+    // signed asynchronously. Wait for it to reach the stub transport, with a
+    // bound, instead of assuming a fixed number of ticks is enough on a slow run.
+    const findGoodbye = () =>
+      envelopes.find((envelope) => envelope.body.type === "peer/goodbye");
+    const deadline = Date.now() + 5000;
+    while (!findGoodbye() && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    const goodbye = findGoodbye();
     assert.ok(goodbye, "a site-side disconnect must send peer/goodbye");
     assert.equal(goodbye.body.issuer, wallet.id);
     assert.equal(
