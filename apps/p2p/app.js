@@ -88,6 +88,13 @@ const state = {
   externalPendingEvents: [],
   error: "",
   connectionLabel: "",
+  // Set synchronously at the start of wallet create/restore so a second
+  // submit cannot generate a second key or download a second recovery file.
+  submitting: false,
+  // Guards the private/public toggle while startRoom tears down the old room.
+  togglingPrivate: false,
+  // Distinguishes "you ended" from "the site ended" on the ended view.
+  endedBySite: false,
 };
 // Approved grants are durable in the wallet origin, so a wallet reload can
 // still confirm a resume. The adapter is a thin IndexedDB wrapper.
@@ -274,6 +281,11 @@ function externalPermissionView() {
     return `${pageHead("SESSION ENDED", "Return to the requesting site.", "This session ended after a period without activity. Start a new connection from the site.")}
       <section class="panel"><p class="mini-label">IDLE SESSION</p><h2>${esc(displayOrigin)}</h2></section>`;
   }
+  if (state.externalStatus === "ended") {
+    const bySite = state.endedBySite === true;
+    return `${pageHead("SESSION ENDED", "Return to the requesting site.", bySite ? "The site ended this session." : "You ended this session.")}
+      <section class="panel"><p class="mini-label">${bySite ? "SITE ENDED SESSION" : "SESSION ENDED"}</p><h2>${esc(displayOrigin)}</h2></section>`;
+  }
   if (state.externalStatus === "expired") {
     const ended = Boolean(state.consent);
     return `${pageHead(ended ? "SESSION EXPIRED" : "REQUEST EXPIRED", "Return to the requesting site.", ended ? "The approved session reached its expiry. Start a new connection from the site." : "This one-use request has expired. Start a new connection from the site.")}
@@ -396,6 +408,24 @@ async function render() {
               : connectPeerView();
   root.setAttribute("aria-busy", "false");
   bindView();
+}
+
+// Room events only need the peer panel refreshed. A plain render() rebuilds
+// #view and would silently drop an in-progress message, its focus and the list
+// scroll, so restore those three bits of UI state around the re-render.
+async function renderPeerPreservingDraft() {
+  const input = $("#peer-message");
+  const draft = input?.value;
+  const scroll = $("#message-list")?.scrollTop;
+  const focused = document.activeElement === input;
+  await render();
+  const nextInput = $("#peer-message");
+  if (nextInput) {
+    if (draft !== undefined) nextInput.value = draft;
+    if (focused) nextInput.focus();
+  }
+  const nextList = $("#message-list");
+  if (nextList && scroll !== undefined) nextList.scrollTop = scroll;
 }
 
 function downloadJson(filename, text) {
@@ -540,14 +570,17 @@ async function startRoom() {
         .then(async () => {
           if (state.view === "overview") state.activity = await readActivity();
           if (state.view === "overview") await render();
-          else if (state.view === "peer" && refreshPeerView) await render();
+          else if (state.view === "peer" && refreshPeerView)
+            await renderPeerPreservingDraft();
         })
         .catch(() => {});
-    } else if (
-      state.view === "overview" ||
-      (state.view === "peer" && (refreshPeerView || direction === "state"))
-    ) {
+    } else if (state.view === "overview") {
       void render();
+    } else if (
+      state.view === "peer" &&
+      (refreshPeerView || direction === "state")
+    ) {
+      void renderPeerPreservingDraft();
     }
   });
   if (external) {
@@ -623,11 +656,15 @@ function bindView() {
   rootViewButtons();
   $("#create-wallet-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    state.error = "";
-    const data = new FormData(event.currentTarget);
-    if (data.get("passphrase") !== data.get("confirmation"))
-      return fail(new Error("Recovery passphrases do not match"));
+    if (state.submitting) return;
+    state.submitting = true;
+    const submitButton = event.currentTarget.querySelector('[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
     try {
+      state.error = "";
+      const data = new FormData(event.currentTarget);
+      if (data.get("passphrase") !== data.get("confirmation"))
+        return fail(new Error("Recovery passphrases do not match"));
       state.wallet = await createWallet({
         name: data.get("name"),
         passphrase: data.get("passphrase"),
@@ -653,14 +690,21 @@ function bindView() {
       toast("Wallet created. Save the encrypted recovery file.");
     } catch (error) {
       fail(error);
+    } finally {
+      state.submitting = false;
+      if (submitButton) submitButton.disabled = false;
     }
   });
   $("#import-wallet-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    state.error = "";
-    const file = $("#backup-file").files?.[0];
-    if (!file) return fail(new Error("Choose a recovery file first"));
+    if (state.submitting) return;
+    state.submitting = true;
+    const submitButton = event.currentTarget.querySelector('[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
     try {
+      state.error = "";
+      const file = $("#backup-file").files?.[0];
+      if (!file) return fail(new Error("Choose a recovery file first"));
       state.wallet = await importWalletBackup(
         await file.text(),
         $("#restore-passphrase").value,
@@ -678,6 +722,9 @@ function bindView() {
       toast("Wallet restored in this browser.");
     } catch (error) {
       fail(error);
+    } finally {
+      state.submitting = false;
+      if (submitButton) submitButton.disabled = false;
     }
   });
   $("#download-backup")?.addEventListener("click", () =>
@@ -967,16 +1014,26 @@ function bindView() {
     }),
   );
   $("#toggle-private")?.addEventListener("click", async () => {
-    state.privateMode = !state.privateMode;
-    state.rtc?.close();
-    state.rtc = null;
-    if (!externalConnectMode) await startRoom();
-    render();
-    toast(
-      state.privateMode
-        ? "Private mode is on. You receive room events but advertise no presence."
-        : "Public site-space presence is on.",
-    );
+    if (state.togglingPrivate) return;
+    state.togglingPrivate = true;
+    const button = $("#toggle-private");
+    if (button) button.disabled = true;
+    try {
+      state.privateMode = !state.privateMode;
+      // startRoom closes the previous room (and its heartbeat) and the old rtc
+      // before creating replacements. It must also run in iframe mode: leaving
+      // a closed transport with no rebuild strands the approved session.
+      await startRoom();
+      render();
+      toast(
+        state.privateMode
+          ? "Private mode is on. You receive room events but advertise no presence."
+          : "Public site-space presence is on.",
+      );
+    } finally {
+      state.togglingPrivate = false;
+      if (button) button.disabled = false;
+    }
   });
   $("#message-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1099,7 +1156,7 @@ function scheduleSessionExpiry() {
   );
 }
 
-async function expireExternalSession(reason = "expired") {
+async function expireExternalSession(reason = "expired", endedBySite = false) {
   if (state.externalStatus !== "sent") return;
   clearTimeout(state.sessionTimer);
   await markSessionEnded(state.consent?.body?.payload?.requestNonce);
@@ -1114,7 +1171,9 @@ async function expireExternalSession(reason = "expired") {
       state.externalOrigin,
     );
   roomGeneration++;
-  state.externalStatus = reason === "idle" ? "idle" : "expired";
+  state.externalStatus =
+    reason === "idle" ? "idle" : reason === "ended" ? "ended" : "expired";
+  state.endedBySite = reason === "ended" ? endedBySite : false;
   state.externalRoomReady = false;
   state.externalPendingEvents.length = 0;
   state.transfers?.close();
@@ -1402,7 +1461,7 @@ if (externalConnectMode) {
     ) {
       // The site already revoked its side of the connection. End the wallet's
       // room too so peers get a signed goodbye instead of waiting for the lease.
-      await expireExternalSession("ended");
+      await expireExternalSession("ended", true);
       return;
     }
     // Authenticate the message itself: data.audience is caller-controlled, so
