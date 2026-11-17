@@ -487,7 +487,7 @@ test("catalog descriptions are truncated and oversized names are rejected", asyn
   await assert.rejects(
     mountAIAuthInPageAgent({
       connection: other.connection,
-      actions: [countAction({ runs: 0 }, { name: `site.${"a".repeat(60)}` })],
+      actions: [countAction({ runs: 0 }, { name: `site.${"a".repeat(130)}` })],
       authorize: () => true,
     }),
     /Page actions need a name/u,
@@ -534,6 +534,218 @@ test("discovered WebMCP tool names peers cannot route are not advertised", async
   });
   t.after(() => api.close());
   assert.deepEqual(api.tools, []);
+});
+
+test("spec-valid dotted names up to 128 characters are accepted", async (t) => {
+  const { connection, popupMessages } = await makeVerifiedConnection(
+    ["tools.invoke"],
+    { roomSession: WALLET_SESSION },
+  );
+  t.after(() => connection.close());
+  const longName = `Peer.Search.${"x".repeat(88)}`;
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    modelContext: {
+      getTools: () => [
+        { name: "Peer.Search", description: "Dotted.", inputSchema: {} },
+        {
+          name: longName,
+          description: "Long.",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ],
+      executeTool: async () => "{}",
+    },
+    authorize: () => true,
+  });
+  t.after(() => api.close());
+  assert.equal(longName.length, 100);
+  assert.deepEqual(api.tools, ["Peer.Search", longName]);
+  assert.deepEqual(
+    catalogsIn(popupMessages)[0].tools.map(({ name }) => name),
+    ["Peer.Search", longName],
+  );
+});
+
+test("a tool name containing a slash is still rejected", async (t) => {
+  const { connection } = await makeVerifiedConnection(["tools.invoke"], {
+    roomSession: WALLET_SESSION,
+  });
+  t.after(() => connection.close());
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    modelContext: {
+      getTools: () => [
+        {
+          name: "peer/bad",
+          description: "Slash.",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ],
+      executeTool: async () => "{}",
+    },
+    authorize: () => true,
+  });
+  t.after(() => api.close());
+  assert.deepEqual(api.tools, []);
+});
+
+test("a human title is published with each tool descriptor, capped to 120 characters", async (t) => {
+  const { connection, popupMessages } = await makeVerifiedConnection(
+    ["tools.invoke"],
+    { roomSession: WALLET_SESSION },
+  );
+  t.after(() => connection.close());
+  const registrations = [];
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    actions: [
+      countAction(
+        { runs: 0 },
+        {
+          name: "site.count",
+          label: "  Count public records  ",
+        },
+      ),
+      countAction({ runs: 0 }, { name: "site.long", title: "t".repeat(200) }),
+    ],
+    modelContext: {
+      registerTool(tool) {
+        registrations.push(tool);
+      },
+      getTools: () => [
+        {
+          name: "peer.search",
+          description: "Search peer data.",
+          inputSchema: {},
+          title: "Peer search",
+        },
+      ],
+      executeTool: async () => "{}",
+    },
+    authorize: () => true,
+  });
+  t.after(() => api.close());
+  const tools = new Map(
+    catalogsIn(popupMessages)[0].tools.map((tool) => [tool.name, tool]),
+  );
+  assert.equal(tools.get("site.count").title, "Count public records");
+  assert.equal(tools.get("site.long").title.length, 120);
+  assert.equal(tools.get("peer.search").title, "Peer search");
+  assert.equal(
+    registrations.find((tool) => tool.name === "site.count").title,
+    "Count public records",
+  );
+});
+
+test("a non-object JSON Schema is published without dropping the catalog", async (t) => {
+  const { connection, popupMessages } = await makeVerifiedConnection(
+    ["tools.invoke"],
+    { roomSession: WALLET_SESSION },
+  );
+  t.after(() => connection.close());
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    actions: [
+      countAction(
+        { runs: 0 },
+        {
+          name: "site.text",
+          description: "Handle a text value.",
+          inputSchema: { type: "string" },
+        },
+      ),
+      countAction(
+        { runs: 0 },
+        {
+          name: "site.huge",
+          description: "Oversized.",
+          inputSchema: { type: "string", description: "x".repeat(5_000) },
+        },
+      ),
+    ],
+    authorize: () => true,
+  });
+  t.after(() => api.close());
+  assert.ok(api.tools.includes("site.text"));
+  assert.deepEqual(
+    catalogsIn(popupMessages)[0].tools.map(({ name }) => name),
+    ["site.text"],
+  );
+  const [tool] = catalogsIn(popupMessages)[0].tools;
+  assert.deepEqual(tool.inputSchema, { type: "string" });
+});
+
+test("a toolchange event re-discovers tools and re-publishes the catalog", async (t) => {
+  const { connection, popupMessages } = await makeVerifiedConnection(
+    ["tools.invoke"],
+    { roomSession: WALLET_SESSION },
+  );
+  t.after(() => connection.close());
+  const listeners = new Set();
+  const calls = [];
+  const first = { name: "page.one", description: "One.", inputSchema: {} };
+  let tools = [first];
+  const modelContext = {
+    getTools: () => tools,
+    executeTool: async (tool) => {
+      calls.push(tool.name);
+      return "{}";
+    },
+    addEventListener(type, listener) {
+      if (type === "toolchange") listeners.add(listener);
+    },
+    removeEventListener(type, listener) {
+      listeners.delete(listener);
+    },
+    fireToolChange() {
+      for (const listener of [...listeners]) listener({ type: "toolchange" });
+    },
+  };
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    modelContext,
+    authorize: () => true,
+  });
+  t.after(() => api.close());
+  assert.deepEqual(api.tools, ["page.one"]);
+
+  tools = [
+    ...tools,
+    first,
+    { name: "page.two", description: "Two.", inputSchema: {} },
+  ];
+  modelContext.fireToolChange();
+  await waitFor(
+    () =>
+      catalogsIn(popupMessages).some((catalog) =>
+        catalog.tools.some((tool) => tool.name === "page.two"),
+      ),
+    "a catalog re-published after toolchange",
+  );
+  assert.deepEqual(api.tools, ["page.one", "page.two"]);
+  assert.deepEqual(
+    catalogsIn(popupMessages)
+      .at(-1)
+      .tools.map((tool) => tool.name),
+    ["page.one", "page.two"],
+  );
+  await api.execute("page.two");
+  assert.deepEqual(calls, ["page.two"]);
+
+  tools = Array.from({ length: 40 }, (_, index) => ({
+    name: `page.t${index}`,
+    description: "Generated.",
+    inputSchema: {},
+  }));
+  modelContext.fireToolChange();
+  await waitFor(() => api.tools.length === 32, "the capped re-discovery");
+  assert.equal(catalogsIn(popupMessages).at(-1).tools.length, 32);
+
+  api.close();
+  modelContext.fireToolChange();
+  await settle();
+  assert.equal(listeners.size, 0, "closing removes the toolchange listener");
 });
 
 test("the agent client drops catalogs above the 32-tool bound", async (t) => {
@@ -954,6 +1166,63 @@ test("a protected tool is refused until membership and a grant exist, and again 
   const revoked = await w.call("request-revoked-1");
   assert.equal(typeof revoked.error, "string");
   assert.equal(w.counter.runs, 1, "the revoked identity cannot invoke");
+});
+
+test("annotation hints mark protected actions and peer-sourced tools", async (t) => {
+  const { connection, popupMessages } = await makeVerifiedConnection(
+    ["tools.invoke"],
+    { roomSession: WALLET_SESSION },
+  );
+  t.after(() => connection.close());
+  const registrations = [];
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    actions: [
+      countAction({ runs: 0 }, { name: "site.read" }),
+      countAction({ runs: 0 }, { name: "site.approve", protected: true }),
+    ],
+    modelContext: {
+      registerTool(tool) {
+        registrations.push(tool);
+      },
+      getTools: () => [
+        {
+          name: "peer.search",
+          description: "Read peer records.",
+          inputSchema: { type: "object", properties: {} },
+          annotations: { readOnlyHint: true },
+        },
+      ],
+      executeTool: async () => "{}",
+    },
+    authorize: () => true,
+  });
+  t.after(() => api.close());
+  const registered = new Map(registrations.map((tool) => [tool.name, tool]));
+  assert.equal(
+    registered.get("site.read").annotations.consequentialHint,
+    false,
+  );
+  assert.equal(
+    registered.get("site.approve").annotations.consequentialHint,
+    true,
+  );
+  assert.equal(
+    registered.get("site.read").annotations.untrustedContentHint,
+    false,
+  );
+  const [catalog] = catalogsIn(popupMessages);
+  const hints = new Map(
+    catalog.tools.map((tool) => [tool.name, tool.annotations]),
+  );
+  assert.deepEqual(hints.get("site.read"), {
+    readOnlyHint: false,
+    consequentialHint: false,
+    untrustedContentHint: false,
+  });
+  assert.equal(hints.get("site.approve").consequentialHint, true);
+  assert.equal(hints.get("peer.search").untrustedContentHint, true);
+  assert.equal(hints.get("peer.search").readOnlyHint, true);
 });
 
 test("an action marked protected fails closed when no policy is available", async (t) => {

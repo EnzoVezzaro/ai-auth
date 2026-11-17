@@ -72,7 +72,13 @@ function validateInput(input, schema) {
   }
   return input;
 }
-const TOOL_NAME = /^[a-z][a-z0-9._-]{0,63}$/u;
+// WebMCP tool names: 1-128 chars from [A-Za-z0-9_.-] (draft index.bs).
+const TOOL_NAME = /^[A-Za-z0-9_.-]{1,128}$/u;
+// JSON Schema is an object or a boolean; other values are not schemas.
+const validSchema = (schema) =>
+  schema !== null &&
+  schema !== undefined &&
+  (typeof schema === "object" || typeof schema === "boolean");
 const TOOL_EVENT_KINDS = new Set([
   "tool-catalog",
   "tool-request",
@@ -104,14 +110,37 @@ function safeToolDescriptor(action) {
   }
 }
 
+// Advisory hints only. Authorizations never read these fields; the approval
+// gate and the participation policy remain the source of truth.
+function toolAnnotations(action) {
+  return {
+    readOnlyHint: action.readOnly === true,
+    consequentialHint:
+      action.protected === true || action.consequentialHint === true,
+    untrustedContentHint: action.untrustedContent === true,
+  };
+}
+
+const MAX_TITLE_CHARS = 120;
+
+function toolTitle(action) {
+  const title = action.title ?? action.label;
+  return typeof title === "string" && title.trim()
+    ? title.trim().slice(0, MAX_TITLE_CHARS)
+    : undefined;
+}
+
 function toolDescriptor(action) {
   const descriptor = {
     name: action.name,
     description: action.description.trim().slice(0, 240),
     inputSchema: boundedJson(action.inputSchema, 4_096),
+    annotations: toolAnnotations(action),
   };
   if (action.outputSchema)
     descriptor.outputSchema = boundedJson(action.outputSchema, 4_096);
+  const title = toolTitle(action);
+  if (title) descriptor.title = title;
   return descriptor;
 }
 
@@ -124,7 +153,7 @@ function validToolRequest(payload, { walletId, requestNonce, walletSession }) {
     typeof payload.requestId === "string" &&
     /^[A-Za-z0-9_-]{8,80}$/u.test(payload.requestId) &&
     typeof payload.name === "string" &&
-    /^[a-z][a-z0-9._-]{0,63}$/u.test(payload.name) &&
+    TOOL_NAME.test(payload.name) &&
     payload.input !== null &&
     typeof payload.input === "object" &&
     !Array.isArray(payload.input) &&
@@ -163,21 +192,85 @@ function protectedGate(action, requester, policy) {
 function validateAction(action) {
   if (
     !action ||
-    !/^[a-z][a-z0-9._-]{0,63}$/u.test(action.name ?? "") ||
+    !TOOL_NAME.test(action.name ?? "") ||
     typeof action.description !== "string" ||
     !action.description.trim() ||
     typeof action.execute !== "function" ||
-    !action.inputSchema ||
-    action.inputSchema.type !== "object" ||
-    !action.inputSchema.properties ||
+    !validSchema(action.inputSchema) ||
     typeof action.requiredCapability !== "string"
   ) {
     throw new TypeError(
-      "Page actions need a name, description, object input schema, capability, and execute function",
+      "Page actions need a name, description, JSON Schema input, capability, and execute function",
     );
   }
   actionCapability(action.requiredCapability);
 }
+
+function discoveredAction(tool, modelContext) {
+  return {
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+    outputSchema: tool.outputSchema,
+    title: toolTitle(tool),
+    requiredCapability: "tools.invoke",
+    readOnly: tool.annotations?.readOnlyHint === true,
+    // Advisory page hints; they never change the approval gate.
+    consequentialHint: tool.annotations?.consequentialHint === true,
+    untrustedContent: true,
+    execute: async (input, context) => {
+      const result = await modelContext.executeTool(tool, input, {
+        signal: context.signal,
+      });
+      if (typeof result !== "string") return result;
+      try {
+        return JSON.parse(result);
+      } catch {
+        return result;
+      }
+    },
+    discoveredWebMCP: true,
+  };
+}
+
+async function discoverWebMCPTools(modelContext, explicitNames) {
+  if (
+    typeof modelContext?.getTools !== "function" ||
+    typeof modelContext.executeTool !== "function"
+  )
+    return [];
+  try {
+    const available = await modelContext.getTools();
+    if (!Array.isArray(available)) return [];
+    const seen = new Set(explicitNames);
+    const tools = [];
+    for (const tool of available) {
+      if (
+        !tool ||
+        typeof tool.name !== "string" ||
+        !TOOL_NAME.test(tool.name) ||
+        seen.has(tool.name) ||
+        typeof tool.description !== "string" ||
+        !validSchema(tool.inputSchema)
+      )
+        continue;
+      seen.add(tool.name);
+      tools.push(discoveredAction(tool, modelContext));
+      if (tools.length === MAX_REMOTE_TOOL_COUNT) break;
+    }
+    return tools;
+  } catch {
+    return [];
+  }
+}
+
+const allowedActionsFor = (explicit, discovered, approved) =>
+  [...explicit, ...discovered]
+    .filter((action) => approved.has(action.requiredCapability))
+    .slice(0, MAX_REMOTE_TOOL_COUNT);
+
+const actionMap = (actions) =>
+  new Map(actions.map((action) => [action.name, action]));
 
 export async function registerAIAuthPageActions({
   actions = [],
@@ -187,6 +280,7 @@ export async function registerAIAuthPageActions({
   authorize,
   publishAction = async () => {},
   policy,
+  onToolsChange,
 } = {}) {
   if (!Array.isArray(actions))
     throw new TypeError("Page actions must be an array");
@@ -205,54 +299,13 @@ export async function registerAIAuthPageActions({
     return approved.has(action.requiredCapability);
   });
   const explicitNames = new Set(explicitActions.map(({ name }) => name));
-  let discoveredTools = [];
-  if (typeof modelContext?.getTools === "function") {
-    try {
-      const available = await modelContext.getTools();
-      if (Array.isArray(available))
-        discoveredTools = available
-          .filter(
-            (tool) =>
-              !explicitNames.has(tool?.name) &&
-              typeof modelContext.executeTool === "function" &&
-              typeof tool?.name === "string" &&
-              TOOL_NAME.test(tool.name) &&
-              typeof tool?.description === "string" &&
-              tool?.inputSchema?.type === "object" &&
-              tool?.inputSchema?.properties &&
-              typeof tool.inputSchema.properties === "object",
-          )
-          .slice(0, MAX_REMOTE_TOOL_COUNT)
-          .map((tool) => ({
-            name: tool.name,
-            description: tool.description,
-            inputSchema: tool.inputSchema,
-            outputSchema: tool.outputSchema,
-            requiredCapability: "tools.invoke",
-            readOnly: tool.annotations?.readOnlyHint === true,
-            execute: async (input, context) => {
-              const result = await modelContext.executeTool(tool, input, {
-                signal: context.signal,
-              });
-              if (typeof result !== "string") return result;
-              try {
-                return JSON.parse(result);
-              } catch {
-                return result;
-              }
-            },
-            discoveredWebMCP: true,
-          }));
-    } catch {
-      discoveredTools = [];
-    }
-  }
-  const allowedActions = [...explicitActions, ...discoveredTools]
-    .filter((action) => approved.has(action.requiredCapability))
-    .slice(0, MAX_REMOTE_TOOL_COUNT);
-  const handlers = new Map(
-    allowedActions.map((action) => [action.name, action]),
+  let discoveredTools = await discoverWebMCPTools(modelContext, explicitNames);
+  let allowedActions = allowedActionsFor(
+    explicitActions,
+    discoveredTools,
+    approved,
   );
+  let handlers = actionMap(allowedActions);
   // Results created by refusal paths, so callers can tell failure from data.
   const failures = new WeakSet();
   const refuse = (error) => {
@@ -297,8 +350,27 @@ export async function registerAIAuthPageActions({
     clearTimeout(expiryTimer);
     signal?.removeEventListener("abort", abortFromCaller);
     removeConnectionCloseListener();
+    modelContext?.removeEventListener?.("toolchange", rediscover);
     controller.abort();
   };
+
+  let refreshSeq = 0;
+  async function rediscover() {
+    if (closed || registrationSignal.aborted) return;
+    const seq = ++refreshSeq;
+    const found = await discoverWebMCPTools(modelContext, explicitNames);
+    if (seq !== refreshSeq || closed || registrationSignal.aborted) return;
+    discoveredTools = found;
+    allowedActions = allowedActionsFor(
+      explicitActions,
+      discoveredTools,
+      approved,
+    );
+    handlers = actionMap(allowedActions);
+    onToolsChange?.();
+  }
+  if (typeof modelContext?.addEventListener === "function")
+    modelContext.addEventListener("toolchange", rediscover);
 
   async function announce(action, state, summary) {
     try {
@@ -467,9 +539,6 @@ export async function registerAIAuthPageActions({
     }
   }
 
-  const webMcpAvailable = Boolean(
-    modelContext?.registerTool || discoveredTools.length,
-  );
   if (modelContext?.registerTool) {
     try {
       await Promise.all(
@@ -479,9 +548,8 @@ export async function registerAIAuthPageActions({
               name: action.name,
               description: action.description,
               inputSchema: action.inputSchema,
-              annotations: {
-                readOnlyHint: action.readOnly === true,
-              },
+              ...(toolTitle(action) ? { title: toolTitle(action) } : {}),
+              annotations: toolAnnotations(action),
               execute: (input, context = {}) =>
                 execute(action.name, input, context),
             },
@@ -496,9 +564,15 @@ export async function registerAIAuthPageActions({
   }
 
   return Object.freeze({
-    webMcpAvailable,
-    tools: Object.freeze(allowedActions.map(({ name }) => name)),
-    actionsByName: handlers,
+    get webMcpAvailable() {
+      return Boolean(modelContext?.registerTool || discoveredTools.length);
+    },
+    get tools() {
+      return Object.freeze(allowedActions.map(({ name }) => name));
+    },
+    get actionsByName() {
+      return handlers;
+    },
     execute,
     isFailure: (result) =>
       result !== null && typeof result === "object" && failures.has(result),
@@ -535,6 +609,7 @@ export async function mountAIAuthInPageAgent({
     throw new TypeError(
       "An in-page agent needs an explicit human authorization gate",
     );
+  const toolsChanged = { republish: () => {} };
   const api = await registerAIAuthPageActions({
     actions,
     connection,
@@ -542,6 +617,7 @@ export async function mountAIAuthInPageAgent({
     signal,
     authorize,
     policy,
+    onToolsChange: () => toolsChanged.republish(),
     publishAction:
       publishAction ??
       (async (event) => {
@@ -554,13 +630,16 @@ export async function mountAIAuthInPageAgent({
         });
       }),
   });
+  let bridge;
   try {
-    return wireAgentBridge(api, connection, catalogRefreshMs);
+    bridge = wireAgentBridge(api, connection, catalogRefreshMs);
   } catch (error) {
     // Never leak the registration (and its expiry timer) when wiring fails.
     api.close();
     throw error;
   }
+  toolsChanged.republish = () => bridge.refreshCatalog();
+  return bridge;
 }
 
 function wireAgentBridge(
@@ -570,10 +649,14 @@ function wireAgentBridge(
 ) {
   // Only tools with a bounded descriptor are advertised or callable by peers.
   const advertised = new Map();
-  for (const name of api.tools) {
-    const descriptor = safeToolDescriptor(allowedActionByName(api, name));
-    if (descriptor) advertised.set(name, descriptor);
-  }
+  const rebuildAdvertised = () => {
+    advertised.clear();
+    for (const name of api.tools) {
+      const descriptor = safeToolDescriptor(allowedActionByName(api, name));
+      if (descriptor) advertised.set(name, descriptor);
+    }
+  };
+  rebuildAdvertised();
   const processedRequestIds = new Map();
   const runningRequests = new Map();
   const stopEvents = connection.onEvent((envelope) => {
@@ -644,8 +727,10 @@ function wireAgentBridge(
       )
       .finally(() => runningRequests.delete(payload.requestId));
   });
+  let stopped = false;
   const publishCatalog = () => {
     if (
+      stopped ||
       !connection.walletSession ||
       !connection.capabilities.includes("tools.invoke")
     )
@@ -654,6 +739,11 @@ function wireAgentBridge(
       kind: "tool-catalog",
       tools: [...advertised.values()],
     });
+  };
+  const refreshCatalog = () => {
+    if (stopped) return;
+    rebuildAdvertised();
+    publishCatalog();
   };
   const stopRoomReady = connection.onRoomReady(publishCatalog);
   const stopPeerDiscovery = connection.onEvent((envelope) => {
@@ -679,28 +769,28 @@ function wireAgentBridge(
     connection,
     stopRefresh,
   );
+  const shutdown = () => {
+    if (stopped) return;
+    stopped = true;
+    withdrawCatalog();
+    stopEvents();
+    stopRoomReady();
+    stopPeerDiscovery();
+    stopRefresh();
+    stopRefreshOnClose();
+    api.close();
+  };
   return Object.freeze({
-    webMcpAvailable: api.webMcpAvailable,
-    tools: api.tools,
+    get webMcpAvailable() {
+      return api.webMcpAvailable;
+    },
+    get tools() {
+      return api.tools;
+    },
     execute: api.execute,
-    stop: () => {
-      withdrawCatalog();
-      stopEvents();
-      stopRoomReady();
-      stopPeerDiscovery();
-      stopRefresh();
-      stopRefreshOnClose();
-      api.close();
-    },
-    close: () => {
-      withdrawCatalog();
-      stopEvents();
-      stopRoomReady();
-      stopPeerDiscovery();
-      stopRefresh();
-      stopRefreshOnClose();
-      api.close();
-    },
+    refreshCatalog,
+    stop: shutdown,
+    close: shutdown,
   });
 }
 
@@ -973,7 +1063,7 @@ export function createAIAuthAgentClient(
       if (closed) throw new Error("The AI Auth agent client is closed");
       if (
         typeof name !== "string" ||
-        !/^[a-z][a-z0-9._-]{0,63}$/u.test(name) ||
+        !TOOL_NAME.test(name) ||
         ![
           "started",
           "progress",

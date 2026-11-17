@@ -448,14 +448,6 @@ async function startRoom() {
       return;
     }
     const type = envelope?.body?.type;
-    if (type === "peer/heartbeat") {
-      if (state.view === "overview") {
-        const peerCount = $("#overview-peer-count");
-        if (peerCount)
-          peerCount.textContent = String(state.room?.peers.size ?? 0);
-      }
-      return;
-    }
     const refreshPeerView =
       type === "peer/hello" ||
       type === "peer/goodbye" ||
@@ -487,7 +479,14 @@ async function startRoom() {
         payload?.targetNonce === state.externalRequest?.nonce &&
         payload?.targetSession === state.room?.session;
       if (!targetedRequest || routeMatches) {
-        if (!["peer/hello", "peer/goodbye", "presence/cursor"].includes(type))
+        if (
+          ![
+            "peer/hello",
+            "peer/heartbeat",
+            "peer/goodbye",
+            "presence/cursor",
+          ].includes(type)
+        )
           state.lease?.touch();
         externalHost.postMessage(
           { type: "ai-auth/collaboration-event", envelope },
@@ -500,6 +499,16 @@ async function startRoom() {
           type,
         );
       }
+    }
+    // Heartbeats were forwarded above so the site can refresh presence, but
+    // they are passive: no activity entry, no re-render, just the peer count.
+    if (type === "peer/heartbeat") {
+      if (state.view === "overview") {
+        const peerCount = $("#overview-peer-count");
+        if (peerCount)
+          peerCount.textContent = String(state.room?.peers.size ?? 0);
+      }
+      return;
     }
     if (
       direction === "in" &&
@@ -1368,7 +1377,9 @@ if (externalConnectMode) {
       event.origin === state.externalOrigin &&
       event.origin === state.externalRequest?.audience
     ) {
-      markSessionEnded(state.consent?.body?.payload?.requestNonce);
+      // The site already revoked its side of the connection. End the wallet's
+      // room too so peers get a signed goodbye instead of waiting for the lease.
+      expireExternalSession("ended");
       return;
     }
     // Authenticate the message itself: data.audience is caller-controlled, so

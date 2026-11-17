@@ -177,10 +177,12 @@ test("the wallet records a site-ended session and can no longer resume it", asyn
   const sessionId = consent.body.payload.requestNonce;
   const source = await appSource();
   const storage = memoryStorage();
+  const externalHost = { postMessage() {} };
   const sandbox = runFragment(
     [
       extractFunction(source, "endedSessionIds"),
       extractFunction(source, "markSessionEnded"),
+      extractFunction(source, "expireExternalSession"),
       `async function handle(event) { ${extractIfContaining(
         source,
         'event.data?.type === "ai-auth/session-ended"',
@@ -189,18 +191,27 @@ test("the wallet records a site-ended session and can no longer resume it", asyn
     {
       sessionStorage: storage,
       ENDED_SESSIONS_KEY: "ai-auth-ended-sessions",
-      externalHost: "opener",
+      externalHost,
+      roomGeneration: 0,
+      clearTimeout() {},
+      render() {},
       state: {
         consent,
+        externalStatus: "sent",
+        externalSource: externalHost,
         externalOrigin: ORIGIN,
         externalRequest: { audience: ORIGIN },
+        externalPendingEvents: [],
+        lease: { revoke() {} },
+        transfers: { close() {} },
+        rtc: { close() {} },
       },
     },
   );
 
   // This is the payload embed.js posts when the site calls close("closed").
   await sandbox.handle({
-    source: "opener",
+    source: externalHost,
     origin: ORIGIN,
     data: { type: "ai-auth/session-ended", reason: "ended" },
   });
