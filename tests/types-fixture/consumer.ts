@@ -68,6 +68,7 @@ import {
   createRevocation,
   createRevocationGossip,
   createRevokedLinkSet,
+  createSessionStore,
   createSharedRoomTopic,
   createWallet,
   deriveLinkId,
@@ -91,6 +92,7 @@ import {
   registerAIAuthPageActions,
   renewExecutionGrant,
   resolveDuration,
+  resumeAIAuthSession,
   sessionLimits,
   signEnvelope,
   unlink,
@@ -466,6 +468,30 @@ export async function exerciseAgentAndReceipts(
   void extractSafeText;
   void isSensitiveElement;
   void SENSITIVE_SELECTOR;
+}
+
+export async function exerciseSessionResume(
+  walletUrl: string,
+  capabilities: string[],
+): Promise<void> {
+  const store = createSessionStore({ storage: sessionStorage });
+  // origin is optional; resumeAIAuthSession defaults it from location.
+  const connection = await resumeAIAuthSession({
+    walletUrl,
+    capabilities,
+    storage: sessionStorage,
+    sessionStore: store,
+    resumeTimeoutMs: 1_000,
+    now: Date.now(),
+  });
+  connection?.close("closed");
+  await connectAIAuthModal({
+    walletUrl,
+    capabilities,
+    storage: sessionStorage,
+    sessionStore: store,
+    resumeTimeoutMs: 1_000,
+  }).catch(() => undefined);
 }
 
 export const fixtureVersion = {

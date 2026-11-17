@@ -419,10 +419,11 @@ export type AIAuthLifecycleEvent =
     }
   | { type: "disconnected"; reason: "closed" | "expired" };
 
-export function connectAIAuthModal(options: {
+export interface AIAuthConnectOptions {
   walletUrl: string;
   capabilities: string[];
   room?: string;
+  /** Defaults to the current site's location.origin. */
   origin?: string;
   timeoutMs?: number;
   windowObject?: Window;
@@ -438,7 +439,17 @@ export function connectAIAuthModal(options: {
     policy: import("./membership.js").ParticipationPolicy;
     now?: number | (() => number);
   };
-}): Promise<AIAuthPageConnection>;
+  /** A session store, or a sessionStorage-compatible backing for the default one. */
+  sessionStore?: AIAuthSessionStore;
+  storage?: AIAuthSessionStorage;
+  /** Internal: resume this record instead of asking for fresh consent. */
+  resumeRecord?: AIAuthSessionRecord;
+  resumeTimeoutMs?: number;
+}
+
+export function connectAIAuthModal(
+  options: AIAuthConnectOptions,
+): Promise<AIAuthPageConnection>;
 
 /** @deprecated Use connectAIAuthModal. */
 export const connectAIAuthPopup: typeof connectAIAuthModal;
@@ -475,12 +486,14 @@ export interface AIAuthSessionStore {
   clear(origin: string): void;
 }
 
+export interface AIAuthSessionStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
 export function createSessionStore(options?: {
-  storage?: {
-    getItem(key: string): string | null;
-    setItem(key: string, value: string): void;
-    removeItem(key: string): void;
-  };
+  storage?: AIAuthSessionStorage;
   now?: () => number;
 }): AIAuthSessionStore;
 
@@ -511,17 +524,13 @@ export const SESSION_RECORD_VERSION: number;
  * there is no valid record; rejects and drops that agent's record when the
  * wallet cannot confirm the session.
  */
-export function resumeAIAuthSession(options: {
-  walletUrl: string;
-  origin: string;
-  room?: string;
-  capabilities: string[];
-  windowObject?: Window;
-  sessionStore?: AIAuthSessionStore;
-  record?: AIAuthSessionRecord;
-  resumeTimeoutMs?: number;
-  timeoutMs?: number;
-}): Promise<AIAuthPageConnection | null>;
+export function resumeAIAuthSession(
+  options: AIAuthConnectOptions & {
+    /** A specific record to resume, subject to the same origin checks. */
+    record?: AIAuthSessionRecord;
+    now?: number;
+  },
+): Promise<AIAuthPageConnection | null>;
 
 export function inlineCreateWalletForm(options?: { error?: string }): string;
 
