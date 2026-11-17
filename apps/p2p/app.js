@@ -91,6 +91,8 @@ const state = {
   // Set synchronously at the start of wallet create/restore so a second
   // submit cannot generate a second key or download a second recovery file.
   submitting: false,
+  // Guards the private/public toggle while startRoom tears down the old room.
+  togglingPrivate: false,
 };
 // Approved grants are durable in the wallet origin, so a wallet reload can
 // still confirm a resume. The adapter is a thin IndexedDB wrapper.
@@ -1005,16 +1007,26 @@ function bindView() {
     }),
   );
   $("#toggle-private")?.addEventListener("click", async () => {
-    state.privateMode = !state.privateMode;
-    state.rtc?.close();
-    state.rtc = null;
-    if (!externalConnectMode) await startRoom();
-    render();
-    toast(
-      state.privateMode
-        ? "Private mode is on. You receive room events but advertise no presence."
-        : "Public site-space presence is on.",
-    );
+    if (state.togglingPrivate) return;
+    state.togglingPrivate = true;
+    const button = $("#toggle-private");
+    if (button) button.disabled = true;
+    try {
+      state.privateMode = !state.privateMode;
+      // startRoom closes the previous room (and its heartbeat) and the old rtc
+      // before creating replacements. It must also run in iframe mode: leaving
+      // a closed transport with no rebuild strands the approved session.
+      await startRoom();
+      render();
+      toast(
+        state.privateMode
+          ? "Private mode is on. You receive room events but advertise no presence."
+          : "Public site-space presence is on.",
+      );
+    } finally {
+      state.togglingPrivate = false;
+      if (button) button.disabled = false;
+    }
   });
   $("#message-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
