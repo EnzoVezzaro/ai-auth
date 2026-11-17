@@ -132,6 +132,23 @@ const collaboration = (envelope) => ({
   envelope,
 });
 
+// A peer first announces its tool session, then sends targeted requests.
+async function announcePeer(dispatch, peer, session = PEER_SESSION) {
+  await dispatch(
+    collaboration(
+      await peer.sign("agent/action", {
+        kind: "tool-catalog",
+        tools: [],
+        room: ROOM,
+        origin: SITE_ORIGIN,
+        session,
+        nonce: randomNonce(),
+        expiresAt: Date.now() + 30_000,
+      }),
+    ),
+  );
+}
+
 // A signed peer request or cancel, targeted at this page connection.
 async function peerEnvelope(
   peer,
@@ -341,6 +358,7 @@ test("a repeated request ID is ignored and the action runs exactly once", async 
   );
   t.after(() => connection.close());
   const peer = await makeWallet("Peer agent");
+  await announcePeer(dispatch, peer);
   const counter = { runs: 0 };
   let decisions = 0;
   const api = await mountAIAuthInPageAgent({
@@ -410,6 +428,8 @@ test("with the capability, each peer still needs its own human approval", async 
   t.after(() => connection.close());
   const trusted = await makeWallet("Trusted peer");
   const stranger = await makeWallet("Stranger peer");
+  await announcePeer(dispatch, trusted, "trusted-session");
+  await announcePeer(dispatch, stranger, "stranger-session");
   const counter = { runs: 0 };
   const requesters = [];
   const api = await mountAIAuthInPageAgent({
@@ -426,6 +446,7 @@ test("with the capability, each peer still needs its own human approval", async 
     collaboration(
       await peerEnvelope(stranger, connection, {
         requestId: "stranger-req-01",
+        session: "stranger-session",
       }),
     ),
   );
@@ -433,7 +454,10 @@ test("with the capability, each peer still needs its own human approval", async 
   assert.equal(counter.runs, 0, "a peer the human refused does not run");
   await dispatch(
     collaboration(
-      await peerEnvelope(trusted, connection, { requestId: "trusted-req-01" }),
+      await peerEnvelope(trusted, connection, {
+        requestId: "trusted-req-01",
+        session: "trusted-session",
+      }),
     ),
   );
   await waitFor(() => counter.runs === 1, "the approved peer to run");
@@ -909,6 +933,7 @@ test("a requester's cancellation publishes cancelled, never completed", async (t
   );
   t.after(() => connection.close());
   const peer = await makeWallet("Peer agent");
+  await announcePeer(dispatch, peer);
   const states = [];
   const executionRef = {};
   const api = await mountAIAuthInPageAgent({
@@ -967,6 +992,7 @@ test("an agent timeout cancels the site action, which reports cancelled", async 
   );
   t.after(() => connection.close());
   const agent = await makeWallet("Agent wallet");
+  await announcePeer(dispatch, agent);
   const states = [];
   const executionRef = {};
   // Carries each outgoing agent frame to the site as a signed envelope.
@@ -1019,6 +1045,7 @@ test("a denied tool call reaches the requesting peer as an error, not a result",
   );
   t.after(() => connection.close());
   const peer = await makeWallet("Peer agent");
+  await announcePeer(dispatch, peer);
   const api = await mountAIAuthInPageAgent({
     connection,
     actions: [countAction({ runs: 0 })],
@@ -1113,6 +1140,7 @@ async function gatedWorld(t) {
     roomSession: WALLET_SESSION,
   });
   t.after(() => ctx.connection.close());
+  await announcePeer(ctx.dispatch, peer);
   const counter = { runs: 0 };
   const api = await mountAIAuthInPageAgent({
     connection: ctx.connection,
@@ -1240,6 +1268,7 @@ test("an action marked protected fails closed when no policy is available", asyn
   });
   t.after(() => api.close());
   const peer = await makeWallet("Peer agent");
+  await announcePeer(dispatch, peer);
   await dispatch(collaboration(await peerEnvelope(peer, connection)));
   await waitFor(() => responsesIn(popupMessages).length === 1, "a response");
   assert.equal(typeof responsesIn(popupMessages)[0].error, "string");

@@ -454,6 +454,18 @@ test("peer presence accepts a scroll fraction and rejects out-of-range values", 
   // Inbound peer presence keeps the same bounds: a valid scroll fraction
   // passes, an invalid one is rejected before it reaches page listeners.
   const peer = await makeWallet("Peer agent");
+  const peerSession = "peer-presence-session";
+  await dispatch({
+    type: "ai-auth/collaboration-event",
+    envelope: await peer.sign("peer/hello", {
+      label: "Peer agent",
+      room: "research",
+      origin: "https://site.example",
+      session: peerSession,
+      nonce: randomNonce(),
+      expiresAt: Date.now() + 30_000,
+    }),
+  });
   const received = [];
   const stop = connection.onEvent((envelope) => received.push(envelope));
   const sendPresence = (scroll) =>
@@ -464,7 +476,7 @@ test("peer presence accepts a scroll fraction and rejects out-of-range values", 
       ...(scroll === undefined ? {} : { scroll }),
       room: "research",
       origin: "https://site.example",
-      session: crypto.randomUUID(),
+      session: peerSession,
       nonce: randomNonce(),
       expiresAt: Date.now() + 30_000,
     });
@@ -489,7 +501,7 @@ test("peer presence accepts a scroll fraction and rejects out-of-range values", 
 
 test("in-page agent discovers WebMCP tools, targets requests, and returns signed-wallet events", async () => {
   const { connection, wallet, popupMessages, dispatch } =
-    await makeVerifiedConnection(["tools.invoke"], true, {
+    await makeVerifiedConnection(["tools.invoke", "presence.read"], true, {
       roomSession: "wallet-room-session",
     });
   const executions = [];
@@ -508,6 +520,17 @@ test("in-page agent discovers WebMCP tools, targets requests, and returns signed
     annotations: { readOnlyHint: true },
   };
   const peer = await makeWallet("Peer agent");
+  await dispatch({
+    type: "ai-auth/collaboration-event",
+    envelope: await peer.sign("peer/hello", {
+      label: "Peer agent",
+      room: "research",
+      origin: "https://site.example",
+      session: "peer-session-123456",
+      nonce: randomNonce(),
+      expiresAt: Date.now() + 30_000,
+    }),
+  });
   const api = await mountAIAuthInPageAgent({
     connection,
     modelContext: {
@@ -689,6 +712,30 @@ test("a tool cancellation only stops the matching signed requester", async () =>
     authorize: () => true,
     publishAction: async () => {},
   });
+  await dispatch({
+    type: "ai-auth/collaboration-event",
+    envelope: await requester.sign("agent/action", {
+      kind: "tool-catalog",
+      tools: [],
+      room: "research",
+      origin: "https://site.example",
+      session: "peer-session-123456",
+      nonce: randomNonce(),
+      expiresAt: Date.now() + 30_000,
+    }),
+  });
+  await dispatch({
+    type: "ai-auth/collaboration-event",
+    envelope: await unrelated.sign("agent/action", {
+      kind: "tool-catalog",
+      tools: [],
+      room: "research",
+      origin: "https://site.example",
+      session: "unrelated-session",
+      nonce: randomNonce(),
+      expiresAt: Date.now() + 30_000,
+    }),
+  });
   const makeEnvelope = (identity, kind, session = "peer-session-123456") =>
     identity.sign("agent/action", {
       kind,
@@ -712,7 +759,7 @@ test("a tool cancellation only stops the matching signed requester", async () =>
     await new Promise((resolve) => setImmediate(resolve));
   await dispatch({
     type: "ai-auth/collaboration-event",
-    envelope: await makeEnvelope(unrelated, "tool-cancel"),
+    envelope: await makeEnvelope(unrelated, "tool-cancel", "unrelated-session"),
   });
   assert.equal(executionSignal.aborted, false);
   await dispatch({

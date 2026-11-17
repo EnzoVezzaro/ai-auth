@@ -118,6 +118,36 @@ test("a supplied resume record from another origin is rejected", async () => {
   await rejection;
 });
 
+test("a tampered resume record is rejected before a dialog opens", async () => {
+  const { record } = await makeGrant();
+  const browser = fakeBrowser();
+  const tampered = {
+    ...record,
+    consent: {
+      ...record.consent,
+      body: {
+        ...record.consent.body,
+        payload: {
+          ...record.consent.body.payload,
+          expiresAt: null,
+          capabilities: [...CAPS, "tools.invoke"],
+        },
+      },
+    },
+    expiresAt: null,
+    capabilities: [...CAPS, "tools.invoke"],
+  };
+  const pending = resumeAIAuthSession(options(browser, tampered));
+  const rejection = assert.rejects(pending, /could not be verified/u);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(
+    browser.handlerCount(),
+    0,
+    "no wallet dialog is opened for a tampered record",
+  );
+  await rejection;
+});
+
 test("a supplied resume record for this origin is accepted", async () => {
   const { record } = await makeGrant();
   const browser = fakeBrowser();

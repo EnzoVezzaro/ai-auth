@@ -371,6 +371,160 @@ test("receipts are forwarded only in their bounded shape for this wallet", async
   assert.equal(seen.length, 0);
 });
 
+// ---- inbound envelope identity binding --------------------------------------
+
+// A peer announces itself over the room before its other events arrive. The
+// wallet forwards that signed announcement like any other collaboration event.
+async function announcePeer(ctx, session = "peer-session-1") {
+  const peer = await makeWallet("Peer");
+  await ctx.b.fromWallet({
+    type: "ai-auth/collaboration-event",
+    envelope: await peer.sign("peer/hello", {
+      label: "Peer",
+      room: ROOM,
+      origin: ORIGIN,
+      session,
+      nonce: randomNonce(),
+      expiresAt: Date.now() + 60_000,
+    }),
+  });
+  return { peer, session };
+}
+
+const textFrom = (signer, session) =>
+  signer.sign("message/text", {
+    text: "hello",
+    room: ROOM,
+    origin: ORIGIN,
+    session,
+    nonce: randomNonce(),
+    expiresAt: Date.now() + 60_000,
+  });
+
+test("inbound events must come from the issuer bound to the peer's session", async (t) => {
+  const ctx = await connected(t);
+  const received = [];
+  ctx.connection.onEvent((e) => received.push(e));
+  const { peer, session } = await announcePeer(ctx);
+  received.length = 0;
+
+  await ctx.b.fromWallet({
+    type: "ai-auth/collaboration-event",
+    envelope: await textFrom(peer, session),
+  });
+  assert.equal(
+    received.length,
+    1,
+    "an announced peer's signed event is accepted",
+  );
+
+  const forged = await makeWallet("Forged");
+  await ctx.b.fromWallet({
+    type: "ai-auth/collaboration-event",
+    envelope: await textFrom(forged, "unannounced-session"),
+  });
+  assert.equal(received.length, 1, "a fabricated issuer is dropped");
+
+  await ctx.b.fromWallet({
+    type: "ai-auth/collaboration-event",
+    envelope: await textFrom(peer, "stale-session"),
+  });
+  assert.equal(received.length, 1, "an old session of a known peer is dropped");
+
+  await ctx.b.fromWallet({
+    type: "ai-auth/collaboration-event",
+    envelope: await textFrom(forged, session),
+  });
+  assert.equal(
+    received.length,
+    1,
+    "another issuer cannot reuse a known session",
+  );
+
+  await ctx.b.fromWallet({
+    type: "ai-auth/collaboration-event",
+    envelope: await textFrom(forged, "wallet-session-1"),
+  });
+  assert.equal(
+    received.length,
+    1,
+    "the wallet's live session stays bound to its verified identity",
+  );
+});
+
+test("tool-catalog and tool-response payloads are structurally validated", async (t) => {
+  const ctx = await connected(t, { caps: ["tools.invoke", "presence.read"] });
+  const received = [];
+  ctx.connection.onEvent((e) => received.push(e));
+  const { peer, session } = await announcePeer(ctx);
+  received.length = 0;
+  const action = (extra) =>
+    peer.sign("agent/action", {
+      room: ROOM,
+      origin: ORIGIN,
+      session,
+      nonce: randomNonce(),
+      expiresAt: Date.now() + 60_000,
+      ...extra,
+    });
+  const dispatch = (envelope) =>
+    ctx.b.fromWallet({
+      type: "ai-auth/collaboration-event",
+      envelope,
+    });
+  const tool = {
+    name: "site.search",
+    description: "Search public records.",
+    inputSchema: { type: "object" },
+  };
+  const catalog = (tools) => ({ kind: "tool-catalog", tools });
+
+  await dispatch(await action(catalog([tool])));
+  assert.equal(received.length, 1, "a bounded catalog reaches listeners");
+  await dispatch(await action(catalog("nope")));
+  await dispatch(
+    await action(
+      catalog(
+        Array.from({ length: 33 }, (_, index) => ({
+          ...tool,
+          name: `site.tool-${index}`,
+        })),
+      ),
+    ),
+  );
+  await dispatch(await action(catalog([{ ...tool, name: "Bad/name" }])));
+  await dispatch(await action(catalog([{ ...tool, inputSchema: 7 }])));
+  await dispatch(
+    await action(catalog([{ ...tool, description: "x".repeat(9_000) }])),
+  );
+  assert.equal(
+    received.length,
+    1,
+    "malformed, oversized, or unbounded catalogs are dropped",
+  );
+
+  const response = (extra = {}) => ({
+    kind: "tool-response",
+    requestId: "request-12345678",
+    toWallet: ctx.wallet.id,
+    toSession: "wallet-session-1",
+    result: { ok: true },
+    ...extra,
+  });
+  await dispatch(await action(response()));
+  assert.equal(received.length, 2, "a bounded response reaches listeners");
+  await dispatch(await action(response({ requestId: "bad id" })));
+  await dispatch(await action(response({ toWallet: "someone-else" })));
+  await dispatch(await action(response({ toSession: "other-session" })));
+  await dispatch(await action(response({ result: "x".repeat(9_000) })));
+  await dispatch(await action(response({ error: 42 })));
+  assert.equal(
+    received.length,
+    2,
+    "malformed or oversized responses are dropped",
+  );
+});
+
 // ---- protected tool execution: fail closed ---------------------------------
 
 async function authorizedWorld(t) {
@@ -401,6 +555,19 @@ async function authorizedWorld(t) {
   const ctx = await connected(t, { caps, participation: { policy } });
   const requests = [];
   ctx.connection.onEvent((e) => requests.push(e));
+  // The remote peer announces its room session before it invokes tools.
+  await ctx.b.fromWallet({
+    type: "ai-auth/collaboration-event",
+    envelope: await remote.sign("peer/hello", {
+      label: "Remote",
+      room: ROOM,
+      origin: ORIGIN,
+      session: "remote-session-1",
+      nonce: randomNonce(),
+      expiresAt: Date.now() + 60_000,
+    }),
+  });
+  requests.length = 0;
   let n = 0;
   const toolRequest = async (wallet = remote) => {
     const envelope = await signEnvelope(wallet, "agent/action", {
