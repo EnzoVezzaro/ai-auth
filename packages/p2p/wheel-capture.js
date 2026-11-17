@@ -92,9 +92,14 @@ export function createMediaCapture(win, doc) {
     };
     recorder.ondataavailable = (event) => {
       if (!event.data.size) return;
+      // Stop before appending a chunk that would cross the cap: pushing it
+      // first makes auto-stop produce a blob that is always over the limit.
+      if (bytes + event.data.size > MEDIA_LIMITS.recordingBytes) {
+        stopRecording();
+        return;
+      }
       chunks.push(event.data);
       bytes += event.data.size;
-      if (bytes > MEDIA_LIMITS.recordingBytes) stopRecording();
     };
     opened
       .getVideoTracks()[0]

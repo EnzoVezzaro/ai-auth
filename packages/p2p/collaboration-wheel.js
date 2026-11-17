@@ -61,6 +61,7 @@ class Wheel {
     this.selection = "everyone";
     this.staged = null;
     this.selecting = false;
+    this.sendingText = false;
     this.disposed = false;
     this.objectUrls = new Set();
     this.entries = new Map();
@@ -79,11 +80,16 @@ class Wheel {
   get snapshot() {
     return this.options.network?.connectionState;
   }
+  // `expiresAt` may be a number captured at mount or a live getter/function;
+  // reading it on every refresh lets renewal extend the session without a
+  // re-mount. A network-supplied value is accepted as an alternative source.
+  get expiry() {
+    const source = this.options.expiresAt ?? this.options.network?.expiresAt;
+    return typeof source === "function" ? source() : source;
+  }
   get expired() {
-    return (
-      Number.isFinite(this.options.expiresAt) &&
-      Date.now() >= this.options.expiresAt
-    );
+    const at = this.expiry;
+    return Number.isFinite(at) && Date.now() >= at;
   }
 
   bind() {
@@ -97,7 +103,7 @@ class Wheel {
       off.push(network.onConnectionState(() => this.refresh()));
     const room = this.options.room;
     if (typeof room?.subscribe === "function")
-      off.push(room.subscribe(() => void this.syncRoomPeers()));
+      off.push(room.subscribe((event) => void this.onRoomEvent(event)));
     this.timer = setInterval(() => {
       this.ledger.sweep();
       void this.syncRoomPeers();
@@ -169,6 +175,10 @@ class Wheel {
 
   onKey(event) {
     if (this.ui.panel.hidden) return;
+    // While picking, the panel is only visually hidden and the focused Cancel
+    // button lives outside it, so the tab trap would make Tab a no-op and trap
+    // keyboard users away from the page elements they are trying to pick.
+    if (this.selecting) return;
     if (event.key === "Escape") {
       event.stopPropagation();
       this.close();
@@ -202,10 +212,30 @@ class Wheel {
     for (const peer of [...peers.values()]) {
       const verified = await verifyPeerKey(peer.publicKey, peer.id);
       if (this.disposed) return;
-      if (verified)
-        this.known = rememberPeer(this.known, verified, peer.seenAt);
+      if (verified) {
+        // A signed event may have refreshed this peer more recently than the
+        // room's presence seed; never regress to an older sighting.
+        const prior = this.known.get(verified.walletId);
+        const seenAt = Math.max(prior?.lastSeen ?? 0, peer.seenAt ?? 0);
+        this.known = rememberPeer(this.known, verified, seenAt);
+      }
     }
     this.refresh();
+  }
+
+  // Any signed event on the room (cursor, action, message, presence) is proof
+  // of recent activity: refresh that peer's presence, not just heartbeats.
+  async onRoomEvent(event) {
+    const envelope = event?.envelope ?? event;
+    const key = envelope?.proof?.publicKey;
+    const issuer = envelope?.body?.issuer;
+    if (key && issuer) {
+      const verified = await verifyPeerKey(key, issuer);
+      if (this.disposed) return;
+      if (verified && verified.walletId !== this.selfId)
+        this.known = rememberPeer(this.known, verified);
+    }
+    await this.syncRoomPeers();
   }
 
   onRecipient() {
@@ -298,7 +328,9 @@ class Wheel {
       why(caps.record),
     );
     if (!block)
-      for (const reason of [caps.share, caps.media].filter(Boolean))
+      for (const reason of [caps.share, caps.media, caps.record].filter(
+        Boolean,
+      ))
         reasons.add(reason);
     ui.hint.textContent = [...reasons].join(" ");
     this.renderWarning();
@@ -340,15 +372,19 @@ class Wheel {
 
   // The session ended or the recipient vanished: stop capture, drop staged work.
   dropWorkIfUnusable(block) {
-    if (!block) return;
     const status = this.snapshot?.status;
-    if (!this.expired && status !== "expired" && status !== "disconnected")
-      return;
+    const unusable =
+      this.expired ||
+      status === "expired" ||
+      status === "disconnected" ||
+      status === "revoked" ||
+      status === "idle";
+    if (!unusable) return;
     if (this.capture.isRecording() || this.capture.isLive()) {
       this.capture.cancel();
       this.setRecordingUi(false);
     }
-    if (this.staged) this.discardStaged(block);
+    if (this.staged) this.discardStaged(block || "This session has ended.");
   }
 
   guarded(name, run) {
@@ -381,17 +417,21 @@ class Wheel {
   async onSubmit(event) {
     event.preventDefault();
     const text = this.ui.input.value.trim();
-    if (!text || this.ui.input.disabled) return;
+    if (!text || this.ui.input.disabled || this.sendingText) return;
+    this.sendingText = true;
+    this.ui.input.value = "";
     try {
       await this.deliver("text", text, (o) =>
         this.connection.sendText(text, o),
       );
-      this.ui.input.value = "";
       this.say(
         "Submitted to the peer transport. Waiting for a signed receipt.",
       );
     } catch (error) {
+      if (!this.ui.input.value) this.ui.input.value = text;
       this.say(error.message || "Could not send message.");
+    } finally {
+      this.sendingText = false;
     }
   }
 
@@ -576,14 +616,18 @@ class Wheel {
       this.say(
         "Submitted to the peer transport. Waiting for a signed receipt.",
       );
-    } catch (error) {
-      this.say(error.message || "Could not share.");
-    } finally {
       if (staged.url) this.releaseUrl(staged.url);
+      this.ui
+        .action(staged.kind === "element" ? "element" : "screenshot")
+        .focus();
+    } catch (error) {
+      // Keep the draft: a transport failure must not destroy the capture.
+      // A fresh message id lets the same staged item be sent again; the failed
+      // ledger entry remains as a truthful record of the attempt.
+      const message = error.message || "Could not share.";
+      this.stage(staged);
+      this.say(`${message} Review and try again.`);
     }
-    this.ui
-      .action(staged.kind === "element" ? "element" : "screenshot")
-      .focus();
   }
 
   // ---- screen capture ------------------------------------------------------

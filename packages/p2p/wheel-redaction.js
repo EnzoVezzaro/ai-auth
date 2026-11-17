@@ -94,13 +94,26 @@ export function extractSafeText(el, { max = 1000 } = {}) {
   return { text, omitted };
 }
 
-/** Number of sensitive regions on a live document (for capture warnings). */
+/**
+ * Number of sensitive regions on a live document (for capture warnings).
+ * Uses the same predicate as the element walk so the warning matches what the
+ * redaction policy actually withholds; a region is counted once, not once per
+ * nested field.
+ */
 export function countSensitiveRegions(doc) {
-  try {
-    return doc.querySelectorAll(SENSITIVE_SELECTOR).length;
-  } catch {
-    return 0;
-  }
+  const root = doc?.documentElement ?? doc?.body;
+  let count = 0;
+  const walk = (node, depth) => {
+    if (!node || depth > 200) return;
+    if (node.nodeType !== 1) return;
+    if (isSensitiveSelf(node)) {
+      count += 1;
+      return;
+    }
+    for (const child of node.childNodes ?? []) walk(child, depth + 1);
+  };
+  walk(root, 0);
+  return count;
 }
 
 /** Build the element metadata that will be previewed and sent. */
