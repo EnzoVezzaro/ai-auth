@@ -400,7 +400,10 @@ test("14. two tabs of one wallet stay separate in the runtime registry", async (
   // Before the fix both overwrote one issuer-keyed entry.
   await until(() => site.runtime.peers().length === 2);
   assert.deepEqual(
-    site.runtime.peers().map((peer) => peer.session).sort(),
+    site.runtime
+      .peers()
+      .map((peer) => peer.session)
+      .sort(),
     ["tab-a-session", "tab-b-session"],
   );
 
