@@ -495,7 +495,7 @@ async function startRoom() {
           ].includes(type)
         )
           state.lease?.touch();
-          touchGrant();
+        touchGrant();
         externalHost.postMessage(
           { type: "ai-auth/collaboration-event", envelope },
           state.externalOrigin,

@@ -79,9 +79,7 @@ function envelopeFingerprint(value) {
   if (value && typeof value === "object")
     return `{${Object.keys(value)
       .sort()
-      .map(
-        (key) => `${JSON.stringify(key)}:${envelopeFingerprint(value[key])}`,
-      )
+      .map((key) => `${JSON.stringify(key)}:${envelopeFingerprint(value[key])}`)
       .join(",")}}`;
   return JSON.stringify(value) ?? "null";
 }
