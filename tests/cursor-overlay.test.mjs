@@ -444,6 +444,27 @@ test("the overlay's own human cursor is published page-scoped", (t) => {
   );
 });
 
+test("a throttled final pointer position is sent as a trailing update", async (t) => {
+  const dom = makeDom();
+  const conn = makeConnection();
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/",
+  });
+  t.after(stop);
+  dom.target.dispatch("pointermove", { clientX: 100, clientY: 200 });
+  dom.target.dispatch("pointermove", { clientX: 900, clientY: 600 });
+  assert.equal(
+    conn.published.length,
+    1,
+    "the second move falls inside the throttle window",
+  );
+  await waitUntil(() => conn.published.length >= 2);
+  const last = conn.published.at(-1);
+  assert.ok(Math.abs(last.x - 0.9) < 1e-9, `final x fraction was ${last.x}`);
+  assert.ok(Math.abs(last.y - 0.15) < 1e-9, `final y fraction was ${last.y}`);
+});
+
 test("scroll updates are captured on the document, not only the target", async (t) => {
   const dom = makeDom();
   const conn = makeConnection();

@@ -1506,9 +1506,40 @@ export function mountAIAuthCollaboration(
     const position = globalThis.scrollY ?? docEl?.scrollTop ?? 0;
     return Math.max(0, Math.min(1, position / max));
   };
+  const CURSOR_THROTTLE_MS = 450;
+  let pendingPresence = null;
+  let trailingTimer = null;
   const publishPresence = (x, y, visible, scroll) => {
     const now = Date.now();
-    if (now - lastSentAt < 450) return;
+    if (now - lastSentAt < CURSOR_THROTTLE_MS) {
+      // Remember only the newest point and flush it when the window closes,
+      // so the final position is never silently dropped by the throttle.
+      pendingPresence = { x, y, visible, scroll };
+      if (trailingTimer === null) {
+        trailingTimer = setTimeout(
+          () => {
+            trailingTimer = null;
+            const pending = pendingPresence;
+            pendingPresence = null;
+            if (pending)
+              publishPresence(
+                pending.x,
+                pending.y,
+                pending.visible,
+                pending.scroll,
+              );
+          },
+          CURSOR_THROTTLE_MS - (now - lastSentAt),
+        );
+        trailingTimer.unref?.();
+      }
+      return;
+    }
+    if (trailingTimer !== null) {
+      clearTimeout(trailingTimer);
+      trailingTimer = null;
+    }
+    pendingPresence = null;
     lastSentAt = now;
     connection.publishCursor({ x, y, visible, scroll, page: viewerPage });
   };
@@ -1550,6 +1581,7 @@ export function mountAIAuthCollaboration(
   return () => {
     unsubscribe();
     clearInterval(idleTimer);
+    if (trailingTimer !== null) clearTimeout(trailingTimer);
     target.removeEventListener("pointermove", publish);
     target.removeEventListener("pointerleave", leave);
     document.removeEventListener("scroll", publishScroll, { capture: true });
