@@ -19,6 +19,11 @@ import {
   verifyStoredConsent,
 } from "./session-store.js";
 import { authorizeProtected } from "./membership.js";
+import {
+  MAX_COORDINATE,
+  OFFLINE_AFTER_MS,
+  parseCursorPayload,
+} from "./presence.js";
 import { isMessageId, isWalletId } from "./receipts.js";
 import {
   markVerifiedPageConnection,
@@ -737,18 +742,7 @@ export async function connectAIAuthModal({
       return;
     if (
       envelope.body.type === "presence/cursor" &&
-      (!Number.isFinite(payload.x) ||
-        !Number.isFinite(payload.y) ||
-        payload.x < 0 ||
-        payload.x > 1 ||
-        payload.y < 0 ||
-        payload.y > 1 ||
-        (payload.visible !== undefined &&
-          typeof payload.visible !== "boolean") ||
-        (payload.scroll !== undefined &&
-          (!Number.isFinite(payload.scroll) ||
-            payload.scroll < 0 ||
-            payload.scroll > 1)))
+      !parseCursorPayload(payload).ok
     )
       return;
     if (
@@ -1256,15 +1250,58 @@ export async function resumeAIAuthSession(options = {}) {
   });
 }
 
+// A stable colour per verified issuer. The wallet id is hashed to a hue and
+// drawn at a mid lightness with a white outline, so it reads on light and dark
+// pages alike; a peer can never supply its own colour.
+function issuerHue(id) {
+  let hash = 2166136261;
+  for (let i = 0; i < id.length; i += 1) {
+    hash ^= id.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) % 360;
+}
+
+function normalizePageKey(key) {
+  if (key === null || key === undefined) return null;
+  const path = String(key).split(/[?#]/u, 1)[0];
+  return path.length > 1 ? path.replace(/\/+$/u, "") : path;
+}
+
+function createCursorNode(document) {
+  const node = document.createElement("div");
+  node.className = "cursor";
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  for (const [name, value] of [
+    ["width", "18"],
+    ["height", "22"],
+    ["viewBox", "0 0 18 22"],
+    ["aria-hidden", "true"],
+  ])
+    icon.setAttribute(name, value);
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("stroke", "white");
+  path.setAttribute("stroke-width", "1.5");
+  path.setAttribute("d", "M1 1v17l4.5-4.5 3.3 6.1 3-1.6-3.1-6.1h6.1z");
+  icon.append(path);
+  const label = document.createElement("span");
+  label.className = "label";
+  node.append(icon, label);
+  return { node, path, label };
+}
+
 export function mountAIAuthCollaboration(
   connection,
-  { target = globalThis.document?.body } = {},
+  { target = globalThis.document?.body, pageKey } = {},
 ) {
   if (!connection || typeof connection.onEvent !== "function")
     throw new TypeError("A connected AI Auth page session is required");
   if (!target || !target.ownerDocument)
     throw new TypeError("A page element is required for collaboration cursors");
   const document = target.ownerDocument;
+  const viewerPage = normalizePageKey(
+    pageKey ?? globalThis.location?.pathname ?? null,
+  );
   const host = document.createElement("div");
   host.setAttribute("aria-hidden", "true");
   host.style.cssText =
@@ -1273,54 +1310,65 @@ export function mountAIAuthCollaboration(
   const style = document.createElement("style");
   style.textContent = `
     :host { all: initial; }
-    .cursor { position: fixed; transform: translate(-2px,-2px); color: #fff; }
-    .cursor svg { display:block; filter: drop-shadow(0 1px 2px #0008); }
-    .label { display:block; margin:2px 0 0 10px; padding:3px 7px; border-radius:4px; background:#245d4e; color:#fff; font:12px/1.3 system-ui,sans-serif; white-space:nowrap; }
+    .cursor { position:absolute; transform:translate(-2px,-2px); color:#fff; transition:opacity .2s ease; }
+    .cursor svg { display:block; filter:drop-shadow(0 1px 2px #0008); }
+    .label { display:block; margin:2px 0 0 10px; padding:3px 7px; border-radius:4px; color:#fff; font:12px/1.3 system-ui,sans-serif; white-space:nowrap; }
   `;
   const layer = document.createElement("div");
   shadow.append(style, layer);
   target.append(host);
   const cursors = new Map();
+  const place = (node, cursor) => {
+    const docEl = document.documentElement;
+    const width = docEl?.scrollWidth ?? docEl?.clientWidth ?? 1;
+    const height = docEl?.scrollHeight ?? docEl?.clientHeight ?? 1;
+    const scrollX = globalThis.scrollX ?? docEl?.scrollLeft ?? 0;
+    const scrollY = globalThis.scrollY ?? docEl?.scrollTop ?? 0;
+    node.style.left = `${(cursor.x / MAX_COORDINATE) * width - scrollX}px`;
+    node.style.top = `${(cursor.y / MAX_COORDINATE) * height - scrollY}px`;
+  };
+  const show = (key, issuer, cursor) => {
+    if (cursor.pageKey !== null && cursor.pageKey !== viewerPage) {
+      const old = cursors.get(key);
+      if (old) {
+        old.node.remove();
+        cursors.delete(key);
+      }
+      return;
+    }
+    let entry = cursors.get(key);
+    if (!entry) {
+      entry = createCursorNode(document);
+      cursors.set(key, entry);
+      layer.append(entry.node);
+    }
+    const color = `hsl(${issuerHue(issuer)} 72% 42%)`;
+    entry.path.setAttribute("fill", color);
+    entry.label.style.background = color;
+    entry.label.textContent = String(cursor.label ?? "Agent").slice(0, 60);
+    entry.node.style.opacity = cursor.visible === false ? "0.35" : "1";
+    entry.seenAt = Date.now();
+    place(entry.node, cursor);
+  };
+  const fadeIdle = () => {
+    const now = Date.now();
+    for (const entry of cursors.values())
+      if (now - entry.seenAt > OFFLINE_AFTER_MS)
+        entry.node.style.opacity = "0.35";
+  };
+  const idleTimer = setInterval(fadeIdle, 2_000);
+  idleTimer.unref?.();
   const unsubscribe = connection.onEvent((envelope) => {
     if (envelope.body.type !== "presence/cursor") return;
-    const payload = envelope.body.payload;
-    const key = `${envelope.body.issuer}:${payload.session}`;
-    if (payload.visible === false) cursors.delete(key);
-    else cursors.set(key, { x: payload.x, y: payload.y, name: payload.label });
-    render();
+    const parsed = parseCursorPayload(envelope.body.payload);
+    if (!parsed.ok) return;
+    const session = envelope.body.payload.session ?? "default";
+    show(
+      `${envelope.body.issuer}:${session}`,
+      envelope.body.issuer,
+      parsed.cursor,
+    );
   });
-
-  function render() {
-    layer.replaceChildren();
-    for (const cursor of cursors.values()) {
-      const node = document.createElement("div");
-      node.className = "cursor";
-      node.style.left = `${cursor.x * 100}%`;
-      node.style.top = `${cursor.y * 100}%`;
-      const icon = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "svg",
-      );
-      icon.setAttribute("width", "18");
-      icon.setAttribute("height", "22");
-      icon.setAttribute("viewBox", "0 0 18 22");
-      icon.setAttribute("aria-hidden", "true");
-      const path = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "path",
-      );
-      path.setAttribute("fill", "#245d4e");
-      path.setAttribute("stroke", "white");
-      path.setAttribute("stroke-width", "1.5");
-      path.setAttribute("d", "M1 1v17l4.5-4.5 3.3 6.1 3-1.6-3.1-6.1h6.1z");
-      icon.append(path);
-      const label = document.createElement("span");
-      label.className = "label";
-      label.textContent = String(cursor.name ?? "Agent").slice(0, 60);
-      node.append(icon, label);
-      layer.append(node);
-    }
-  }
 
   let lastSentAt = 0;
   let lastX = 0;
@@ -1329,13 +1377,9 @@ export function mountAIAuthCollaboration(
   // one signed presence event per interval. Only normalized coordinates and a
   // scroll fraction leave the page; never text, form values, or element data.
   const scrollFraction = () => {
-    const documentElement = document.documentElement;
-    const max = Math.max(
-      1,
-      (documentElement?.scrollHeight ?? 0) -
-        (documentElement?.clientHeight ?? 0),
-    );
-    const position = globalThis.scrollY ?? documentElement?.scrollTop ?? 0;
+    const docEl = document.documentElement;
+    const max = Math.max(1, (docEl?.scrollHeight ?? 0) - (docEl?.clientHeight ?? 0));
+    const position = globalThis.scrollY ?? docEl?.scrollTop ?? 0;
     return Math.max(0, Math.min(1, position / max));
   };
   const publishPresence = (x, y, visible, scroll) => {
@@ -1344,21 +1388,12 @@ export function mountAIAuthCollaboration(
     lastSentAt = now;
     connection.publishCursor({ x, y, visible, scroll });
   };
+  const fraction = (client, size, scroll) =>
+    Math.max(0, Math.min(1, (client + scroll) / Math.max(1, size)));
   const publish = (event) => {
-    lastX = Math.max(
-      0,
-      Math.min(
-        1,
-        event.clientX / Math.max(1, document.documentElement.clientWidth),
-      ),
-    );
-    lastY = Math.max(
-      0,
-      Math.min(
-        1,
-        event.clientY / Math.max(1, document.documentElement.clientHeight),
-      ),
-    );
+    const docEl = document.documentElement;
+    lastX = fraction(event.clientX, docEl?.clientWidth ?? 0, globalThis.scrollX ?? 0);
+    lastY = fraction(event.clientY, docEl?.clientHeight ?? 0, globalThis.scrollY ?? 0);
     publishPresence(lastX, lastY, true, scrollFraction());
   };
   const publishScroll = () =>
@@ -1372,16 +1407,19 @@ export function mountAIAuthCollaboration(
     });
   target.addEventListener("pointermove", publish, { passive: true });
   target.addEventListener("pointerleave", leave);
-  target.addEventListener("scroll", publishScroll, {
+  // Viewport scroll fires on document, not on body: capture it there so the
+  // signed scroll fraction is actually published.
+  document.addEventListener("scroll", publishScroll, {
     passive: true,
     capture: true,
   });
 
   return () => {
     unsubscribe();
+    clearInterval(idleTimer);
     target.removeEventListener("pointermove", publish);
     target.removeEventListener("pointerleave", leave);
-    target.removeEventListener("scroll", publishScroll, { capture: true });
+    document.removeEventListener("scroll", publishScroll, { capture: true });
     host.remove();
   };
 }
