@@ -103,7 +103,7 @@ class Wheel {
       off.push(network.onConnectionState(() => this.refresh()));
     const room = this.options.room;
     if (typeof room?.subscribe === "function")
-      off.push(room.subscribe(() => void this.syncRoomPeers()));
+      off.push(room.subscribe((event) => void this.onRoomEvent(event)));
     this.timer = setInterval(() => {
       this.ledger.sweep();
       void this.syncRoomPeers();
@@ -212,10 +212,30 @@ class Wheel {
     for (const peer of [...peers.values()]) {
       const verified = await verifyPeerKey(peer.publicKey, peer.id);
       if (this.disposed) return;
-      if (verified)
-        this.known = rememberPeer(this.known, verified, peer.seenAt);
+      if (verified) {
+        // A signed event may have refreshed this peer more recently than the
+        // room's presence seed; never regress to an older sighting.
+        const prior = this.known.get(verified.walletId);
+        const seenAt = Math.max(prior?.lastSeen ?? 0, peer.seenAt ?? 0);
+        this.known = rememberPeer(this.known, verified, seenAt);
+      }
     }
     this.refresh();
+  }
+
+  // Any signed event on the room (cursor, action, message, presence) is proof
+  // of recent activity: refresh that peer's presence, not just heartbeats.
+  async onRoomEvent(event) {
+    const envelope = event?.envelope ?? event;
+    const key = envelope?.proof?.publicKey;
+    const issuer = envelope?.body?.issuer;
+    if (key && issuer) {
+      const verified = await verifyPeerKey(key, issuer);
+      if (this.disposed) return;
+      if (verified && verified.walletId !== this.selfId)
+        this.known = rememberPeer(this.known, verified);
+    }
+    await this.syncRoomPeers();
   }
 
   onRecipient() {

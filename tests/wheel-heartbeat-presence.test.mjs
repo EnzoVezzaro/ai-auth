@@ -205,6 +205,105 @@ async function setupWheel() {
   };
 }
 
+test("any signed peer event refreshes presence even when only the seed is stale", async () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  const visitor = await makeWallet("visitor");
+  const agent = await makeWallet("agent");
+  const session = "agent-session-0002";
+  const origin = "https://site.example";
+  const peers = new Map();
+  const listeners = new Set();
+  const room = {
+    peers,
+    wallet: { id: visitor.id },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    poke() {
+      for (const listener of [...listeners]) listener({ peers });
+    },
+    emit(envelope) {
+      for (const listener of [...listeners]) listener({ direction: "in", envelope });
+    },
+  };
+  peers.set(`${agent.id}:${session}`, {
+    id: agent.id,
+    publicKey: agent.publicKey,
+    seenAt: now,
+  });
+  const { doc } = createStubDom({});
+  const sent = [];
+  const connection = {
+    supportsTargets: true,
+    subscribe: () => () => {},
+    sendText: async (text, options) => sent.push({ text, options }),
+  };
+  const network = {
+    connectionState: {
+      status: "direct-peer-connected",
+      directPeerCount: 1,
+      peers: [{ peerId: "p" }],
+    },
+  };
+  const dispose = mountCollaborationWheel(connection, {
+    target: doc.body,
+    room,
+    network,
+  });
+  const host = doc.body.children.find(
+    (node) => node.dataset.aiAuthCollaborationWheel === "true",
+  );
+  const shadow = host.shadowRoot;
+  const peersText = () =>
+    [...shadow.querySelectorAll(".peers li")]
+      .map((node) => node.textContent)
+      .join(" | ");
+  try {
+    await flush();
+    assert.match(peersText(), /online \(verified key\)/u);
+
+    now += 30_000; // only the old presence seed exists; no heartbeats
+    room.poke();
+    await flush();
+    assert.match(peersText(), /offline \(verified key\)/u);
+
+    const envelope = await signEnvelope(agent, "presence/cursor", {
+      room: "default",
+      origin,
+      session,
+      nonce: `cursor-${now}-${Math.random()}`,
+      expiresAt: now + 100_000,
+    });
+    room.emit(envelope);
+    await flush();
+    assert.match(
+      peersText(),
+      /online \(verified key\)/u,
+      "a signed cursor must refresh peer presence, not just heartbeats",
+    );
+
+    room.poke(); // a later sweep must not regress to the stale seed
+    await flush();
+    assert.match(peersText(), /online \(verified key\)/u);
+
+    const recipient = shadow.querySelector(".recipient");
+    recipient.value = agent.id;
+    recipient.dispatch("change");
+    await flush();
+    assert.doesNotMatch(
+      shadow.querySelector(".hint").textContent,
+      /offline/u,
+      "an active peer must not disable an addressed send",
+    );
+  } finally {
+    dispose();
+    Date.now = realNow;
+  }
+});
+
 test("a verified peer heartbeating every 8s stays online in the wheel after 30s", async () => {
   const wheel = await setupWheel();
   try {
