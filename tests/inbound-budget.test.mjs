@@ -91,6 +91,57 @@ test("the presence budget still limits a flood of heartbeats", async () => {
   await room.close();
 });
 
+test("a cursor burst cannot starve a heartbeat or a goodbye", async () => {
+  const sender = await makeWallet("CursorMover");
+  const receiver = await makeWallet("Agent");
+  const room = new P2PRoom(receiver, "research", { origin: ORIGIN });
+  const source = {};
+  const session = "cursor-session";
+
+  // A fast cursor stream fills the cursor window for this source and issuer.
+  for (let index = 0; index < 40; index += 1) {
+    await room.receive(
+      await sender.sign("presence/cursor", {
+        room: "research",
+        origin: ORIGIN,
+        session,
+        nonce: randomNonce(),
+        expiresAt: Date.now() + 60_000,
+        cursor: { x: index, y: index },
+      }),
+      source,
+    );
+  }
+
+  // Liveness traffic has its own budget and must still get through.
+  const heartbeat = await sender.sign("peer/heartbeat", {
+    room: "research",
+    origin: ORIGIN,
+    session,
+    nonce: randomNonce(),
+    expiresAt: Date.now() + 60_000,
+    label: "CursorMover",
+  });
+  assert.equal(
+    await room.receive(heartbeat, source),
+    true,
+    "a heartbeat is not dropped after a cursor burst",
+  );
+  const goodbye = await sender.sign("peer/goodbye", {
+    room: "research",
+    origin: ORIGIN,
+    session,
+    nonce: randomNonce(),
+    expiresAt: Date.now() + 60_000,
+  });
+  assert.equal(
+    await room.receive(goodbye, source),
+    true,
+    "a goodbye is not dropped after a cursor burst",
+  );
+  await room.close();
+});
+
 test("one attached peer can complete several quick agent calls", async () => {
   const sender = await makeWallet("Agent");
   const receiver = await makeWallet("Site");

@@ -17,18 +17,26 @@ const MAX_INBOUND_EVENTS_PER_SOURCE_WINDOW = 64;
 const MAX_INBOUND_EVENTS_PER_PEER_WINDOW = 64;
 const MAX_INBOUND_EVENTS_PER_IDENTITY_WINDOW = 64;
 const MAX_INBOUND_EVENTS_PER_ROOM_WINDOW = 256;
-// Presence (heartbeats, hello, goodbye, cursors) has its own budget, so a
-// cursor stream cannot starve chat, actions, or receipts from the same peer.
+// Presence (hello, cursors) has its own budget, so a cursor stream cannot
+// starve chat, actions, or receipts from the same peer.
 const MAX_PRESENCE_EVENTS_PER_SOURCE_WINDOW = 32;
 const MAX_PRESENCE_EVENTS_PER_PEER_WINDOW = 24;
 const MAX_PRESENCE_EVENTS_PER_IDENTITY_WINDOW = 32;
 const MAX_PRESENCE_EVENTS_PER_ROOM_WINDOW = 512;
-const PRESENCE_BUDGET_TYPES = new Set([
-  "peer/hello",
-  "peer/heartbeat",
-  "peer/goodbye",
-  "presence/cursor",
-]);
+const PRESENCE_BUDGET_TYPES = new Set(["peer/hello", "presence/cursor"]);
+// Liveness (heartbeat, goodbye) has a separate budget from cursors: a fast but
+// legitimate cursor stream must never make a peer look offline.
+const MAX_LIVENESS_EVENTS_PER_SOURCE_WINDOW = 32;
+const MAX_LIVENESS_EVENTS_PER_PEER_WINDOW = 24;
+const MAX_LIVENESS_EVENTS_PER_IDENTITY_WINDOW = 32;
+const MAX_LIVENESS_EVENTS_PER_ROOM_WINDOW = 512;
+const LIVENESS_BUDGET_TYPES = new Set(["peer/heartbeat", "peer/goodbye"]);
+
+function inboundBudgetFor(type) {
+  if (LIVENESS_BUDGET_TYPES.has(type)) return "liveness";
+  if (PRESENCE_BUDGET_TYPES.has(type)) return "presence";
+  return "content";
+}
 const MAX_ATTACHED_PEERS = 16;
 const MAX_CHANNELS_PER_PEER = 4;
 const TRYSTERO_APP_ID = "ai-auth-wallet-v1";
@@ -118,8 +126,11 @@ export class P2PRoom {
     this.inboundIssuerWindows = new Map();
     this.inboundPresenceWindows = new WeakMap();
     this.inboundPresenceIssuerWindows = new Map();
+    this.inboundLivenessWindows = new WeakMap();
+    this.inboundLivenessIssuerWindows = new Map();
     this.inboundRoomWindow = null;
     this.inboundPresenceRoomWindow = null;
+    this.inboundLivenessRoomWindow = null;
     this.peerChannels = new Map();
     this.channelSources = new Map();
     this.peerConnectionWindow = null;
@@ -309,9 +320,7 @@ export class P2PRoom {
   }
 
   async receive(envelope, source = this.localInboundSource) {
-    const budget = PRESENCE_BUDGET_TYPES.has(envelope?.body?.type)
-      ? "presence"
-      : "content";
+    const budget = inboundBudgetFor(envelope?.body?.type);
     if (!this.allowInbound(source, Date.now(), budget)) return false;
     if (
       this.closed ||
@@ -388,82 +397,91 @@ export class P2PRoom {
       if (expiresAt <= now) this.seen.delete(key);
   }
 
+  // Each budget owns its windows, so cursors can only consume the presence
+  // window and heartbeats/goodbyes only consume the liveness window.
+  budgetConfig(budget) {
+    if (budget === "liveness")
+      return {
+        sourceWindows: this.inboundLivenessWindows,
+        issuerWindows: this.inboundLivenessIssuerWindows,
+        roomKey: "inboundLivenessRoomWindow",
+        peerLimit: MAX_LIVENESS_EVENTS_PER_PEER_WINDOW,
+        sourceLimit: MAX_LIVENESS_EVENTS_PER_SOURCE_WINDOW,
+        issuerLimit: MAX_LIVENESS_EVENTS_PER_IDENTITY_WINDOW,
+        roomLimit: MAX_LIVENESS_EVENTS_PER_ROOM_WINDOW,
+      };
+    if (budget === "presence")
+      return {
+        sourceWindows: this.inboundPresenceWindows,
+        issuerWindows: this.inboundPresenceIssuerWindows,
+        roomKey: "inboundPresenceRoomWindow",
+        peerLimit: MAX_PRESENCE_EVENTS_PER_PEER_WINDOW,
+        sourceLimit: MAX_PRESENCE_EVENTS_PER_SOURCE_WINDOW,
+        issuerLimit: MAX_PRESENCE_EVENTS_PER_IDENTITY_WINDOW,
+        roomLimit: MAX_PRESENCE_EVENTS_PER_ROOM_WINDOW,
+      };
+    return {
+      sourceWindows: this.inboundWindows,
+      issuerWindows: this.inboundIssuerWindows,
+      roomKey: "inboundRoomWindow",
+      peerLimit: MAX_INBOUND_EVENTS_PER_PEER_WINDOW,
+      sourceLimit: MAX_INBOUND_EVENTS_PER_SOURCE_WINDOW,
+      issuerLimit: MAX_INBOUND_EVENTS_PER_IDENTITY_WINDOW,
+      roomLimit: MAX_INBOUND_EVENTS_PER_ROOM_WINDOW,
+    };
+  }
+
   allowInbound(source, now = Date.now(), budget = "content") {
     const peer = this.channelSources.get(source) ?? source;
-    const presence = budget === "presence";
-    const windows = presence
-      ? this.inboundPresenceWindows
-      : this.inboundWindows;
-    const window = windows.get(peer);
+    const { sourceWindows, peerLimit, sourceLimit } = this.budgetConfig(budget);
+    const window = sourceWindows.get(peer);
     if (!window || now - window.startedAt >= INBOUND_WINDOW_MS) {
-      windows.set(peer, { startedAt: now, count: 1 });
+      sourceWindows.set(peer, { startedAt: now, count: 1 });
       return true;
     }
-    const onChannel = this.peerChannels.has(peer);
-    const limit = presence
-      ? onChannel
-        ? MAX_PRESENCE_EVENTS_PER_PEER_WINDOW
-        : MAX_PRESENCE_EVENTS_PER_SOURCE_WINDOW
-      : onChannel
-        ? MAX_INBOUND_EVENTS_PER_PEER_WINDOW
-        : MAX_INBOUND_EVENTS_PER_SOURCE_WINDOW;
+    const limit = this.peerChannels.has(peer) ? peerLimit : sourceLimit;
     if (window.count >= limit) return false;
     window.count += 1;
     return true;
   }
 
   allowIssuerInbound(issuer, now = Date.now(), budget = "content") {
-    const presence = budget === "presence";
-    const windows = presence
-      ? this.inboundPresenceIssuerWindows
-      : this.inboundIssuerWindows;
-    const limit = presence
-      ? MAX_PRESENCE_EVENTS_PER_IDENTITY_WINDOW
-      : MAX_INBOUND_EVENTS_PER_IDENTITY_WINDOW;
-    for (const [key, window] of windows) {
+    const { issuerWindows, issuerLimit } = this.budgetConfig(budget);
+    for (const [key, window] of issuerWindows) {
       if (now - window.startedAt < INBOUND_WINDOW_MS) break;
-      windows.delete(key);
+      issuerWindows.delete(key);
     }
-    const window = windows.get(issuer);
+    const window = issuerWindows.get(issuer);
     if (!window || now - window.startedAt >= INBOUND_WINDOW_MS) {
-      windows.delete(issuer);
-      windows.set(issuer, { startedAt: now, count: 1 });
+      issuerWindows.delete(issuer);
+      issuerWindows.set(issuer, { startedAt: now, count: 1 });
       return true;
     }
-    if (window.count >= limit) return false;
+    if (window.count >= issuerLimit) return false;
     window.count += 1;
     return true;
   }
 
   allowRoomInbound(now = Date.now(), budget = "content") {
     if (!this.canRoomInbound(now, budget)) return false;
-    const presence = budget === "presence";
-    const key = presence ? "inboundPresenceRoomWindow" : "inboundRoomWindow";
-    const limit = presence
-      ? MAX_PRESENCE_EVENTS_PER_ROOM_WINDOW
-      : MAX_INBOUND_EVENTS_PER_ROOM_WINDOW;
-    const window = this[key];
+    const { roomKey, roomLimit } = this.budgetConfig(budget);
+    const window = this[roomKey];
     if (!window || now - window.startedAt >= INBOUND_WINDOW_MS) {
-      this[key] = { startedAt: now, count: 1 };
+      this[roomKey] = { startedAt: now, count: 1 };
       return true;
     }
-    if (window.count >= limit) return false;
+    if (window.count >= roomLimit) return false;
     window.count += 1;
     return true;
   }
 
   canRoomInbound(now = Date.now(), budget = "content") {
-    const presence = budget === "presence";
-    const window = presence
-      ? this.inboundPresenceRoomWindow
-      : this.inboundRoomWindow;
-    const limit = presence
-      ? MAX_PRESENCE_EVENTS_PER_ROOM_WINDOW
-      : MAX_INBOUND_EVENTS_PER_ROOM_WINDOW;
+    const { roomKey, roomLimit } = this.budgetConfig(budget);
+    const window = this[roomKey];
     return (
       !window ||
       now - window.startedAt >= INBOUND_WINDOW_MS ||
-      window.count < limit
+      window.count < roomLimit
     );
   }
 
