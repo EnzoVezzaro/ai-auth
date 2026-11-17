@@ -6,6 +6,8 @@ export const WALLET_REQUIRED_MESSAGE =
   "Create your wallet first, then connect.";
 export const CANCELLED_MESSAGE =
   "You closed the request. Click Connect agent to try again.";
+export const RESUME_TIMEOUT_MESSAGE =
+  "The wallet did not respond in time. Your saved session is still here; click Resume to try again.";
 export const RELOAD_NOTICE =
   "This page was reloaded, so your previous connection ended. Click Connect again to continue.";
 export const RECONNECT_LABEL = "Connect again";

@@ -549,17 +549,18 @@ test("R1 restore drops the record when the wallet says the session ended or was 
   }
 });
 
-test("R1 restore drops the record when the wallet times out", async () => {
+test("R1 restore keeps the record and offers a retry when the wallet times out", async () => {
   const ctx = await seededStore();
   const browser = fakeBrowser();
   const promise = resumeAIAuthSession(
     resumeOptions(ctx, browser, { resumeTimeoutMs: 30 }),
   );
-  const rejection = assert.rejects(promise, /resume|confirm|timed out/u);
+  const rejection = assert.rejects(promise, /try again|Resume/u);
   await waitForHandler(browser);
   await browser.fromWallet({ type: "ai-auth/connect-ready" });
   await rejection;
-  assert.equal((await ctx.store.list(ORIGIN)).length, 0);
+  // A timeout is a slow wallet, not a refusal: the saved session stays.
+  assert.equal((await ctx.store.list(ORIGIN)).length, 1);
 });
 
 test("R1 restore refuses a wallet response that widens the stored scopes", async () => {
