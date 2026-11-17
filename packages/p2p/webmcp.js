@@ -104,11 +104,23 @@ function safeToolDescriptor(action) {
   }
 }
 
+// Advisory hints only. Authorizations never read these fields; the approval
+// gate and the participation policy remain the source of truth.
+function toolAnnotations(action) {
+  return {
+    readOnlyHint: action.readOnly === true,
+    consequentialHint:
+      action.protected === true || action.consequentialHint === true,
+    untrustedContentHint: action.untrustedContent === true,
+  };
+}
+
 function toolDescriptor(action) {
   const descriptor = {
     name: action.name,
     description: action.description.trim().slice(0, 240),
     inputSchema: boundedJson(action.inputSchema, 4_096),
+    annotations: toolAnnotations(action),
   };
   if (action.outputSchema)
     descriptor.outputSchema = boundedJson(action.outputSchema, 4_096);
@@ -230,6 +242,9 @@ export async function registerAIAuthPageActions({
             outputSchema: tool.outputSchema,
             requiredCapability: "tools.invoke",
             readOnly: tool.annotations?.readOnlyHint === true,
+            // The page's hints are advisory; they never change the gate.
+            consequentialHint: tool.annotations?.consequentialHint === true,
+            untrustedContent: true,
             execute: async (input, context) => {
               const result = await modelContext.executeTool(tool, input, {
                 signal: context.signal,
@@ -479,9 +494,7 @@ export async function registerAIAuthPageActions({
               name: action.name,
               description: action.description,
               inputSchema: action.inputSchema,
-              annotations: {
-                readOnlyHint: action.readOnly === true,
-              },
+              annotations: toolAnnotations(action),
               execute: (input, context = {}) =>
                 execute(action.name, input, context),
             },

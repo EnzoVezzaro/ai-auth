@@ -956,6 +956,63 @@ test("a protected tool is refused until membership and a grant exist, and again 
   assert.equal(w.counter.runs, 1, "the revoked identity cannot invoke");
 });
 
+test("annotation hints mark protected actions and peer-sourced tools", async (t) => {
+  const { connection, popupMessages } = await makeVerifiedConnection(
+    ["tools.invoke"],
+    { roomSession: WALLET_SESSION },
+  );
+  t.after(() => connection.close());
+  const registrations = [];
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    actions: [
+      countAction({ runs: 0 }, { name: "site.read" }),
+      countAction({ runs: 0 }, { name: "site.approve", protected: true }),
+    ],
+    modelContext: {
+      registerTool(tool) {
+        registrations.push(tool);
+      },
+      getTools: () => [
+        {
+          name: "peer.search",
+          description: "Read peer records.",
+          inputSchema: { type: "object", properties: {} },
+          annotations: { readOnlyHint: true },
+        },
+      ],
+      executeTool: async () => "{}",
+    },
+    authorize: () => true,
+  });
+  t.after(() => api.close());
+  const registered = new Map(registrations.map((tool) => [tool.name, tool]));
+  assert.equal(
+    registered.get("site.read").annotations.consequentialHint,
+    false,
+  );
+  assert.equal(
+    registered.get("site.approve").annotations.consequentialHint,
+    true,
+  );
+  assert.equal(
+    registered.get("site.read").annotations.untrustedContentHint,
+    false,
+  );
+  const [catalog] = catalogsIn(popupMessages);
+  const hints = new Map(
+    catalog.tools.map((tool) => [tool.name, tool.annotations]),
+  );
+  assert.deepEqual(hints.get("site.read"), {
+    readOnlyHint: false,
+    consequentialHint: false,
+    untrustedContentHint: false,
+  });
+  assert.equal(hints.get("site.approve").consequentialHint, true);
+  assert.equal(hints.get("peer.search").untrustedContentHint, true);
+  assert.equal(hints.get("peer.search").readOnlyHint, true);
+});
+
 test("an action marked protected fails closed when no policy is available", async (t) => {
   const { connection, popupMessages, dispatch } = await makeVerifiedConnection(
     ["tools.invoke"],
