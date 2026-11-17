@@ -19,6 +19,7 @@
     "connect-input.js",
     "approval.js",
     "bridge.js",
+    "code-mode-worker.js",
     "http.js",
     "README.md",
     "CHANGELOG.md"

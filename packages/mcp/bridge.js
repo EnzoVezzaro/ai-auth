@@ -1,4 +1,4 @@
-import vm from "node:vm";
+import { Worker } from "node:worker_threads";
 import { z } from "zod";
 import {
   createAIAuthAgentClient,
@@ -68,40 +68,30 @@ const CODE_FACTORY = `(function makeAiAuth(
   };
 })`;
 
-function encodeAiAuthError(error) {
-  return JSON.stringify({
+function errorInfo(error) {
+  return {
     message: String(error?.message ?? "aiAuth call failed").slice(0, 240),
     ...(error?.code ? { code: error.code } : {}),
-  });
+  };
 }
 
-// Turns a host API function into a callback that never throws into the guest
-// and never returns a host object: it only calls guest callbacks with strings.
-function makeHostCall(invoke) {
-  return (argsJson, ok, fail) => {
-    let args;
-    try {
-      args = JSON.parse(argsJson);
-      if (!Array.isArray(args))
-        throw new TypeError("arguments must be an array");
-    } catch {
-      fail(encodeAiAuthError(new TypeError("Invalid aiAuth arguments")));
-      return;
-    }
-    try {
-      const result = invoke(...args);
-      if (result && typeof result.then === "function") {
-        result.then(
-          (value) => ok(JSON.stringify(value ?? null)),
-          (error) => fail(encodeAiAuthError(error)),
-        );
-      } else {
-        ok(JSON.stringify(result ?? null));
-      }
-    } catch (error) {
-      fail(encodeAiAuthError(error));
-    }
-  };
+// Shared scratch space for the worker's synchronous host calls. JSON strings
+// never contain raw NUL bytes (JSON.stringify escapes them), so NUL terminates
+// a reply. The header holds [phase, sequence]; phase 2 means "reply ready".
+const SHARED_HEADER_BYTES = 8;
+const SHARED_BYTES = SHARED_HEADER_BYTES + 262_144;
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+
+function writeShared(data, text) {
+  const bytes = textEncoder.encode(text);
+  data.fill(0);
+  data.set(bytes.subarray(0, data.length));
+}
+
+function readShared(data) {
+  const end = data.indexOf(0);
+  return textDecoder.decode(data.subarray(0, end === -1 ? data.length : end));
 }
 
 function clip(value) {
@@ -399,54 +389,140 @@ export function createAgentBridge({
       if (code.length > 8_000)
         throw new RangeError("code exceeds the 8 KB sandbox limit");
       const logs = [];
-      const sandbox = Object.create(null);
-      const context = vm.createContext(sandbox, {
-        codeGeneration: { strings: false, wasm: false },
-      });
-      const factory = vm.runInContext(CODE_FACTORY, context);
-      const callbacks = [
-        (text) => {
-          if (logs.length < 50) logs.push(text);
+      // One controller owns every tool call made by this script. A timeout or
+      // caller abort stops them even if the guest never awaits the promises.
+      const controller = new AbortController();
+      const abortCaller = () => controller.abort(signal?.reason);
+      if (signal?.aborted) abortCaller();
+      else signal?.addEventListener("abort", abortCaller, { once: true });
+      const shared = new SharedArrayBuffer(SHARED_BYTES);
+      const header = new Int32Array(shared, 0, 2);
+      const data = new Uint8Array(shared, SHARED_HEADER_BYTES);
+      const worker = new Worker(
+        new URL("./code-mode-worker.js", import.meta.url),
+        {
+          workerData: { code, factorySource: CODE_FACTORY, shared },
         },
-        makeHostCall(() => api.status()),
-        makeHostCall(() => api.listTools()),
-        makeHostCall((options) => api.events(options)),
-        makeHostCall((input) => api.send(input)),
-        makeHostCall((input) => api.move(input)),
-        makeHostCall((name, input, wallet, session) =>
-          api.invoke({ name, input: input ?? {}, wallet, session }, { signal }),
-        ),
-      ];
-      const wrappers = factory(...callbacks);
-      sandbox.console = wrappers.console;
-      sandbox.aiAuth = wrappers.aiAuth;
-      const script = new vm.Script(
-        `"use strict";\n(async () => {\n${code}\n})()`,
-        { timeout: 2_000 },
       );
-      let timer;
-      const timeout = new Promise((_, reject) => {
+      const syncHandlers = {
+        status: () => api.status(),
+        listTools: () => api.listTools(),
+        events: (options) => api.events(options),
+        move: (options) => api.move(options),
+      };
+      const asyncHandlers = {
+        send: (input) => api.send(input),
+        invoke: (name, input, wallet, session) =>
+          api.invoke(
+            { name, input: input ?? {}, wallet, session },
+            { signal: controller.signal },
+          ),
+      };
+      return new Promise((resolve) => {
+        let settled = false;
+        let timer;
+        const finish = (outcome) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          signal?.removeEventListener("abort", abortCaller);
+          controller.abort();
+          void worker.terminate();
+          resolve(outcome);
+        };
         timer = setTimeout(
-          () => reject(new Error("Code Mode timed out")),
+          () =>
+            finish({
+              ok: false,
+              code: "CODE_FAILED",
+              reason: "Code Mode timed out",
+              logs,
+            }),
           2_000,
         );
+        worker.on("message", (message) => {
+          if (!message || settled) return;
+          if (message.type === "log") {
+            if (logs.length < 50) logs.push(message.text);
+            return;
+          }
+          if (message.type === "sync") {
+            let response;
+            try {
+              const request = JSON.parse(readShared(data));
+              const handler = syncHandlers[request.method];
+              if (!handler) throw new TypeError("Unknown aiAuth call");
+              response = {
+                value: JSON.stringify(handler(...request.args) ?? null),
+              };
+            } catch (error) {
+              response = { error: errorInfo(error) };
+            }
+            writeShared(data, JSON.stringify(response));
+            Atomics.store(header, 0, 2);
+            Atomics.notify(header, 0);
+            return;
+          }
+          if (message.type === "async") {
+            const reply = (body) =>
+              worker.postMessage({
+                type: "asyncResult",
+                id: message.id,
+                ...body,
+              });
+            const handler = asyncHandlers[message.method];
+            if (!handler) {
+              reply({
+                ok: false,
+                error: errorInfo(new TypeError("Unknown aiAuth call")),
+              });
+              return;
+            }
+            try {
+              Promise.resolve(handler(...message.args)).then(
+                (value) =>
+                  reply({ ok: true, value: JSON.stringify(value ?? null) }),
+                (error) => reply({ ok: false, error: errorInfo(error) }),
+              );
+            } catch (error) {
+              reply({ ok: false, error: errorInfo(error) });
+            }
+            return;
+          }
+          if (message.type === "done") {
+            finish({
+              ok: true,
+              value: clip(JSON.parse(message.value)),
+              logs,
+            });
+            return;
+          }
+          if (message.type === "failed") {
+            finish({
+              ok: false,
+              code: message.code ?? "CODE_FAILED",
+              reason: String(message.message ?? "Code failed").slice(0, 240),
+              logs,
+            });
+          }
+        });
+        worker.on("error", (error) =>
+          finish({
+            ok: false,
+            code: "CODE_FAILED",
+            reason: String(error?.message ?? "Code failed").slice(0, 240),
+            logs,
+          }),
+        );
+        worker.on("exit", () =>
+          finish({
+            ok: false,
+            code: "CODE_FAILED",
+            reason: "Code Mode exited before completing",
+            logs,
+          }),
+        );
       });
-      try {
-        const value = await Promise.race([
-          Promise.resolve(script.runInContext(context, { timeout: 2_000 })),
-          timeout,
-        ]);
-        return { ok: true, value: clip(value), logs };
-      } catch (error) {
-        return {
-          ok: false,
-          code: error?.code ?? "CODE_FAILED",
-          reason: String(error?.message ?? "Code failed").slice(0, 240),
-          logs,
-        };
-      } finally {
-        clearTimeout(timer);
-      }
     },
     close() {
       client?.close?.();
