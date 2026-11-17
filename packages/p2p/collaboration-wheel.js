@@ -169,6 +169,10 @@ class Wheel {
 
   onKey(event) {
     if (this.ui.panel.hidden) return;
+    // While picking, the panel is only visually hidden and the focused Cancel
+    // button lives outside it, so the tab trap would make Tab a no-op and trap
+    // keyboard users away from the page elements they are trying to pick.
+    if (this.selecting) return;
     if (event.key === "Escape") {
       event.stopPropagation();
       this.close();
