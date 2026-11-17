@@ -507,6 +507,17 @@ export function listResumableSessions(
   },
 ): Promise<AIAuthSessionRecord[]>;
 
+/** Build a public-only session record from an already-verified consent. */
+export function recordFromConsent(
+  consent: unknown,
+  options: {
+    origin: string;
+    room: string;
+    participant?: { instanceId: string; sessionId: string };
+    now?: () => number;
+  },
+): AIAuthSessionRecord;
+
 export function verifyStoredConsent(
   consent: unknown,
   options: { origin: string; walletId: string; room?: string; now?: number },

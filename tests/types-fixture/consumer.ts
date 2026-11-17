@@ -89,6 +89,7 @@ import {
   mountCollaborationWheel,
   randomNonce,
   readActivity,
+  recordFromConsent,
   registerAIAuthPageActions,
   renewExecutionGrant,
   resolveDuration,
@@ -115,6 +116,7 @@ import type {
   AIAuthConnectInstruction,
   AIAuthPageAction,
   AIAuthPageConnection,
+  AIAuthSessionRecord,
   CapabilityGrant,
   ConnectionSnapshot,
   DeliveryLedger,
@@ -475,6 +477,13 @@ export async function exerciseSessionResume(
   capabilities: string[],
 ): Promise<void> {
   const store = createSessionStore({ storage: sessionStorage });
+  const record: AIAuthSessionRecord = recordFromConsent(undefined, {
+    origin: "https://site.example",
+    room: "research",
+    participant: { instanceId: "instance-1", sessionId: "session-1" },
+    now: () => Date.now(),
+  });
+  void record;
   // origin is optional; resumeAIAuthSession defaults it from location.
   const connection = await resumeAIAuthSession({
     walletUrl,
