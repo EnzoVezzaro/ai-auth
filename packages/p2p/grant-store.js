@@ -128,7 +128,8 @@ export function createGrantStore({
     },
     async markEnded(audience, requestNonce) {
       const key = grantKey(audience, requestNonce);
-      const record = (await adapter.get(key)) ?? { audience, requestNonce };
+      const record = await adapter.get(key);
+      if (!record) return false;
       await adapter.put(key, { ...record, ended: true });
       return true;
     },

@@ -1097,7 +1097,10 @@ async function markSessionEnded(id) {
 
 function touchGrant() {
   const audience = state.externalOrigin;
-  const id = state.consent?.body?.payload?.requestNonce;
+  // The signed consent's request nonce changes on renewal; the session id in
+  // state.externalRequest is the stable key the grant is stored under.
+  const id =
+    state.externalRequest?.nonce ?? state.consent?.body?.payload?.requestNonce;
   if (typeof audience === "string" && audience && typeof id === "string")
     void grantStore.touch(audience, id);
 }
@@ -1181,7 +1184,9 @@ function scheduleSessionExpiry() {
 async function expireExternalSession(reason = "expired", endedBySite = false) {
   if (state.externalStatus !== "sent") return;
   clearTimeout(state.sessionTimer);
-  await markSessionEnded(state.consent?.body?.payload?.requestNonce);
+  await markSessionEnded(
+    state.externalRequest?.nonce ?? state.consent?.body?.payload?.requestNonce,
+  );
   state.lease?.revoke();
   state.renewal = null;
   if (externalHost && state.externalOrigin)
