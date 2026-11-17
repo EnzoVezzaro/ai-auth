@@ -624,19 +624,24 @@ export class ManualWebRTC {
   async waitForIce(timeoutMs = 15_000) {
     if (this.peer.iceGatheringState === "complete")
       return JSON.stringify(this.peer.localDescription);
+    let cleanup = () => {};
     await new Promise((resolve, reject) => {
+      const onComplete = () => {
+        if (this.peer.iceGatheringState === "complete") resolve();
+      };
       const timeout = setTimeout(
         () =>
           reject(new Error("ICE gathering timed out; retry offer creation")),
         timeoutMs,
       );
-      this.peer.addEventListener("icegatheringstatechange", () => {
-        if (this.peer.iceGatheringState === "complete") {
-          clearTimeout(timeout);
-          resolve();
-        }
-      });
-    });
+      cleanup = () => {
+        clearTimeout(timeout);
+        this.peer.removeEventListener("icegatheringstatechange", onComplete);
+      };
+      // Not `once`: `gathering` fires before `complete`, so the listener must
+      // survive intermediate states and be removed on either outcome.
+      this.peer.addEventListener("icegatheringstatechange", onComplete);
+    }).finally(cleanup);
     return JSON.stringify(this.peer.localDescription);
   }
 
