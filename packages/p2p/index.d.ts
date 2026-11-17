@@ -566,9 +566,13 @@ export function mountAIAuthCollaboration(
 export interface AIAuthPageAction {
   name: string;
   description: string;
-  inputSchema: Record<string, unknown> & { type: "object"; properties: object };
+  /** JSON Schema: an object, or a boolean schema (true/false). */
+  inputSchema: Record<string, unknown> | boolean;
   requiredCapability: "tools.invoke";
   readOnly?: boolean;
+  /** Optional human-facing UI label, bounded to 120 characters when published. */
+  title?: string;
+  label?: string;
   /** When true, a remote requester always needs a participation policy that authorizes it. */
   protected?: boolean;
   execute(
@@ -591,6 +595,7 @@ export interface AIAuthPageActionContext {
 export interface AIAuthWebMCPRegisteredTool {
   name: string;
   description: string;
+  title?: string;
   inputSchema?: Record<string, unknown>;
   outputSchema?: Record<string, unknown>;
   origin?: string;

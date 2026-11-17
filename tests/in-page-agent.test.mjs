@@ -537,6 +537,11 @@ test("in-page agent discovers WebMCP tools, targets requests, and returns signed
         description: "Search public site records.",
         inputSchema: webmcpTool.inputSchema,
         outputSchema: webmcpTool.outputSchema,
+        annotations: {
+          readOnlyHint: true,
+          consequentialHint: false,
+          untrustedContentHint: true,
+        },
       },
     ],
   });
