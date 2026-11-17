@@ -1139,7 +1139,10 @@ export function createAIAuthAgentClient(
         request.resolve(boundedJson(payload.result));
       } catch {
         request.reject(
-          new Error("The site tool returned an invalid or oversized result"),
+          toolError(
+            TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
+            "The site tool returned an invalid or oversized result",
+          ),
         );
       }
     }
