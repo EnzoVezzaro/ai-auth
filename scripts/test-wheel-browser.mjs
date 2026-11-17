@@ -93,7 +93,7 @@ try {
   // Wait for the wheel to reflect the new peer instead of sleeping a fixed tick.
   await page.waitForFunction(() => {
     const wheel = document.querySelector("[data-ai-auth-collaboration-wheel]");
-    const input = wheel?.querySelector("input");
+    const input = wheel?.shadowRoot?.querySelector("input");
     return Boolean(input && !input.disabled);
   });
   assert.match(await sh(".peers").textContent(), /No verified peers yet/);
