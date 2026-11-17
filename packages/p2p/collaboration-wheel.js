@@ -308,7 +308,7 @@ class Wheel {
       why(caps.record),
     );
     if (!block)
-      for (const reason of [caps.share, caps.media].filter(Boolean))
+      for (const reason of [caps.share, caps.media, caps.record].filter(Boolean))
         reasons.add(reason);
     ui.hint.textContent = [...reasons].join(" ");
     this.renderWarning();
