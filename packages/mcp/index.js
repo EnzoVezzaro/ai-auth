@@ -112,27 +112,16 @@ export async function createAIAuthMcpServer({
         annotations: { readOnlyHint: action.readOnly === true },
       },
       async (input) => {
+        // Announcements are best-effort. Publishing "started" or "completed"
+        // must never turn a successful side effect into a reported failure,
+        // because that would invite the caller to run the action twice.
+        await publishSignedActionEvent(
+          publishEvent,
+          await actionEnvelope(wallet, action, "started", `Started ${action.name}`),
+        ).catch(() => {});
+        let output;
         try {
-          await publishSignedActionEvent(
-            publishEvent,
-            await actionEnvelope(
-              wallet,
-              action,
-              "started",
-              `Started ${action.name}`,
-            ),
-          );
-          const output = await action.execute(input ?? {});
-          await publishSignedActionEvent(
-            publishEvent,
-            await actionEnvelope(
-              wallet,
-              action,
-              "completed",
-              `Completed ${action.name}`,
-            ),
-          );
-          return result(output);
+          output = await action.execute(input ?? {});
         } catch {
           try {
             await publishEvent(
@@ -156,6 +145,27 @@ export async function createAIAuthMcpServer({
             isError: true,
           };
         }
+        const published = await publishSignedActionEvent(
+          publishEvent,
+          await actionEnvelope(
+            wallet,
+            action,
+            "completed",
+            `Completed ${action.name}`,
+          ),
+        ).then(
+          () => true,
+          () => false,
+        );
+        return {
+          ...result(output),
+          ...(published
+            ? {}
+            : {
+                publishWarning:
+                  "The action completed, but its activity event could not be published.",
+              }),
+        };
       },
     );
   }

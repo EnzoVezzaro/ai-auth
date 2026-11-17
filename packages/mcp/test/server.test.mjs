@@ -143,6 +143,50 @@ test("local MCP action errors hide secrets and sign failed events", async (t) =>
   );
 });
 
+test("MCP-03: a failed completed-event publish is not an action failure", async (t) => {
+  const states = [];
+  let executions = 0;
+  const server = await createAIAuthMcpServer({
+    wallet,
+    actions: [
+      {
+        ...actions[0],
+        execute: async ({ workspaceId }) => {
+          executions += 1;
+          return { workspaceId, summary: "ready" };
+        },
+      },
+    ],
+    approveCapabilities: async (requested) => requested,
+    publishEvent: async (event) => {
+      const state = event.body.payload.state;
+      states.push(state);
+      if (state === "completed")
+        throw new Error("Bearer private-transport-token at /private/path");
+    },
+  });
+  t.after(() => server.server.close());
+  const { client, clientTransport, serverTransport } = await connect(
+    server.server,
+  );
+  t.after(async () => {
+    await client.close();
+    await clientTransport.close();
+    await serverTransport.close();
+  });
+  const output = await client.callTool({
+    name: "workspace.read",
+    arguments: { workspaceId: "local-workspace" },
+  });
+  assert.equal(executions, 1, "the action is never retried");
+  assert.notEqual(output.isError, true, "the successful action stays successful");
+  assert.match(output.content[0].text, /"summary":"ready"/u);
+  assert.doesNotMatch(JSON.stringify(output), /private-transport-token/u);
+  assert.deepEqual(states, ["started", "completed"]);
+  assert.equal(output.publishWarning !== undefined, true, "publish failure is visible");
+  assert.equal(output.isError, undefined);
+});
+
 test("MCP host event transport errors never expose callback secrets", async (t) => {
   for (const failingState of ["started", "failed"]) {
     const states = [];
