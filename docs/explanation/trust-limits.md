@@ -18,7 +18,7 @@ A targeted message carries a signed target. Honoring receivers drop it when it i
 
 ## Revocation takes time
 
-There is no global revocation switch and no AI Auth server to push one. A signed revocation takes effect at a peer only after that peer receives, verifies, and applies it. Gossip reaches the peers connected to the sender; a peer that was offline or joined later gets nothing retroactively.
+There is no global revocation switch and no AI Auth server to push one. A signed revocation takes effect at a peer only after that peer receives, verifies, and applies it. Live gossip reaches the peers connected to the sender; on first sight of a peer (including a late joiner) bounded `revocation/sync` catch-up also sends the signed epoch announcement and at most 32 recent revocations no older than 7 days. A peer offline beyond that window still misses older records.
 
 Three things keep the window small:
 
@@ -26,7 +26,7 @@ Three things keep the window small:
 - Protected operations need a short-lived execution grant, at most 15 minutes and 5 by default.
 - On first sight of a peer, peers exchange at most 32 recent revocation records no older than 7 days.
 
-A peer that missed a revocation keeps honoring the identity until its stored grant runs out and the site stops renewing it. Epoch bumps are local knowledge in this release; they are not gossiped. Open rooms have no membership, so wallet revocations only stop a key at peers that applied them. Protected operations are not allowed in open rooms.
+A peer that missed a revocation keeps honoring the identity until its stored grant runs out and the site stops renewing it. `bumpEpoch()` invalidates older proofs at the policy that bumped it; signed epoch announcements are propagated with `publishEpoch()` and included in catch-up, so other peers learn the new value through `observeEpoch`. Open rooms have no membership, so wallet revocations only stop a key at peers that applied them. Protected operations are not allowed in open rooms. See [Revocation, epochs, and execution grants](../SECURITY.md#revocation-epochs-and-execution-grants-offline-consistency-limits) for the full limits.
 
 ## Recovery is yours to manage
 

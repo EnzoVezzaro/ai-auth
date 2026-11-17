@@ -8,6 +8,7 @@ import {
   signEnvelope,
 } from "../packages/p2p/index.js";
 import { connectAIAuthModal } from "../packages/p2p/embed.js";
+import { until } from "./helpers/wait.mjs";
 
 globalThis.crypto ??= webcrypto;
 
@@ -140,8 +141,11 @@ test("close keeps the wallet frame until session-ended reaches the wallet", asyn
     assert.equal(ended.data.reason, "ended");
     assert.equal(ended.targetOrigin, WALLET_ORIGIN);
 
-    // The teardown is only deferred by a short, bounded delay, never skipped.
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    // The teardown is deferred by a bounded grace period, never skipped.
+    await until(() => b.dialogRemovals() === 1, {
+      timeout: 3_000,
+      message: "deferred dialog/iframe removal",
+    });
     assert.equal(
       b.dialogRemovals(),
       1,

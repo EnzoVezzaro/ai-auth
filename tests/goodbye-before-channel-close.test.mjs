@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import vm from "node:vm";
 import { appSource, extractFunction } from "./helpers/app-source.mjs";
+import { until } from "./helpers/wait.mjs";
 
 // The site-side stub transport used by disconnect-goodbye.test.mjs delivers
 // synchronously, so it cannot catch a room closed before the goodbye is sent.
@@ -50,9 +51,13 @@ test("the goodbye is sent before the wallet's connection is closed", async () =>
   });
 
   await vm.runInContext(`${expire}\nexpireExternalSession();`, context);
-  // Let the delayed goodbye send land so the assertion is about the order of
-  // the two events, not about whether a pending timer has fired yet.
-  await new Promise((resolve) => setTimeout(resolve, 120));
+  // Wait for the delayed goodbye to land so the assertion is about the order
+  // of the two events, not about whether a timer has fired by a fixed tick.
+  await until(() => events.length === 2, {
+    timeout: 2_000,
+    interval: 10,
+    message: "goodbye sent then rtc closed",
+  });
 
   assert.deepEqual(
     events,

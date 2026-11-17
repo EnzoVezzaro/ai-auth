@@ -71,7 +71,11 @@ try {
   const stopAfter = Number(process.env.B4A_STOP_AFTER ?? 99);
   const run = (n, name, fn) =>
     n > stopAfter ? undefined : report.step(n, name, (ev) => fn(w, ev));
-  const ok = async (n, name, fn) => (await run(n, name, fn)).status !== "FAIL";
+  // B4A_STOP_AFTER can skip `run`, so guard the missing row instead of throwing.
+  const ok = async (n, name, fn) => {
+    const row = await run(n, name, fn);
+    return row ? row.status !== "FAIL" : false;
+  };
   await run(
     1,
     "Wallets created on first connect; identities distinct",

@@ -440,7 +440,7 @@ export interface AIAuthConnectOptions {
     policy: import("./membership.js").ParticipationPolicy;
     now?: number | (() => number);
   };
-  /** A session store, or a sessionStorage-compatible backing for the default one. */
+  /** A session store, or a localStorage-compatible backing for the default one. */
   sessionStore?: AIAuthSessionStore;
   storage?: AIAuthSessionStorage;
   /** Internal: resume this record instead of asking for fresh consent. */
@@ -455,7 +455,7 @@ export function connectAIAuthModal(
 /** @deprecated Use connectAIAuthModal. */
 export const connectAIAuthPopup: typeof connectAIAuthModal;
 
-/** A public, per-agent session record stored only in the site's sessionStorage. */
+/** A public, per-agent session record stored only in the site's localStorage. */
 export interface AIAuthSessionRecord {
   readonly schemaVersion: number;
   readonly audience: string;
@@ -603,6 +603,16 @@ export interface AIAuthWebMCPRegisteredTool {
   annotations?: Record<string, unknown>;
   window?: Window;
 }
+
+/** Machine-readable reasons a WebMCP call can fail. Runtime value: `webmcp.js`. */
+export const TOOL_ERROR_CODES: Readonly<{
+  TOOL_UNAVAILABLE: "TOOL_UNAVAILABLE";
+  SITE_DISCONNECTED: "SITE_DISCONNECTED";
+  CATALOG_EXPIRED: "CATALOG_EXPIRED";
+  AUTH_EXPIRED: "AUTH_EXPIRED";
+  CANCELLED: "CANCELLED";
+  TIMEOUT: "TIMEOUT";
+}>;
 
 export function registerAIAuthPageActions(options: {
   actions?: AIAuthPageAction[];
@@ -798,6 +808,18 @@ export function mountAIAuthConnectPanel(options: {
   label?: string;
   onStateChange?: (state: AIAuthConnectPanelState) => void;
 }): () => void;
+
+/** The status sentence the connect panel shows, in plain words. */
+export function connectPanelStatusText(
+  state: AIAuthConnectPanelState | { status: string; reason?: string },
+  options?: { reloaded?: boolean },
+): string;
+
+/** The label of the connect panel's main button for the given state. */
+export function connectPanelButtonLabel(
+  state: AIAuthConnectPanelState | { status: string; reason?: string },
+  options?: { reloaded?: boolean },
+): string;
 
 export {
   createConnectionState,

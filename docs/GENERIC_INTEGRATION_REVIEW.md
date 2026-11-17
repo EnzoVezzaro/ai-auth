@@ -7,7 +7,7 @@ Review scope: the AI Auth browser SDK, its existing browser E2E harness, CI work
 - **AI Auth** owns wallet identity, signed consent, permissions, room transport, peer presence, messaging, and generic WebMCP tool advertisement/invocation. It does **not** contain a product catalog.
 - **An agent harness** owns the process that keeps a headless agent connection alive. An identity or a non-expiring grant alone is not a running connection.
 - **The website** owns the implementation and authorization of the actions it exposes. A page-hosted tool is unavailable if its page is gone; this is not a failure of the remaining agent's identity or P2P presence.
-- **An example consumer** bundles `@enzovezzaro/ai-auth-wallet@0.6.2` from its own entry file and registers site-specific tools through page actions. The catalog stays with that website.
+- **An example consumer** imports the published SDK (no version pin) from its own entry file and registers site-specific tools through page actions. The catalog stays with that website.
 
 The independent page built in `scripts/test-browser-e2e.mjs` is separate from that example consumer. Its arbitrary tools `demo.echo` and `demo.increment` demonstrate that the SDK transports tools whose names, schemas and behavior come entirely from a website.
 
@@ -41,7 +41,7 @@ After the browser test passes, inspect the PNG files in `test-results/screenshot
 
 ## Observed documentation corrections in this PR
 
-- The root README package version table was behind the checked-in package manifests. It is aligned to wallet 0.6.2, agent 0.1.3 and MCP 0.3.2.
+- A dated 0.6.2-era correction: the root README version table had fallen behind the manifests and was aligned to wallet 0.6.2, agent 0.1.3 and MCP 0.3.2. Those figures are historical; current versions are in the README and SDK guide.
 - The generic connect-instruction example used a real site's name and address, making the public SDK look site-specific. It now uses an intentionally fictitious workspace origin.
 - Browser and headless identity storage are described separately.
 - The security documentation must distinguish _private presence_ from _not joining the room_; they are not equivalent.

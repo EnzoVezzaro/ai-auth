@@ -42,6 +42,9 @@ import {
   ROOM_MODES,
   SENSITIVE_SELECTOR,
   SessionLease,
+  TOOL_ERROR_CODES,
+  connectPanelButtonLabel,
+  connectPanelStatusText,
   appendActivity,
   approveLink,
   approvePermissionRequest,
@@ -111,6 +114,13 @@ import {
   verifyReceipt,
   verifyRevocation,
 } from "@enzovezzaro/ai-auth-wallet";
+import {
+  CHALLENGE_MAX_MS as CONNECT_CHALLENGE_MAX_MS,
+  DEFAULT_IDLE_TIMEOUT_MS as CONNECT_DEFAULT_IDLE_TIMEOUT_MS,
+  SessionLease as ConnectSessionLease,
+  sessionLimits as connectSessionLimits,
+  verifyConsentAgent,
+} from "@enzovezzaro/ai-auth-wallet/connect";
 import type {
   AIAuthAgentToolCatalog,
   AIAuthConnectInstruction,
@@ -304,6 +314,17 @@ export function exerciseConnectUi(origin: string): void {
   void state.status;
   const target = document.createElement("div");
   const unmount = mountAIAuthConnectPanel({ instruction, target });
+  const status: string = connectPanelStatusText(state, { reloaded: false });
+  const label: string = connectPanelButtonLabel(state, { reloaded: true });
+  const code: string = TOOL_ERROR_CODES.TOOL_UNAVAILABLE;
+  void status;
+  void label;
+  void code;
+  void CONNECT_CHALLENGE_MAX_MS;
+  void CONNECT_DEFAULT_IDLE_TIMEOUT_MS;
+  void connectSessionLimits;
+  void verifyConsentAgent;
+  void ConnectSessionLease;
   unmount();
   controller.close();
 }

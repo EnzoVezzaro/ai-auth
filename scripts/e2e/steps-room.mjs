@@ -1,6 +1,8 @@
 // Steps 4, 6, 7, 8 and 9: connection state, restricted membership, presence,
 // the interaction wheel and agent-to-agent events.
 import { COLLABORATION_LIMITS } from "../../packages/p2p/index.js";
+import { checkUninvitedTarget } from "./confidentiality.mjs";
+import { hasTextMessage } from "./messages.mjs";
 import {
   assert,
   CAPS,
@@ -314,8 +316,8 @@ export async function step8(w, evidence) {
     target: a3.walletId,
   });
   evidence.targetToUninvited = toStranger.ok ? "sent" : toStranger.error;
-  // With the delivery bug from step 6 the uninvited target may still receive it.
-  evidence.uninvitedTargetReceived = await text(a3, "to the uninvited");
+  // A leak is a documented SDK defect (KNOWN-BUG), never a passing step.
+  checkUninvitedTarget(evidence, await text(a3, "to the uninvited"));
   // Element share: the password field is redacted and cannot be selected.
   await ha.page.getByRole("button", { name: "Share element" }).click();
   await ha.page.locator("#gift-code").click({ force: true });
@@ -373,13 +375,6 @@ export async function step8(w, evidence) {
 
 export async function step9(w, evidence) {
   const { a1, a2 } = w.p;
-  const has = (p, from) =>
-    p
-      .get(
-        "b4a.state.events.some((e) => e.type === 'message/text' && e.issuer === arg)",
-        from,
-      )
-      .then(Boolean);
   assert.equal(
     (await a1.call("sendSigned", "message/text", { text: "a1 to a2" })).ok,
     true,
@@ -389,11 +384,11 @@ export async function step9(w, evidence) {
     true,
   );
   await expectEventually(
-    () => has(a2, a1.walletId),
+    () => hasTextMessage(a2, a1.walletId, "a1 to a2"),
     "Agent 2 receives Agent 1's signed event",
   );
   await expectEventually(
-    () => has(a1, a2.walletId),
+    () => hasTextMessage(a1, a2.walletId, "a2 to a1"),
     "Agent 1 receives Agent 2's signed event",
   );
   evidence.exchanged = ["a1->a2 message/text", "a2->a1 message/text"];

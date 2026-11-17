@@ -8,9 +8,11 @@ import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   approveWallet as approveWalletModal,
+  expectStable,
   freePort,
   launchBrowser,
   root,
+  waitFor,
   waitForServer,
 } from "./e2e/helpers.mjs";
 
@@ -982,7 +984,16 @@ try {
       ),
     new URL(walletUrl).origin,
   );
-  await delay(1000);
+  // Wait for the real lifecycle transition, then watch the event count over a
+  // window: a single delayed sleep cannot tell "no event" from "late event".
+  await waitFor(
+    () => siteA.evaluate(() => window.__lifecycle.at(-1)?.reason === "expired"),
+    { timeout: 10_000, message: "expired session to disconnect" },
+  );
+  await expectStable(
+    () => siteB.locator('#events li[data-type="agent/action"]').count(),
+    { window: 1_000, message: "expired wallet's event count" },
+  );
   assert.equal(
     await siteB.locator('#events li[data-type="agent/action"]').count(),
     before,

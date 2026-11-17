@@ -1,10 +1,18 @@
 // In-process stand-in for Trystero's joinRoom (same surface NostrWebRTC uses).
 // A hub joins every transport created with the same topic as direct peers.
-export function createHub() {
+// With `goodbyeOnly`, a peer disappears only when a peer/goodbye envelope is
+// sent, so tests can tell a real goodbye from a bare transport leave.
+export function createHub({ goodbyeOnly = false } = {}) {
   const rooms = new Map();
+  const emit = (set, ...args) => [...set].forEach((fn) => fn(...args));
   const hub = {
     failJoins: 0,
     joins: 0,
+    goodbyes: 0,
+    goodbyeOnly,
+    emitError(topic, error) {
+      for (const other of rooms.get(topic) ?? []) emit(other.errors, error);
+    },
     joinRoom(config, topic) {
       hub.joins += 1;
       if (hub.failJoins > 0) {
@@ -18,18 +26,26 @@ export function createHub() {
         join: new Set(),
         leave: new Set(),
         msg: new Set(),
+        errors: new Set(),
       };
-      const emit = (set, ...args) => [...set].forEach((fn) => fn(...args));
       for (const other of members) {
         emit(other.join, { peerId: me.id });
       }
       members.add(me);
       return {
         selfId: me.id,
-        onError: () => () => {},
+        onError(fn) {
+          me.errors.add(fn);
+          return () => me.errors.delete(fn);
+        },
         makeAction: () => ({
           // Same contract as @trystero-p2p/core 0.27: `send(data, { target })`.
           send(envelope, options = {}) {
+            if (goodbyeOnly && envelope?.body?.type === "peer/goodbye") {
+              hub.goodbyes += 1;
+              members.delete(me);
+              for (const other of members) emit(other.leave, { peerId: me.id });
+            }
             const target = options?.target;
             const targets =
               target === undefined || target === null ? null : [target].flat();
@@ -63,6 +79,7 @@ export function createHub() {
             [...members].filter((m) => m !== me).map((m) => [m.id, {}]),
           ),
         async leave() {
+          if (goodbyeOnly) return; // only an explicit peer/goodbye removes a peer
           members.delete(me);
           for (const other of members) emit(other.leave, { peerId: me.id });
         },
