@@ -1097,6 +1097,14 @@ export async function connectAIAuthModal({
         closedReason = ["expired", "idle", "revoked"].includes(reason)
           ? reason
           : "closed";
+        // A site-initiated disconnect must revoke at the wallet too: the signed
+        // consent is a bearer token, so keeping it resumable at the wallet would
+        // let a later explicit resume revive a session the site already ended.
+        if (["closed", "revoked"].includes(closedReason) && popup)
+          popup.postMessage(
+            { type: "ai-auth/session-ended", reason: "ended" },
+            walletPage.origin,
+          );
         // Deleting only this agent's record leaves every other agent's record
         // in the same browser untouched.
         if (store && agentKey) store.remove(origin, agentKey);

@@ -1360,6 +1360,17 @@ if (externalConnectMode) {
       render();
       return;
     }
+    // A site that disconnects tells us to end its session. Only the opener we
+    // are connected to, at the exact site origin we approved, may end it.
+    if (
+      event.data?.type === "ai-auth/session-ended" &&
+      event.source === externalHost &&
+      event.origin === state.externalOrigin &&
+      event.origin === state.externalRequest?.audience
+    ) {
+      markSessionEnded(state.consent?.body?.payload?.requestNonce);
+      return;
+    }
     if (event.data?.type === "ai-auth/session-resume") {
       await confirmSessionResume(event);
       return;
