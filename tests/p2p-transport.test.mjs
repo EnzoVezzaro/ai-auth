@@ -576,6 +576,9 @@ test("popup connection timeout is cleared after signed consent", async () => {
   connection.close();
   connection.close();
   assert.equal(disconnects, 1);
+  // close() now defers the dialog/iframe teardown by one 500 ms grace period so
+  // the posted session-ended message reaches a live wallet frame first.
+  await new Promise((resolve) => setTimeout(resolve, 500));
   assert.equal(popup.closed, true);
   assert.equal(listeners.size, 0);
 });
