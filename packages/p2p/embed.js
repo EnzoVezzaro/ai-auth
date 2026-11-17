@@ -849,7 +849,11 @@ export async function connectAIAuthModal({
     const isToolAction =
       envelope.body.type === "agent/action" &&
       ["tool-catalog", "tool-request"].includes(payload.kind);
-    const announcement = isPresence || (isToolAction && !boundIssuer);
+    // Presence announces a new session only when nobody owns it yet. A hello or
+    // heartbeat for an already-bound session must not rebind it to a new issuer
+    // (first binder keeps it), so it goes through the normal issuer check.
+    const announcement =
+      (isPresence && !boundIssuer) || (isToolAction && !boundIssuer);
     if (
       !announcement &&
       (!boundIssuer || boundIssuer !== envelope.body.issuer)

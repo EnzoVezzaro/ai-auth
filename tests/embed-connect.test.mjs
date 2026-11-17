@@ -628,6 +628,43 @@ test("a first signed tool request introduces its caller's session", async (t) =>
   assert.equal(requests.length, 1, "the bound session is not stolen");
 });
 
+test("a peer hello cannot rebind a session already bound to another issuer", async (t) => {
+  const ctx = await connected(t);
+  const events = [];
+  ctx.connection.onEvent((event) => events.push(event));
+  const first = await makeWallet("First");
+  const second = await makeWallet("Second");
+  const announcement = (wallet, type) =>
+    wallet.sign(type, {
+      label: wallet.name,
+      room: ROOM,
+      origin: ORIGIN,
+      session: "shared-session-123456",
+      nonce: randomNonce(),
+      expiresAt: Date.now() + 60_000,
+    });
+  await ctx.b.fromWallet({
+    type: "ai-auth/collaboration-event",
+    envelope: await announcement(first, "peer/hello"),
+  });
+  assert.equal(events.length, 1, "the first binder owns the session");
+  await ctx.b.fromWallet({
+    type: "ai-auth/collaboration-event",
+    envelope: await announcement(second, "peer/hello"),
+  });
+  assert.equal(events.length, 1, "a different issuer cannot steal the binding");
+  await ctx.b.fromWallet({
+    type: "ai-auth/collaboration-event",
+    envelope: await announcement(second, "peer/heartbeat"),
+  });
+  assert.equal(events.length, 1, "a heartbeat cannot steal it either");
+  await ctx.b.fromWallet({
+    type: "ai-auth/collaboration-event",
+    envelope: await announcement(first, "peer/heartbeat"),
+  });
+  assert.equal(events.length, 2, "the original binder still owns the session");
+});
+
 test("an authorized identity's tool request reaches listeners", async (t) => {
   const w = await authorizedWorld(t);
   await w.toolRequest();
