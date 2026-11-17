@@ -521,6 +521,49 @@ test("CT-01: code mode async calls return JSON copies and capture logs", async (
   assert.deepEqual(out.logs, ["before"]);
 });
 
+test("CT-08: ai_auth_act accepts the terminal denied state", () => {
+  const action = buildAgentActions({
+    getBridge: () => ({}),
+    siteCapabilities: ["tools.invoke"],
+  }).find((item) => item.name === "ai_auth_act");
+  assert.equal(action.inputSchema.state.safeParse("denied").success, true);
+});
+
+test("CT-14/MCP-11: cancellations and timeouts are typed, not rejections", async () => {
+  const catalog = {
+    wallet: "agent:site",
+    session: "s",
+    requestNonce: "n".repeat(24),
+    expiresAt: Date.now() + 60_000,
+    tools: [{ name: "t" }],
+  };
+  const client = { catalogs: [catalog], callTool: async () => "ok" };
+  const bridge = createAgentBridge({
+    runtime: fakeRuntime(),
+    clientFactory: () => client,
+  });
+  client.callTool = async () => {
+    throw new DOMException("cancelled", "AbortError");
+  };
+  let out = await bridge.invoke({ name: "t" });
+  assert.equal(out.code, TOOL_ERROR_CODES.CANCELLED);
+  assert.equal(out.rejected, false);
+
+  client.callTool = async () => {
+    throw Object.assign(new Error("timed out"), { code: TOOL_ERROR_CODES.TIMEOUT });
+  };
+  out = await bridge.invoke({ name: "t" });
+  assert.equal(out.code, TOOL_ERROR_CODES.TIMEOUT);
+  assert.equal(out.rejected, false);
+
+  client.callTool = async () => {
+    throw new Error("The site owner denied this action");
+  };
+  out = await bridge.invoke({ name: "t" });
+  assert.equal(out.code, TOOL_ERROR_CODES.DENIED);
+  assert.equal(out.rejected, true);
+});
+
 test("MCP-02: list_tools before join returns a typed join-first error", () => {
   const bridge = createAgentBridge({ runtime: fakeRuntime() });
   const out = bridge.listTools();
@@ -560,6 +603,28 @@ test("CT-11: ai_auth_invoke accepts spec-valid names up to 128 characters", () =
   assert.equal(name.safeParse("My.Tool-1").success, true);
   assert.equal(name.safeParse("a".repeat(129)).success, false);
   assert.equal(name.safeParse("bad/name").success, false);
+});
+
+test("MCP-05: the code-mode description names exactly the six sandbox APIs", () => {
+  const action = buildAgentActions({
+    getBridge: () => ({}),
+    siteCapabilities: ["tools.invoke"],
+    codeMode: true,
+  }).find((item) => item.name === "ai_auth_code");
+  for (const api of ["status", "listTools", "invoke", "send", "move", "events"])
+    assert.match(action.description, new RegExp(`aiAuth\\.${api}\\b`));
+  assert.match(action.description, /join.*leave.*act|unavailable/iu);
+});
+
+test("MCP-10: ai_auth_join validates room names with the runtime pattern", () => {
+  const action = buildAgentActions({
+    getBridge: () => ({}),
+    siteCapabilities: ["presence.read"],
+  }).find((item) => item.name === "ai_auth_join");
+  const room = action.inputSchema.room;
+  assert.equal(room.safeParse("my-room:1.2").success, true);
+  assert.equal(room.safeParse("my room!").success, false);
+  assert.equal(room.safeParse("").success, false);
 });
 
 test("ai_auth_code is opt-in and requires tools.invoke", () => {
