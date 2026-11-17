@@ -287,6 +287,23 @@ export async function connectAIAuthModal({
   let cloneDiagnostics = Object.freeze([]);
   const cloneDetector = createCloneDetector();
   let walletSession = null;
+  // Inbound envelopes are trusted only when their session is bound to an issuer
+  // we already know: the wallet's room session is bound to the consent-verified
+  // identity, and peers bind themselves with a signed presence announcement.
+  const issuerBySession = new Map();
+  const sessionByIssuer = new Map();
+  const bindSession = (issuer, session) => {
+    const previous = sessionByIssuer.get(issuer);
+    if (previous && previous !== session) issuerBySession.delete(previous);
+    sessionByIssuer.set(issuer, session);
+    issuerBySession.set(session, issuer);
+  };
+  const unbindSession = (issuer, session) => {
+    if (issuerBySession.get(session) === issuer)
+      issuerBySession.delete(session);
+    if (sessionByIssuer.get(issuer) === session) sessionByIssuer.delete(issuer);
+  };
+  const ANNOUNCEMENT_TYPES = new Set(["peer/hello", "peer/heartbeat"]);
   const roomReadyListeners = new Set();
   let closedReason = "";
   let resolveReady;
@@ -542,6 +559,7 @@ export async function connectAIAuthModal({
       event.data.session.length >= 8
     ) {
       walletSession = event.data.session;
+      bindSession(walletIdentity.id, walletSession);
       walletFeatures = {
         targets: event.data.features?.targets === true,
         receipts: event.data.features?.receipts === true,
@@ -795,15 +813,36 @@ export async function connectAIAuthModal({
         payload.summary.length > 240)
     )
       return;
+    // Only a presence announcement may introduce a new session. Every other
+    // event must arrive on a session already bound to the issuer that signed
+    // it; verifying then binds the signature to that same issuer.
+    // A tool provider announces itself through its catalog just as a peer
+    // announces through presence; both may introduce a new session.
+    const announcement =
+      ANNOUNCEMENT_TYPES.has(envelope.body.type) ||
+      (envelope.body.type === "agent/action" &&
+        payload.kind === "tool-catalog");
+    const boundIssuer = issuerBySession.get(payload.session);
+    if (
+      !announcement &&
+      (!boundIssuer || boundIssuer !== envelope.body.issuer)
+    ) {
+      debug("sdk-rejected-unbound-session", envelope.body.type);
+      return;
+    }
+    const expectedIssuer = announcement ? envelope.body.issuer : boundIssuer;
     const replayKey = `${envelope.body.issuer}:${payload.session}:${payload.nonce}`;
     for (const [key, expiresAt] of seen)
       if (expiresAt <= Date.now()) seen.delete(key);
     if (seen.has(replayKey) || seen.size >= 4096) return;
-    if (!(await verifyEnvelope(envelope))) {
+    if (!(await verifyEnvelope(envelope, { expectedIssuer }))) {
       debug("sdk-rejected-signature", envelope?.body?.type);
       return;
     }
     seen.set(replayKey, payload.expiresAt);
+    if (announcement) bindSession(envelope.body.issuer, payload.session);
+    if (envelope.body.type === "peer/goodbye")
+      unbindSession(envelope.body.issuer, payload.session);
     // A remote tool request is a protected operation. With a participation
     // policy it must pass the fail-closed check at the moment it arrives, so
     // a revoked identity, stale epoch or lapsed grant never reaches a listener.
