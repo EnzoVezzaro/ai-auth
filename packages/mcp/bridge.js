@@ -238,6 +238,16 @@ export function createAgentBridge({
       };
     },
     async join({ room } = {}) {
+      // The human approved one room for this origin. Switching to an arbitrary
+      // room of the same origin needs a new approval, not just an MCP call.
+      const approved = runtime.approvedRoom;
+      const requested = room ?? runtime.room ?? approved ?? "default";
+      if (typeof approved === "string" && requested !== approved)
+        return {
+          ok: false,
+          code: TOOL_ERROR_CODES.DENIED,
+          reason: `Only the approved room "${approved}" can be joined.`,
+        };
       const state = await runtime.join(room);
       return {
         connection: state.status,
@@ -545,7 +555,7 @@ const SPECS = [
     "ai_auth_join",
     "presence.read",
     false,
-    "Join (or switch) the site room. Direct WebRTC; relays only signal.",
+    "Join the approved site room. A different room needs a new human approval. Direct WebRTC; relays only signal.",
     { room: z.string().regex(ROOM_PATTERN).optional() },
     (b, i) => b.join(i),
   ],

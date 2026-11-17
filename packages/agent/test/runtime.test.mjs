@@ -353,6 +353,11 @@ test("agentRoom drives the SDK agent client and follows the live session", async
   await runtime.agentRoom.send("message/text", { text: "x" });
   assert.ok(seen.includes("out"));
   stop();
-  await runtime.join("lobby2");
+  // A different room of the same origin needs a new approval.
+  await assert.rejects(runtime.join("lobby2"), /approved room/i);
+  assert.equal(runtime.room, "lobby");
+  // Rejoining the approved room still rotates the live room session.
+  await runtime.leave();
+  await runtime.join();
   assert.notEqual(runtime.agentRoom.session, first);
 });

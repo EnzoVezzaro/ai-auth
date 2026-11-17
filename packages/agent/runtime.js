@@ -124,8 +124,11 @@ export function createAgentRuntime(options = {}) {
   const site = validateOrigin(origin);
   const caps = validateCapabilities(capabilities);
   const meta = validateDescriptor(descriptor);
+  // The room named in the approved connection request. A runtime must not be
+  // talked into joining a different room of the same origin later.
   const configuredRoom =
     options.room === undefined ? undefined : validateRoom(options.room);
+  const approvedRoom = configuredRoom;
   const backoff = { ...DEFAULT_BACKOFF, ...options.backoff };
   const now = options.now ?? Date.now;
   const leaseMs = options.leaseMs ?? 24_000;
@@ -326,11 +329,14 @@ export function createAgentRuntime(options = {}) {
 
   async function join(roomArg) {
     if (closed) throw new Error("The agent runtime is closed");
+    const requested = validateRoom(
+      roomArg ?? currentRoom ?? configuredRoom ?? "default",
+    );
+    if (approvedRoom && requested !== approvedRoom)
+      throw new Error(`Only the approved room "${approvedRoom}" can be joined`);
     if (pending) return pending;
     pending = (async () => {
-      const room = validateRoom(
-        roomArg ?? currentRoom ?? configuredRoom ?? "default",
-      );
+      const room = requested;
       if (core) await teardown({ goodbye: true });
       wallet ??= await keystore.unlock();
       const owner = liveIdentities.get(wallet.id);
@@ -449,6 +455,7 @@ export function createAgentRuntime(options = {}) {
     get room() {
       return currentRoom;
     },
+    approvedRoom,
     agentRoom,
     capabilities: caps,
     descriptor: meta,
