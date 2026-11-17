@@ -40,6 +40,10 @@ const PASSIVE_EVENT_TYPES = new Set([
   "peer/goodbye",
   "presence/cursor",
 ]);
+// postMessage is delivered asynchronously: the wallet frame must stay mounted
+// long enough to receive "session-ended" and close its room before we destroy
+// the iframe. Bounded so teardown still always happens promptly.
+const SESSION_ENDED_GRACE_MS = 500;
 const TOOL_EVENT_KINDS = new Set([
   "tool-catalog",
   "tool-request",
@@ -328,15 +332,23 @@ export async function connectAIAuthModal({
     return active;
   };
 
-  const cleanup = () => {
+  // Tearing down the dialog removes the iframe (the wallet frame). On a
+  // site-initiated close this is deferred so the already-posted session-ended
+  // message reaches a live frame first; the message listener stays attached
+  // until that deferred teardown runs.
+  const teardownFrame = () => {
+    windowObject.removeEventListener("message", onMessage);
+    dialog.remove();
+  };
+  const cleanup = ({ deferFrame = false } = {}) => {
     clearTimeout(timeout);
     clearTimeout(expiryTimer);
     clearTimeout(resumeTimer);
     clearTimeout(pendingRenewal?.timer);
-    windowObject.removeEventListener("message", onMessage);
     dialog.removeEventListener("cancel", onCancel);
     dialog.removeEventListener("close", onDialogClose);
-    dialog.remove();
+    if (deferFrame) setTimeout(teardownFrame, SESSION_ENDED_GRACE_MS);
+    else teardownFrame();
     restoreFocus();
   };
 
@@ -1103,7 +1115,9 @@ export async function connectAIAuthModal({
         // A site-initiated disconnect must revoke at the wallet too: the signed
         // consent is a bearer token, so keeping it resumable at the wallet would
         // let a later explicit resume revive a session the site already ended.
-        if (["closed", "revoked"].includes(closedReason) && popup)
+        const endedPosted =
+          ["closed", "revoked"].includes(closedReason) && !!popup;
+        if (endedPosted)
           popup.postMessage(
             { type: "ai-auth/session-ended", reason: "ended" },
             walletPage.origin,
@@ -1113,7 +1127,10 @@ export async function connectAIAuthModal({
         if (store && agentKey) store.remove(origin, agentKey);
         lease?.revoke();
         revokeVerifiedPageConnection(connection);
-        cleanup();
+        // Everything above (and everything below) keeps its current order and
+        // timing. Only the dialog/iframe teardown and the message listener are
+        // deferred, and only when session-ended was actually posted.
+        cleanup({ deferFrame: endedPosted });
         listeners.clear();
         roomReadyListeners.clear();
         transferListeners.clear();
