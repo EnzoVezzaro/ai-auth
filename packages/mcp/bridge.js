@@ -7,12 +7,16 @@ import {
   RECEIPT_TYPE,
   TOOL_ERROR_CODES,
 } from "@enzovezzaro/ai-auth-wallet";
+import { TOOL_NAME_PATTERN } from "@enzovezzaro/ai-auth-wallet/webmcp";
 
 const MAX_EVENTS = 200;
 const MAX_PAGE = 50;
 const MAX_PAYLOAD_CHARS = 1_500;
 const SILENT_TYPES = new Set(["peer/heartbeat"]);
 const WALLET_ID = /^agent:[A-Za-z0-9_-]{20,100}$/u;
+// Mirrors ROOM_PATTERN in packages/agent/runtime.js so a bad room name is
+// rejected by the tool schema before a join attempt is made.
+const ROOM_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,99}$/u;
 
 // Code Mode's guest bridge is built from this source *inside* the vm context.
 // It runs in the guest realm, so every function, Promise, Error and JSON it
@@ -107,6 +111,27 @@ function clip(value) {
     : { truncated: true, preview: text.slice(0, MAX_PAYLOAD_CHARS) };
 }
 
+// `rejected` is reserved for a provider refusing the call. Cancellations and
+// timeouts are transport outcomes, not denials, and must not invite a retry.
+function classifyToolCallError(error) {
+  const message = String(error?.message ?? "");
+  // DOMException carries a numeric `code` (20 for AbortError); only our own
+  // string codes are meaningful on the wire.
+  const supplied =
+    typeof error?.code === "string" &&
+    Object.hasOwn(TOOL_ERROR_CODES, error.code)
+      ? error.code
+      : null;
+  const code =
+    supplied ??
+    (error?.name === "AbortError" || /cancel/iu.test(message)
+      ? TOOL_ERROR_CODES.CANCELLED
+      : /tim(e)?d?\s*out|timeout/iu.test(message)
+        ? TOOL_ERROR_CODES.TIMEOUT
+        : TOOL_ERROR_CODES.DENIED);
+  return { code, rejected: code === TOOL_ERROR_CODES.DENIED };
+}
+
 /**
  * Glue between the headless agent runtime and the MCP tools. Everything read
  * from peers is untrusted data: it is bounded, labelled, and never executed.
@@ -121,7 +146,40 @@ export function createAgentBridge({
   const peerPages = new Map();
   let seq = 0;
   let client = null;
-  const getClient = () => (client ??= clientFactory(runtime.agentRoom));
+  // leave() closes every provider in the runtime; the startup snapshot must
+  // not keep advertising tools that are no longer published.
+  let provided = [...providedTools];
+  const notJoinedReason =
+    "Join a room with ai_auth_join before calling this tool.";
+  const notJoined = () => ({
+    ok: false,
+    code: TOOL_ERROR_CODES.NOT_JOINED,
+    rejected: false,
+    reason: notJoinedReason,
+  });
+  // Before join the real client constructor rejects with an internal TypeError.
+  // Translate that into an actionable, machine-readable "join first" error.
+  function getClient() {
+    if (client) return client;
+    try {
+      client = clientFactory(runtime.agentRoom);
+    } catch (error) {
+      if (!runtime.agentRoom?.wallet?.id || !runtime.agentRoom?.session)
+        throw Object.assign(new Error(notJoinedReason), {
+          code: TOOL_ERROR_CODES.NOT_JOINED,
+        });
+      throw error;
+    }
+    return client;
+  }
+  const clientOrNull = () => {
+    try {
+      return getClient();
+    } catch (error) {
+      if (error?.code === TOOL_ERROR_CODES.NOT_JOINED) return null;
+      throw error;
+    }
+  };
 
   runtime.onEvent(({ direction, envelope }) => {
     if (
@@ -160,7 +218,7 @@ export function createAgentBridge({
     if (ring.length > maxEvents) ring.shift();
   });
 
-  const catalogs = () => (client ?? getClient()).catalogs ?? [];
+  const catalogs = () => clientOrNull()?.catalogs ?? [];
 
   const api = {
     status() {
@@ -184,7 +242,7 @@ export function createAgentBridge({
           stale,
           pageKey: peerPages.get(id) ?? null,
         })),
-        provides: [...providedTools],
+        provides: [...provided],
         diagnostics: state.diagnostics ?? {},
         note: "Presence lasts only while this MCP process runs.",
       };
@@ -199,6 +257,7 @@ export function createAgentBridge({
     },
     async leave() {
       await runtime.leave();
+      provided = [];
       return { connection: runtime.connectionState.status };
     },
     async send({ text, to } = {}) {
@@ -267,6 +326,8 @@ export function createAgentBridge({
       };
     },
     listTools() {
+      if (!clientOrNull())
+        return { ...notJoined(), untrusted: true, sites: [] };
       return {
         untrusted: true,
         note: "Catalogs come from connected participants. A page's tools need that page open; agent-provided tools need the providing agent online.",
@@ -282,10 +343,12 @@ export function createAgentBridge({
         })),
       };
     },
-    async invoke({ name, input = {}, wallet }, { signal } = {}) {
+    async invoke({ name, input = {}, wallet, session }, { signal } = {}) {
+      if (!clientOrNull()) return notJoined();
       const matching = catalogs().filter(
         (c) =>
           (!wallet || c.wallet === wallet) &&
+          (!session || c.session === session) &&
           c.tools.some((t) => t.name === name),
       );
       if (matching.length === 0)
@@ -295,14 +358,18 @@ export function createAgentBridge({
           rejected: false,
           reason: `No participant advertises "${name}" right now. A page tool needs the site's page open; an agent tool needs the providing agent online.`,
         };
-      if (matching.length > 1)
+      if (matching.length > 1) {
+        const choices = matching
+          .map((c) => `${c.wallet} (session ${c.session})`)
+          .join("; ")
+          .slice(0, 180);
         return {
           ok: false,
           code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
           rejected: false,
-          reason:
-            "Ambiguous: several participants advertise this tool; pass wallet",
+          reason: `Ambiguous: several catalogs advertise "${name}": ${choices}. Pass wallet and session to choose one.`,
         };
+      }
       try {
         return {
           ok: true,
@@ -313,8 +380,7 @@ export function createAgentBridge({
       } catch (error) {
         return {
           ok: false,
-          code: error?.code ?? TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
-          rejected: true,
+          ...classifyToolCallError(error),
           reason: String(
             error?.message ?? "The site rejected the request",
           ).slice(0, 240),
@@ -347,8 +413,8 @@ export function createAgentBridge({
         makeHostCall((options) => api.events(options)),
         makeHostCall((input) => api.send(input)),
         makeHostCall((input) => api.move(input)),
-        makeHostCall((name, input, wallet) =>
-          api.invoke({ name, input: input ?? {}, wallet }, { signal }),
+        makeHostCall((name, input, wallet, session) =>
+          api.invoke({ name, input: input ?? {}, wallet, session }, { signal }),
         ),
       ];
       const wrappers = factory(...callbacks);
@@ -404,7 +470,7 @@ const SPECS = [
     "presence.read",
     false,
     "Join (or switch) the site room. Direct WebRTC; relays only signal.",
-    { room: z.string().max(100).optional() },
+    { room: z.string().regex(ROOM_PATTERN).optional() },
     (b, i) => b.join(i),
   ],
   [
@@ -453,6 +519,7 @@ const SPECS = [
         "failed",
         "cancelled",
         "needs-human",
+        "denied",
       ]),
       summary: z.string().max(240),
     },
@@ -483,9 +550,10 @@ const SPECS = [
     false,
     "Call a tool advertised by a connected participant. Page tools require the site's page open; agent tools run in the providing agent's runtime. The provider approves each call.",
     {
-      name: z.string().min(1).max(64),
+      name: z.string().regex(TOOL_NAME_PATTERN),
       input: z.record(z.string(), z.unknown()).optional(),
       wallet: z.string().max(200).optional(),
+      session: z.string().max(200).optional(),
     },
     (b, i) => b.invoke(i),
   ],
@@ -493,7 +561,7 @@ const SPECS = [
     "ai_auth_code",
     "tools.invoke",
     false,
-    "Code Mode (opt-in with --code-mode): run a short script calling aiAuth.status/listTools/events/send/move/invoke. Guest code runs in a vm context with no host objects: aiAuth and console are guest-realm wrappers that exchange JSON strings through closures the guest cannot reach, and errors and promises are guest-realm too. vm is not a hard security boundary; the MCP process still runs with host privileges. 2 s timeout and 8 KB code limit.",
+    "Code Mode (opt-in with --code-mode): run a short script in a vm calling aiAuth.status(), aiAuth.listTools(), aiAuth.invoke(), aiAuth.send(), aiAuth.move() and aiAuth.events(). aiAuth.join(), aiAuth.leave() and aiAuth.act() are unavailable in the sandbox; use the MCP tools for those. Guest code gets guest-realm wrappers that exchange JSON strings through closures the guest cannot reach, and errors and promises are guest-realm too. vm is not a hard security boundary; the MCP process still runs with host privileges. 2 s timeout and 8 KB code limit.",
     { code: z.string().min(1).max(8_000) },
     (b, i, extra) => b.runCode(i, extra),
   ],
@@ -522,6 +590,7 @@ export function buildAgentActions({
         } catch (error) {
           return {
             ok: false,
+            ...(error?.code ? { code: error.code } : {}),
             error: String(error?.message ?? "failed").slice(0, 200),
           };
         }

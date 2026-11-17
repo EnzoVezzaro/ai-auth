@@ -5,6 +5,7 @@ import {
   buildAgentActions,
   createRoomToolProvider,
 } from "../bridge.js";
+import { TOOL_ERROR_CODES } from "../../../packages/p2p/index.js";
 
 function fakeRuntime() {
   const listeners = new Set();
@@ -169,6 +170,64 @@ test("invoke with several catalogs requires an explicit wallet", async () => {
     (await bridge.invoke({ name: "t", wallet: "agent:b" })).ok,
     true,
   );
+});
+
+test("CT-04/MCP-01: invoke disambiguates two live sessions of one wallet", async () => {
+  const mk = (session) => ({
+    wallet: "agent:site",
+    session,
+    requestNonce: `n-${session}-123456789`,
+    expiresAt: Date.now() + 60_000,
+    tools: [{ name: "t" }],
+  });
+  const client = {
+    catalogs: [mk("old-session"), mk("new-session")],
+    callTool: async (catalog) => ({ session: catalog.session }),
+  };
+  const bridge = createAgentBridge({
+    runtime: fakeRuntime(),
+    clientFactory: () => client,
+  });
+  const ambiguous = await bridge.invoke({ name: "t", wallet: "agent:site" });
+  assert.equal(ambiguous.ok, false);
+  assert.match(
+    ambiguous.reason,
+    /session/i,
+    "the remedy names the catalog key",
+  );
+  assert.match(ambiguous.reason, /old-session/);
+  assert.match(ambiguous.reason, /new-session/);
+  assert.deepEqual(
+    await bridge.invoke({
+      name: "t",
+      wallet: "agent:site",
+      session: "new-session",
+    }),
+    { ok: true, result: { session: "new-session" } },
+  );
+});
+
+test("CT-04: code mode can pass a session to disambiguate an invoke", async () => {
+  const mk = (session) => ({
+    wallet: "agent:site",
+    session,
+    requestNonce: `n-${session}-123456789`,
+    expiresAt: Date.now() + 60_000,
+    tools: [{ name: "t" }],
+  });
+  const client = {
+    catalogs: [mk("old-session"), mk("new-session")],
+    callTool: async (catalog) => ({ session: catalog.session }),
+  };
+  const bridge = createAgentBridge({
+    runtime: fakeRuntime(),
+    clientFactory: () => client,
+  });
+  const out = await bridge.runCode({
+    code: `const r = await aiAuth.invoke("t", {}, "agent:site", "new-session"); return r.result.session;`,
+  });
+  assert.equal(out.ok, true, out.reason);
+  assert.equal(out.value, "new-session");
 });
 
 test("list_tools exposes site tool names and descriptions only", () => {
@@ -356,6 +415,23 @@ test("status reports tools this agent provides", () => {
   assert.deepEqual(bridge.status().provides, ["agent.ping"]);
 });
 
+test("MCP-04: leaving clears provides and rejoining does not resurrect them", async () => {
+  const bridge = createAgentBridge({
+    runtime: fakeRuntime(),
+    clientFactory: () => ({}),
+    providedTools: ["agent.ping", "agent.self"],
+  });
+  assert.deepEqual(bridge.status().provides, ["agent.ping", "agent.self"]);
+  await bridge.leave();
+  assert.deepEqual(bridge.status().provides, []);
+  await bridge.join({ room: "research" });
+  assert.deepEqual(
+    bridge.status().provides,
+    [],
+    "the runtime closed its providers on leave, so they are not available again",
+  );
+});
+
 test("code mode runs sandboxed code against connection-checked aiAuth APIs", async () => {
   const bridge = createAgentBridge({
     runtime: fakeRuntime(),
@@ -464,6 +540,130 @@ test("CT-01: code mode async calls return JSON copies and capture logs", async (
   assert.equal(out.ok, true, out.reason);
   assert.equal(out.value, 2);
   assert.deepEqual(out.logs, ["before"]);
+});
+
+test("CT-08: the events stream surfaces a denied action to the agent", () => {
+  const rt = fakeRuntime();
+  const bridge = createAgentBridge({ runtime: rt, clientFactory: () => ({}) });
+  rt.emit(
+    inbound("agent/action", {
+      name: "wishlist.add",
+      state: "denied",
+      summary: "Human approval declined for wishlist.add",
+    }),
+  );
+  const { events } = bridge.events({});
+  assert.equal(events.length, 1);
+  assert.equal(events[0].payload.state, "denied");
+  assert.match(events[0].payload.summary, /declined/);
+});
+
+test("CT-08: ai_auth_act accepts the terminal denied state", () => {
+  const action = buildAgentActions({
+    getBridge: () => ({}),
+    siteCapabilities: ["tools.invoke"],
+  }).find((item) => item.name === "ai_auth_act");
+  assert.equal(action.inputSchema.state.safeParse("denied").success, true);
+});
+
+test("CT-14/MCP-11: cancellations and timeouts are typed, not rejections", async () => {
+  const catalog = {
+    wallet: "agent:site",
+    session: "s",
+    requestNonce: "n".repeat(24),
+    expiresAt: Date.now() + 60_000,
+    tools: [{ name: "t" }],
+  };
+  const client = { catalogs: [catalog], callTool: async () => "ok" };
+  const bridge = createAgentBridge({
+    runtime: fakeRuntime(),
+    clientFactory: () => client,
+  });
+  client.callTool = async () => {
+    throw new DOMException("cancelled", "AbortError");
+  };
+  let out = await bridge.invoke({ name: "t" });
+  assert.equal(out.code, TOOL_ERROR_CODES.CANCELLED);
+  assert.equal(out.rejected, false);
+
+  client.callTool = async () => {
+    throw Object.assign(new Error("timed out"), {
+      code: TOOL_ERROR_CODES.TIMEOUT,
+    });
+  };
+  out = await bridge.invoke({ name: "t" });
+  assert.equal(out.code, TOOL_ERROR_CODES.TIMEOUT);
+  assert.equal(out.rejected, false);
+
+  client.callTool = async () => {
+    throw new Error("The site owner denied this action");
+  };
+  out = await bridge.invoke({ name: "t" });
+  assert.equal(out.code, TOOL_ERROR_CODES.DENIED);
+  assert.equal(out.rejected, true);
+});
+
+test("MCP-02: list_tools before join returns a typed join-first error", () => {
+  const bridge = createAgentBridge({ runtime: fakeRuntime() });
+  const out = bridge.listTools();
+  assert.equal(out.ok, false);
+  assert.equal(out.code, TOOL_ERROR_CODES.NOT_JOINED);
+  assert.match(out.reason, /ai_auth_join/);
+  assert.deepEqual(out.sites, []);
+});
+
+test("MCP-02: invoke before join returns a typed join-first error", async () => {
+  const bridge = createAgentBridge({ runtime: fakeRuntime() });
+  const out = await bridge.invoke({ name: "t" });
+  assert.equal(out.ok, false);
+  assert.equal(out.code, TOOL_ERROR_CODES.NOT_JOINED);
+  assert.match(out.reason, /ai_auth_join/);
+});
+
+test("MCP-02: code mode surfaces the typed join-first error", async () => {
+  const bridge = createAgentBridge({ runtime: fakeRuntime() });
+  const out = await bridge.runCode({
+    code: `const r = aiAuth.listTools(); return { ok: r.ok, code: r.code };`,
+  });
+  assert.equal(out.ok, true, out.reason);
+  // The object comes back from the vm realm, so compare its fields.
+  assert.equal(out.value.ok, false);
+  assert.equal(out.value.code, TOOL_ERROR_CODES.NOT_JOINED);
+});
+
+test("CT-11: ai_auth_invoke accepts spec-valid names up to 128 characters", () => {
+  const actions = buildAgentActions({
+    getBridge: () => ({}),
+    siteCapabilities: ["tools.invoke"],
+  });
+  const name = actions.find((action) => action.name === "ai_auth_invoke")
+    .inputSchema.name;
+  assert.equal(name.safeParse("a".repeat(128)).success, true);
+  assert.equal(name.safeParse("My.Tool-1").success, true);
+  assert.equal(name.safeParse("a".repeat(129)).success, false);
+  assert.equal(name.safeParse("bad/name").success, false);
+});
+
+test("MCP-05: the code-mode description names exactly the six sandbox APIs", () => {
+  const action = buildAgentActions({
+    getBridge: () => ({}),
+    siteCapabilities: ["tools.invoke"],
+    codeMode: true,
+  }).find((item) => item.name === "ai_auth_code");
+  for (const api of ["status", "listTools", "invoke", "send", "move", "events"])
+    assert.match(action.description, new RegExp(`aiAuth\\.${api}\\b`));
+  assert.match(action.description, /join.*leave.*act|unavailable/iu);
+});
+
+test("MCP-10: ai_auth_join validates room names with the runtime pattern", () => {
+  const action = buildAgentActions({
+    getBridge: () => ({}),
+    siteCapabilities: ["presence.read"],
+  }).find((item) => item.name === "ai_auth_join");
+  const room = action.inputSchema.room;
+  assert.equal(room.safeParse("my-room:1.2").success, true);
+  assert.equal(room.safeParse("my room!").success, false);
+  assert.equal(room.safeParse("").success, false);
 });
 
 test("ai_auth_code is opt-in and requires tools.invoke", () => {

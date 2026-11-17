@@ -863,6 +863,45 @@ test("actions default to not read-only and every action still needs approval", a
   assert.deepEqual(decisions, ["site.write", "site.read"]);
 });
 
+test("CT-07: a denied call leaves no abort listener on the registration signal", async (t) => {
+  const counter = { runs: 0 };
+  const { connection } = await makeVerifiedConnection(["tools.invoke"]);
+  t.after(() => connection.close());
+  let registrationSignal;
+  const modelContext = {
+    registerTool: (_definition, options) => {
+      registrationSignal = options.signal;
+    },
+  };
+  const api = await registerAIAuthPageActions({
+    actions: [countAction(counter)],
+    connection,
+    modelContext,
+    authorize: async () => true,
+  });
+  t.after(() => api.close());
+  assert.ok(registrationSignal, "the registration signal is observable");
+  let added = 0;
+  let removed = 0;
+  const add = registrationSignal.addEventListener.bind(registrationSignal);
+  const remove =
+    registrationSignal.removeEventListener.bind(registrationSignal);
+  registrationSignal.addEventListener = (...args) => {
+    added += 1;
+    return add(...args);
+  };
+  registrationSignal.removeEventListener = (...args) => {
+    removed += 1;
+    return remove(...args);
+  };
+  const before = added - removed;
+  // Invalid input returns before the main try/finally: the followers must
+  // still be detached on this early path.
+  assert.equal(api.isFailure(await api.execute("site.count", 42)), true);
+  assert.equal(added - removed, before, "no abort listener is leaked");
+  assert.equal(counter.runs, 0);
+});
+
 test("a throwing approval gate denies the action", async (t) => {
   const counter = { runs: 0 };
   const { connection } = await makeVerifiedConnection(["tools.invoke"]);
@@ -1062,6 +1101,43 @@ test("a denied tool call reaches the requesting peer as an error, not a result",
   const [response] = responsesIn(popupMessages);
   assert.equal(typeof response.error, "string");
   assert.equal(response.result, undefined);
+});
+
+test("CT-08: a denied call publishes a terminal denied state", async (t) => {
+  const { connection, popupMessages, dispatch } = await makeVerifiedConnection(
+    ["tools.invoke"],
+    { roomSession: WALLET_SESSION },
+  );
+  t.after(() => connection.close());
+  const peer = await makeWallet("Peer agent");
+  const api = await mountAIAuthInPageAgent({
+    connection,
+    actions: [countAction({ runs: 0 })],
+    authorize: async () => false,
+  });
+  t.after(() => api.close());
+  await dispatch(
+    collaboration(
+      await peerEnvelope(peer, connection, { requestId: "denied-state-1" }),
+    ),
+  );
+  await waitFor(
+    () => messagesOf(popupMessages, "ai-auth/site-action").length > 0,
+    "a denial announcement",
+  );
+  const states = messagesOf(popupMessages, "ai-auth/site-action").map(
+    (message) => message.action.state,
+  );
+  assert.equal(
+    states.includes("denied"),
+    true,
+    "the shared feed shows the request is over",
+  );
+  assert.equal(
+    states.includes("needs-human"),
+    false,
+    "no stale waiting state is left behind",
+  );
 });
 
 test("aborting while the human decision is pending publishes cancelled", async (t) => {
