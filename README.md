@@ -20,6 +20,8 @@ There is no AI Auth account and no server holding your keys. A browser wallet ke
 
 AI Auth is generic. Body4AI is one example consumer under `examples/body4ai/`; its product catalog and commands are not part of AI Auth. Generic integration tests use an independent site with `demo.echo` and `demo.increment`. See [connection lifecycle and WebMCP ownership](docs/CONNECTION_LIFECYCLE.md).
 
+AI Auth is published on **GitHub Pages only**. See the [hosting policy](docs/HOSTING.md) for the CI guard and removal of the legacy Vercel GitHub App.
+
 ## Install
 
 Pick the package for the side you are building.
