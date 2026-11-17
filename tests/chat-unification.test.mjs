@@ -195,6 +195,60 @@ test("a targeted wheel message reaches the agent and the sender sees a receipt",
   );
 });
 
+test("ai_auth_send signs the recipient so non-targets drop the message", async (t) => {
+  const { human, agent, settle } = await pair(t);
+  const { transfers } = await mountWheel(t, human, agent);
+  const other = new P2PRoom(await wallet("other"), "chat", {
+    origin: ORIGIN,
+    capabilities: CAPABILITIES,
+  });
+  const otherJobs = new Set();
+  agent.subscribe(({ direction, envelope }) => {
+    if (direction !== "out") return;
+    const job = other.receive(envelope);
+    otherJobs.add(job);
+    job.finally(() => otherJobs.delete(job));
+  });
+  t.after(async () => {
+    await other.close();
+  });
+  const otherTransfers = new CollaborationTransfers(other);
+  t.after(() => otherTransfers.close());
+  const otherEvents = [];
+  otherTransfers.subscribe((event) => otherEvents.push(event));
+
+  const listeners = new Set();
+  agent.subscribe(({ direction, envelope }) => {
+    if (direction === "in") for (const fn of listeners) fn({ direction, envelope });
+  });
+  const bridge = createAgentBridge({
+    runtime: runtimeForRoom(agent, listeners),
+    clientFactory: () => ({}),
+  });
+  await assert.rejects(
+    () => bridge.send({ text: "x", to: "bob" }),
+    /recipient wallet/u,
+  );
+  await bridge.send({ text: "private to human", to: human.wallet.id });
+  await settle();
+  for (let i = 0; i < 4; i++) {
+    await Promise.all([...otherJobs]);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.deepEqual(otherEvents, [], "a non-target must not see the message");
+
+  await transfers.sendText("addressed reply", { target: agent.wallet.id });
+  await settle();
+  const chat = bridge
+    .events({})
+    .events.find((event) => event.payload?.text === "addressed reply");
+  assert.equal(
+    chat?.target,
+    agent.wallet.id,
+    "the signed target is visible to the receiving agent",
+  );
+});
+
 test("ai_auth_events surfaces peer chat and a receipt for the agent's own message", async (t) => {
   const { human, agent, settle } = await pair(t);
   const { transfers } = await mountWheel(t, human, agent);

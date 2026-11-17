@@ -139,7 +139,7 @@ export function createAgentBridge({
         else peerPages.set(issuer, parsed.cursor.pageKey);
       }
     } else if (type === "peer/goodbye") peerPages.delete(issuer);
-    const { kind, text, messageId } = payload ?? {};
+    const { kind, text, messageId, target } = payload ?? {};
     const receipt = type === RECEIPT_TYPE;
     ring.push({
       seq,
@@ -150,6 +150,7 @@ export function createAgentBridge({
       // Chat and receipts carry a message id so an agent can match its own
       // outgoing messages to the signed receipts that acknowledge them.
       ...(messageId ? { messageId } : {}),
+      ...(target ? { target } : {}),
       ...(receipt ? { receiver: payload.receiver } : {}),
       payload:
         kind === "tool-catalog"
