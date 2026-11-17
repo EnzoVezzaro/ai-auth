@@ -126,9 +126,9 @@ const remove = mountBody4AIAgentConnect({
 ## 5. Host the wallet
 
 The wallet must be served over HTTPS on its own origin (local development may
-use `localhost`). In this SDK repo: `npm ci && npm run build`, then deploy
-`dist-p2p/` and `wallet/` as static files and point `WALLET_URL` in
-`agent-connect.js` at the deployed `/wallet/` path.
+use `localhost`). In this SDK repo: `npm ci && npm run build`, then deploy the `dist-p2p/`
+output as static files (it includes the `/wallet/` path) and point `WALLET_URL`
+in `agent-connect.js` at the deployed `/wallet/` path.
 
 ## Security notes
 
