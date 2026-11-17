@@ -44,6 +44,66 @@ function mount(sendText) {
   return { shadow: host.shadowRoot, dispose };
 }
 
+test("the chat log keeps arrival order across incoming and outgoing messages", async () => {
+  const { doc } = createStubDom();
+  const keys = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  );
+  const publicKey = await crypto.subtle.exportKey("jwk", keys.publicKey);
+  let emit;
+  const connection = {
+    supportsTargets: true,
+    subscribe(fn) {
+      emit = fn;
+      return () => {};
+    },
+    sendText: async () => {},
+    sendElement() {},
+    sendAttachment() {},
+  };
+  const dispose = mountCollaborationWheel(connection, {
+    target: doc.body,
+    network: {
+      connectionState: {
+        status: "direct-peer-connected",
+        directPeerCount: 1,
+        peers: [],
+      },
+    },
+  });
+  const host = doc.body.children.find(
+    (node) => node.dataset.aiAuthCollaborationWheel === "true",
+  );
+  const shadow = host.shadowRoot;
+  try {
+    // `whoIs` verifies an async key before rendering, so the incoming line
+    // would otherwise land after a synchronously rendered outgoing line.
+    emit({
+      type: "text",
+      text: "incoming first",
+      envelope: {
+        body: { type: "collab/text", issuer: "agent:peer", payload: {} },
+        proof: { publicKey },
+      },
+    });
+    shadow.querySelector("input").value = "outgoing second";
+    shadow.querySelector("form").dispatch("submit");
+    const text = () => shadow.querySelector(".log").textContent;
+    await until(() =>
+      text().includes("incoming first") && text().includes("outgoing second"),
+    );
+    const lines = [...shadow.querySelectorAll(".log .entry")].map(
+      (node) => node.textContent,
+    );
+    assert.match(lines[0], /incoming first/u);
+    assert.match(lines[1], /outgoing second/u);
+  } finally {
+    dispose();
+  }
+});
+
 test("confirming a recording returns focus to the record button", async () => {
   const { doc, win } = createStubDom();
   win.navigator.mediaDevices = {

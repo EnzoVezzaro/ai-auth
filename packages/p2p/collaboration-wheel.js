@@ -98,7 +98,15 @@ class Wheel {
     const off = [];
     this.unsubscribers = off;
     off.push(this.connection.subscribe((event) => this.onEvent(event)));
-    off.push(this.ledger.subscribe((entry) => this.renderEntry(entry)));
+    // Ledger renders share the inbox queue with incoming messages so the log
+    // keeps arrival order even when identity verification is asynchronous.
+    off.push(
+      this.ledger.subscribe((entry) => {
+        this.inbox = this.inbox
+          .then(() => this.renderEntry(entry))
+          .catch(() => {});
+      }),
+    );
     const network = this.options.network;
     if (typeof network?.onConnectionState === "function")
       off.push(network.onConnectionState(() => this.refresh()));
