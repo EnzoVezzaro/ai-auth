@@ -18,6 +18,8 @@ await cp(resolve(root, "landing.css"), resolve(output, "landing.css"));
 // the demo are crawlable so their noindex tags can be read, and they say no.
 await cp(resolve(root, "robots.txt"), resolve(output, "robots.txt"));
 await cp(resolve(root, "sitemap.xml"), resolve(output, "sitemap.xml"));
+// llms.txt: a plain-markdown summary for language models, served at the root.
+await cp(resolve(root, "llms.txt"), resolve(output, "llms.txt"));
 const NOINDEX = '<meta name="robots" content="noindex, nofollow" />';
 const withNoindex = (page) => {
   if (!page.includes("<head>"))
