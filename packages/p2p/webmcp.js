@@ -349,15 +349,21 @@ export async function registerAIAuthPageActions({
   // Re-read the connection record when the timer fires so a renewed session
   // keeps its tools and an expired or revoked one loses them.
   const armExpiry = () => {
+    // Re-read on every tick: a renewed session extends the lease, while an
+    // expired or revoked one must stop accepting tools on the next check.
     const record = readVerifiedPageConnection(connection);
     if (!record) {
       controller.abort();
       return;
     }
-    expiryTimer = setTimeout(
-      armExpiry,
+    // `expiresAt === null` is a Never grant: there is no deadline to watch.
+    // Revocation still aborts through the connection-close listener below.
+    if (record.expiresAt === null) return;
+    const delay = Math.min(
+      0x7fffffff,
       Math.max(1, record.expiresAt - Date.now()),
     );
+    expiryTimer = setTimeout(armExpiry, delay);
     // The timer only watches for expiry; it must never keep a process alive.
     expiryTimer?.unref?.();
   };
