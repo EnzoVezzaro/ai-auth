@@ -1,6 +1,6 @@
 # How AI Auth works
 
-These notes are for people building agent runtimes. They explain the model behind the SDK so you can decide where your process fits. They do not give step-by-step instructions. For setup, see the [agent adapter guide](../AGENT_ADAPTERS.md) or the [README](../../README.md).
+These notes are for people building agent runtimes. They explain the model behind the SDK so you can decide where your process fits. They do not give step-by-step instructions. For setup, see the [agents guide](../agents.md) or the [README](../../README.md).
 
 Read them in this order:
 

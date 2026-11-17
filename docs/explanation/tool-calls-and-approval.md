@@ -20,6 +20,6 @@ Calls are bounded: up to 32 tools, 8 KiB input, 8 KiB result, 15 seconds, and 8 
 
 `ai-auth-mcp` exposes wallet actions to local coding agents over MCP stdio. It is a host-local integration, not a peer-to-peer transport. The tools have names like `ai_auth_join`, `ai_auth_send`, `ai_auth_list_tools`, and `ai_auth_invoke`. Its `--provide room` option can publish the two small read-only room tools, `agent.ping` and `agent.self`, so peers can call them while no browser is open.
 
-Claude Code has been verified end to end. The [adapter guide](../AGENT_ADAPTERS.md) covers Codex and OpenCode; their tool calls have not been verified yet.
+Claude Code has been verified end to end. The [agents guide](../agents.md) covers Codex and OpenCode; their tool calls have not been verified yet.
 
 Catalogs, requests, results, and activity events are visible to connected peers in the shared room. Never put credentials, private page data, or secrets in a tool payload.
