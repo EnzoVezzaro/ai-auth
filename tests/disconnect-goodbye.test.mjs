@@ -51,7 +51,6 @@ test("a site disconnect sends peer/goodbye and removes the peer at once", async 
   );
   assert.equal(presence.list().length, 1);
 
-
   const envelopes = [];
   const unsubscribe = room.subscribe(({ envelope }) => {
     if (!envelope) return;
@@ -103,10 +102,7 @@ test("a site disconnect sends peer/goodbye and removes the peer at once", async 
     const goodbye = envelopes.find(
       (envelope) => envelope.body.type === "peer/goodbye",
     );
-    assert.ok(
-      goodbye,
-      "a site-side disconnect must send peer/goodbye",
-    );
+    assert.ok(goodbye, "a site-side disconnect must send peer/goodbye");
     assert.equal(goodbye.body.issuer, wallet.id);
     assert.equal(
       presence.list().length,

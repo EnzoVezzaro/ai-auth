@@ -480,9 +480,12 @@ async function startRoom() {
         payload?.targetSession === state.room?.session;
       if (!targetedRequest || routeMatches) {
         if (
-          !["peer/hello", "peer/heartbeat", "peer/goodbye", "presence/cursor"].includes(
-            type,
-          )
+          ![
+            "peer/hello",
+            "peer/heartbeat",
+            "peer/goodbye",
+            "presence/cursor",
+          ].includes(type)
         )
           state.lease?.touch();
         externalHost.postMessage(
