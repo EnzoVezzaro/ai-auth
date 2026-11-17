@@ -59,11 +59,13 @@ function setup() {
     $: (selector) => doc.querySelector(selector),
     FormData: class {
       get(name) {
-        return {
-          name: "Test agent",
-          passphrase: PASSPHRASE,
-          confirmation: PASSPHRASE,
-        }[name] ?? null;
+        return (
+          {
+            name: "Test agent",
+            passphrase: PASSPHRASE,
+            confirmation: PASSPHRASE,
+          }[name] ?? null
+        );
       }
     },
     createWallet: async (...args) => {

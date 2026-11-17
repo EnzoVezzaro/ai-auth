@@ -78,9 +78,10 @@ test("WA-03/PR-03 the private toggle closes the old room and rebuilds one in ifr
     transfers: null,
   };
   const sandbox = runFragment(
-    [extractFunction(source, "startRoom"), extractFunction(source, "bindView")].join(
-      "\n",
-    ),
+    [
+      extractFunction(source, "startRoom"),
+      extractFunction(source, "bindView"),
+    ].join("\n"),
     {
       document: doc,
       $: (selector) => doc.querySelector(selector),
@@ -119,20 +120,36 @@ test("WA-03/PR-03 the private toggle closes the old room and rebuilds one in ifr
   await Promise.all([onClick({}), onClick({})]);
 
   const original = rooms[0];
-  assert.equal(original.closed, true, "the previous room is closed, not orphaned");
+  assert.equal(
+    original.closed,
+    true,
+    "the previous room is closed, not orphaned",
+  );
   assert.equal(
     original.heartbeatRunning,
     false,
     "the previous room's heartbeat interval is stopped",
   );
-  assert.equal(rooms.length, 2, "iframe mode rebuilds exactly one replacement room");
+  assert.equal(
+    rooms.length,
+    2,
+    "iframe mode rebuilds exactly one replacement room",
+  );
   assert.equal(
     state.room,
     rooms.at(-1),
     "the session ends up with the rebuilt room",
   );
-  assert.equal(state.rtc, rtcs.at(-1), "the transport is rebuilt with the room");
-  assert.equal(button.disabled, false, "the toggle is re-enabled after it settles");
+  assert.equal(
+    state.rtc,
+    rtcs.at(-1),
+    "the transport is rebuilt with the room",
+  );
+  assert.equal(
+    button.disabled,
+    false,
+    "the toggle is re-enabled after it settles",
+  );
   assert.equal(
     events.filter((event) => event.endsWith(":closed-twice")).length,
     0,
