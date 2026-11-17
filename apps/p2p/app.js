@@ -42,6 +42,10 @@ import {
   sessionLimits,
   DEFAULT_SESSION_TTL_MS,
 } from "../../packages/p2p/index.js";
+import {
+  TOOL_NAME_PATTERN,
+  filterCatalogTools,
+} from "../../packages/p2p/webmcp.js";
 
 const $ = (selector) => document.querySelector(selector);
 const externalConnectMode =
@@ -1257,7 +1261,7 @@ async function handleExternalSiteEvent(data) {
     if (
       !action ||
       typeof action.name !== "string" ||
-      !/^[a-z][a-z0-9._-]{0,63}$/u.test(action.name) ||
+      !TOOL_NAME_PATTERN.test(action.name) ||
       ![
         "started",
         "progress",
@@ -1292,21 +1296,12 @@ async function handleExternalSiteEvent(data) {
     if (agentEvent?.kind === "tool-catalog") {
       if (!Array.isArray(agentEvent.tools) || agentEvent.tools.length > 32)
         return;
-      for (const tool of agentEvent.tools) {
-        if (
-          typeof tool?.name !== "string" ||
-          !/^[a-z][a-z0-9._-]{0,63}$/u.test(tool.name) ||
-          typeof tool.description !== "string" ||
-          tool.description.length > 240 ||
-          tool.inputSchema?.type !== "object" ||
-          !tool.inputSchema.properties ||
-          typeof tool.inputSchema.properties !== "object"
-        )
-          return;
-      }
+      const tools = filterCatalogTools(agentEvent.tools, (name) =>
+        debug("wallet-skipped-tool", name),
+      );
       await state.room.send("agent/action", {
         kind: "tool-catalog",
-        tools: agentEvent.tools,
+        tools,
         targetWallet: state.wallet.id,
         targetNonce: state.externalRequest.nonce,
         targetSession: state.room.session,

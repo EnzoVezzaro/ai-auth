@@ -32,6 +32,7 @@ import {
   renewVerifiedPageConnection,
   revokeVerifiedPageConnection,
 } from "./session.js";
+import { TOOL_NAME_PATTERN } from "./webmcp.js";
 
 const CAPABILITY_FOR_EVENT = {
   "peer/hello": "presence.read",
@@ -781,7 +782,7 @@ export async function connectAIAuthModal({
         !/^[A-Za-z0-9_-]{8,80}$/u.test(payload.requestId) ||
         (payload.kind === "tool-request" &&
           (typeof payload.name !== "string" ||
-            !/^[a-z][a-z0-9._-]{0,63}$/u.test(payload.name) ||
+            !TOOL_NAME_PATTERN.test(payload.name) ||
             payload.input === null ||
             typeof payload.input !== "object" ||
             Array.isArray(payload.input) ||
@@ -810,7 +811,7 @@ export async function connectAIAuthModal({
       envelope.body.type === "agent/action" &&
       !TOOL_EVENT_KINDS.has(payload?.kind) &&
       (typeof payload.name !== "string" ||
-        !/^[a-z][a-z0-9._-]{0,63}$/u.test(payload.name) ||
+        !TOOL_NAME_PATTERN.test(payload.name) ||
         ![
           "started",
           "progress",
@@ -1135,7 +1136,7 @@ export async function connectAIAuthModal({
           throw new Error("This wallet did not approve site action sharing");
         if (
           typeof name !== "string" ||
-          !/^[a-z][a-z0-9._-]{0,63}$/u.test(name) ||
+          !TOOL_NAME_PATTERN.test(name) ||
           ![
             "started",
             "progress",
