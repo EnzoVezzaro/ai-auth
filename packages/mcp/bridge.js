@@ -248,12 +248,19 @@ export function createAgentBridge({
     },
     events({ since = 0, limit = 20 } = {}) {
       const page = Math.min(Math.max(1, Math.trunc(limit) || 1), MAX_PAGE);
-      const fresh = ring.filter((event) => event.seq > since);
-      const events = fresh.slice(0, page);
+      const latest = ring.at(-1)?.seq ?? since;
+      // A cursor past the ring (or before its first retained seq) is clamped
+      // into range; otherwise every later event would stay hidden forever.
+      const cursor = Math.min(
+        Math.max(since, (ring[0]?.seq ?? since) - 1),
+        latest,
+      );
+      const events = ring.filter((event) => event.seq > cursor).slice(0, page);
       return {
         events,
-        nextCursor: events.length ? events.at(-1).seq : since,
-        dropped: ring.length > 0 && since < ring[0].seq - 1,
+        nextCursor: events.length ? events.at(-1).seq : cursor,
+        dropped:
+          (ring.length > 0 && since < ring[0].seq - 1) || since > latest,
         untrusted: true,
       };
     },

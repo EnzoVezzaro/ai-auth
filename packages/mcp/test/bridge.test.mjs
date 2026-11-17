@@ -67,6 +67,24 @@ test("events are bounded, cursor-based and marked untrusted", () => {
   assert.equal(bridge.events({ limit: 9999 }).events.length <= 50, true);
 });
 
+test("events clamp a cursor ahead of the ring instead of wedging", () => {
+  const rt = fakeRuntime();
+  const bridge = createAgentBridge({ runtime: rt, clientFactory: () => ({}) });
+  for (let i = 0; i < 5; i++)
+    rt.emit(inbound("collab/text", { text: `m${i}` }));
+  const ahead = bridge.events({ since: 1000 });
+  assert.equal(ahead.dropped, true, "a cursor past the ring must signal loss");
+  assert.equal(ahead.events.length, 0);
+  assert.equal(ahead.nextCursor, 5, "the cursor is clamped to the ring head");
+  rt.emit(inbound("collab/text", { text: "fresh" }));
+  const next = bridge.events({ since: ahead.nextCursor });
+  assert.deepEqual(
+    next.events.map((e) => e.payload.text),
+    ["fresh"],
+  );
+  assert.equal(next.nextCursor, 6);
+});
+
 test("heartbeats are not buffered; oversized payloads are truncated", () => {
   const rt = fakeRuntime();
   const bridge = createAgentBridge({ runtime: rt, clientFactory: () => ({}) });
