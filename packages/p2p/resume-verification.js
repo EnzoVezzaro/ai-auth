@@ -4,6 +4,7 @@
 import { verifyEnvelope } from "./index.js";
 
 const MAX_STORED_CONSENT_AGE_MS = 7 * 24 * 60 * 60_000;
+const ACTIVITY_SKEW_TOLERANCE_MS = 30_000;
 
 function exactOrigin(value) {
   try {
@@ -36,6 +37,17 @@ export async function canResumeSession(
   )
     return false;
   if (payload.expiresAt !== null && payload.expiresAt <= now) return false;
+  // The site-supplied activity time is only a claim, bounded by the signed
+  // expiry above and by these sanity limits; a wallet-side activity ledger is
+  // not built yet, so the wallet cannot independently attest to it.
+  if (lastActivity !== undefined && lastActivity !== null) {
+    if (
+      !Number.isFinite(lastActivity) ||
+      lastActivity > now + ACTIVITY_SKEW_TOLERANCE_MS ||
+      lastActivity < payload.issuedAt
+    )
+      return false;
+  }
   if (
     payload.idleTimeoutMs !== null &&
     now - (lastActivity ?? payload.issuedAt) >= payload.idleTimeoutMs

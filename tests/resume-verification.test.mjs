@@ -124,6 +124,52 @@ test("the wallet refuses an ended, expired or idle-timed-out session", async () 
   );
 });
 
+test("the wallet rejects a lastActivity in the future", async () => {
+  const consent = await grant(await makeWallet());
+  const now = consent.body.payload.issuedAt + MINUTE;
+  assert.equal(
+    await canResumeSession(
+      consent,
+      expectations(consent, { now, lastActivity: now + 60_000 }),
+    ),
+    false,
+    "a site cannot claim activity that has not happened yet",
+  );
+  assert.equal(
+    await canResumeSession(
+      consent,
+      expectations(consent, { now, lastActivity: now + 10_000 }),
+    ),
+    true,
+    "small clock skew is tolerated",
+  );
+});
+
+test("a forged recent lastActivity cannot revive an idle-expired session", async () => {
+  const consent = await grant(await makeWallet());
+  const now = consent.body.payload.issuedAt + 20 * MINUTE;
+  const forged = now + 60_000;
+  assert.equal(
+    await canResumeSession(
+      consent,
+      expectations(consent, { now, lastActivity: forged }),
+    ),
+    false,
+    "the wallet clock says idle and the future activity claim is rejected",
+  );
+  assert.equal(
+    await canResumeSession(
+      consent,
+      expectations(consent, {
+        now,
+        lastActivity: consent.body.payload.issuedAt - 1,
+      }),
+    ),
+    false,
+    "activity before the grant was issued is impossible",
+  );
+});
+
 test("the wallet refuses a tampered consent even with matching fields", async () => {
   const consent = await grant(await makeWallet());
   const tampered = structuredClone(consent);
