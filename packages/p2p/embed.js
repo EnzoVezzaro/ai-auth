@@ -322,6 +322,10 @@ export async function connectAIAuthModal({
     lease = new SessionLease(consent.body.payload);
     walletIdentity = verifiedWalletIdentity(null, consent);
     participant = participantFromRecord(resumeRecord);
+    // The wallet binds a resume to the stored session id, not to a fresh
+    // challenge. Route tool requests and room-ready with that same id so they
+    // are accepted instead of dropped against a random request nonce.
+    request = { ...request, nonce: resumeRecord.sessionId };
   }
   const ready = new Promise((resolve, reject) => {
     resolveReady = resolve;
