@@ -385,6 +385,7 @@ export interface AIAuthPageConnection {
     y: number;
     visible?: boolean;
     scroll?: number;
+    page?: string | null;
   }): void;
   readonly identity: { readonly id: string; readonly name: string | null };
   /** Verified identity plus the agent's self-declared claims, or null. */
@@ -710,6 +711,7 @@ export function createAIAuthAgentClient(
     y: number;
     visible?: boolean;
     scroll?: number;
+    page?: string | null;
   }): Promise<SignedEnvelope>;
   publishAction(action: {
     name: string;
