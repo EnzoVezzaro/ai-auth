@@ -1372,6 +1372,18 @@ function createCursorNode(document) {
   return { node, path, label };
 }
 
+// Cursor fractions are relative to the whole document, never the viewport.
+// The sender and the overlay receiver share this basis so a point below the
+// first viewport is rendered where it was published (docs/PROTOCOL.md §8).
+const documentSize = (docEl) => ({
+  width: docEl?.scrollWidth ?? docEl?.clientWidth ?? 1,
+  height: docEl?.scrollHeight ?? docEl?.clientHeight ?? 1,
+});
+const scrollOffset = (docEl) => ({
+  x: globalThis.scrollX ?? docEl?.scrollLeft ?? 0,
+  y: globalThis.scrollY ?? docEl?.scrollTop ?? 0,
+});
+
 export function mountAIAuthCollaboration(
   connection,
   { target = globalThis.document?.body, pageKey } = {},
@@ -1401,11 +1413,8 @@ export function mountAIAuthCollaboration(
   target.append(host);
   const cursors = new Map();
   const place = (node, cursor) => {
-    const docEl = document.documentElement;
-    const width = docEl?.scrollWidth ?? docEl?.clientWidth ?? 1;
-    const height = docEl?.scrollHeight ?? docEl?.clientHeight ?? 1;
-    const scrollX = globalThis.scrollX ?? docEl?.scrollLeft ?? 0;
-    const scrollY = globalThis.scrollY ?? docEl?.scrollTop ?? 0;
+    const { width, height } = documentSize(document.documentElement);
+    const { x: scrollX, y: scrollY } = scrollOffset(document.documentElement);
     node.style.left = `${(cursor.x / MAX_COORDINATE) * width - scrollX}px`;
     node.style.top = `${(cursor.y / MAX_COORDINATE) * height - scrollY}px`;
   };
@@ -1476,17 +1485,10 @@ export function mountAIAuthCollaboration(
   const fraction = (client, size, scroll) =>
     Math.max(0, Math.min(1, (client + scroll) / Math.max(1, size)));
   const publish = (event) => {
-    const docEl = document.documentElement;
-    lastX = fraction(
-      event.clientX,
-      docEl?.clientWidth ?? 0,
-      globalThis.scrollX ?? 0,
-    );
-    lastY = fraction(
-      event.clientY,
-      docEl?.clientHeight ?? 0,
-      globalThis.scrollY ?? 0,
-    );
+    const { width, height } = documentSize(document.documentElement);
+    const { x: scrollX, y: scrollY } = scrollOffset(document.documentElement);
+    lastX = fraction(event.clientX, width, scrollX);
+    lastY = fraction(event.clientY, height, scrollY);
     publishPresence(lastX, lastY, true, scrollFraction());
   };
   const publishScroll = () =>

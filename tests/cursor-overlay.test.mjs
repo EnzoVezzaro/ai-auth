@@ -3,6 +3,7 @@ import test from "node:test";
 import { webcrypto } from "node:crypto";
 import { createAIAuthAgentClient, identityFor } from "../packages/p2p/index.js";
 import { mountAIAuthCollaboration } from "../packages/p2p/embed.js";
+import { MAX_COORDINATE } from "../packages/p2p/presence.js";
 
 globalThis.crypto ??= webcrypto;
 
@@ -324,6 +325,55 @@ test("a hidden participant fades but stays in the overlay", async (t) => {
   const node = cursorNodes(conn, dom)[0];
   assert.ok(node, "the node stays for the fade");
   assert.ok(Number(node.style.opacity) < 1, "the node is dimmed");
+});
+
+test("a pointer below the first viewport uses the document-size basis, not a clamped bottom", async (t) => {
+  const dom = makeDom({ width: 1000, height: 4000, viewHeight: 800 });
+  const previousX = globalThis.scrollX;
+  const previousY = globalThis.scrollY;
+  globalThis.scrollX = 50;
+  globalThis.scrollY = 1000;
+  t.after(() => {
+    globalThis.scrollX = previousX;
+    globalThis.scrollY = previousY;
+  });
+  const conn = makeConnection();
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/",
+  });
+  t.after(stop);
+
+  // client (500, 400) + scroll (50, 1000) = document point (550, 1400),
+  // which is below the first 800 px viewport of a 4000 px document.
+  dom.target.dispatch("pointermove", { clientX: 500, clientY: 400 });
+  assert.equal(conn.published.length, 1);
+  const sent = conn.published[0];
+  assert.ok(
+    sent.y > 0 && sent.y < 1,
+    `document point below the first viewport must not clamp to the bottom (got ${sent.y})`,
+  );
+  assert.ok(Math.abs(sent.x - 0.55) < 1e-9, `x fraction was ${sent.x}`);
+  assert.ok(Math.abs(sent.y - 0.35) < 1e-9, `y fraction was ${sent.y}`);
+
+  // Round-trip: a peer rendering that same normalized cursor with the same
+  // scroll must land back on the original client coordinates.
+  const agent = await makeWallet("Tall page");
+  conn.emit(
+    envelope(agent, {
+      type: "ai-auth-cursor",
+      v: 1,
+      pageKey: "/",
+      x: Math.round(sent.x * MAX_COORDINATE),
+      y: Math.round(sent.y * MAX_COORDINATE),
+      seq: 1,
+      visible: true,
+      session: "tall-session",
+    }),
+  );
+  const node = cursorNodes(conn, dom)[0];
+  assert.equal(node.style.left, "500px");
+  assert.equal(node.style.top, "400px");
 });
 
 test("scroll updates are captured on the document, not only the target", async (t) => {
