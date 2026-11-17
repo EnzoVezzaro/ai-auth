@@ -6,15 +6,16 @@ on:
     paths:
       - "index.html"
       - "landing.css"
+      - "docs.css"
       - "styles.css"
+      - "llms.txt"
       - "src/landing/**"
       - "apps/p2p/**"
       - "packages/p2p/**"
-      - "docs/ARCHITECTURE.md"
-      - "docs/RECOVERY.md"
-      - "docs/SECURITY.md"
-      - "docs/WIRE_FORMAT.md"
+      - "docs/**"
       - "scripts/build-p2p-static.mjs"
+      - "scripts/render-docs.mjs"
+      - "scripts/verify-docs.mjs"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/pages.yml"
@@ -44,6 +45,8 @@ jobs:
       - run: npm ci
       - name: Build the static landing page, wallet, browser SDK, and docs
         run: npm run build
+      - name: Verify published docs render as styled HTML
+        run: npm run verify:docs
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
       - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:

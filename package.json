@@ -77,6 +77,7 @@
     "test:browser:resume": "npm run build && node scripts/test-session-resume-browser.mjs",
     "test:browser:wheel": "node scripts/test-wheel-browser.mjs",
     "verify:packages": "node scripts/verify-packed-set.mjs",
+    "verify:docs": "node scripts/verify-docs.mjs",
     "format": "prettier --write \"packages/p2p/*.{js,d.ts}\" \"packages/runtime/**/*.{js,d.ts,mjs}\" packages/runtime/README.md packages/runtime/CHANGELOG.md \"packages/mcp/**/*.{js,d.ts,mjs}\" \"packages/agent/**/*.{js,d.ts,mjs}\" packages/agent/README.md \"scripts/*.mjs\" \"scripts/e2e/*.mjs\" \"tests/*.mjs\" \"docs/*.md\" README.md CHANGELOG.md index.html landing.css docs.css styles.css \"src/landing/**/*.{js,jsx}\" apps/p2p/app.js package.json",
     "format:check": "prettier --check \"packages/p2p/*.{js,d.ts}\" \"packages/runtime/**/*.{js,d.ts,mjs}\" packages/runtime/README.md packages/runtime/CHANGELOG.md \"packages/mcp/**/*.{js,d.ts,mjs}\" \"packages/agent/**/*.{js,d.ts,mjs}\" packages/agent/README.md \"scripts/*.mjs\" \"scripts/e2e/*.mjs\" \"tests/*.mjs\" \"docs/*.md\" README.md CHANGELOG.md index.html landing.css docs.css styles.css \"src/landing/**/*.{js,jsx}\" apps/p2p/app.js package.json",
     "prepublishOnly": "npm test && npm run build",

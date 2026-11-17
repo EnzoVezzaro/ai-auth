@@ -51,6 +51,8 @@ jobs:
         run: npm run test:e2e
       - name: Build landing page, wallet, SDK, and docs
         run: npm run build
+      - name: Verify published docs render as styled HTML
+        run: npm run verify:docs
       - name: Verify npm package contents and imports
         run: npm run verify:packages
       - name: Check formatting and whitespace

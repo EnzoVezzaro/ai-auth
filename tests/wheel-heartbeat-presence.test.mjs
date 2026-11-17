@@ -5,6 +5,7 @@ import vm from "node:vm";
 import { identityFor, signEnvelope } from "../packages/p2p/index.js";
 import { mountCollaborationWheel } from "../packages/p2p/collaboration-wheel.js";
 import { appSource } from "./helpers/app-source.mjs";
+import { until } from "./helpers/wait.mjs";
 import { createStubDom } from "./dom-stub.mjs";
 
 globalThis.crypto ??= webcrypto;
@@ -279,7 +280,12 @@ test("any signed peer event refreshes presence even when only the seed is stale"
       expiresAt: now + 100_000,
     });
     room.emit(envelope);
-    await flush();
+    // Signature verification is asynchronous; a fixed number of setImmediate
+    // ticks can finish before WebCrypto resolves under load. Poll on a
+    // monotonic clock instead so this test is not sensitive to machine load.
+    await until(() => /online \(verified key\)/u.test(peersText()), {
+      message: "a signed cursor must refresh peer presence",
+    });
     assert.match(
       peersText(),
       /online \(verified key\)/u,
