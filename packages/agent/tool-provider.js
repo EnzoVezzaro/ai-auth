@@ -171,16 +171,35 @@ export function createToolProvider({
       .catch(() => {});
   };
 
+  const cancelled = () => ({
+    error: "This tool call was cancelled",
+    code: TOOL_ERROR_CODES.CANCELLED,
+  });
+
   async function execute(requester, request, controller) {
     const entry = byName.get(request.name);
+    // A cancel while the human decision is pending must win the race: the
+    // handler may never run for a request that was already called off.
     let allowed = false;
     try {
-      allowed =
-        (await authorize(requester.wallet, request.name, request.input)) ===
-        true;
+      const decision = Promise.resolve().then(() =>
+        authorize(requester.wallet, request.name, request.input),
+      );
+      const aborted = new Promise((resolve) => {
+        if (controller.signal.aborted) resolve(false);
+        else
+          controller.signal.addEventListener("abort", () => resolve(false), {
+            once: true,
+          });
+      });
+      allowed = await Promise.race([
+        decision.then((value) => value === true),
+        aborted,
+      ]);
     } catch {
       allowed = false;
     }
+    if (controller.signal.aborted) return cancelled();
     if (!allowed)
       return {
         error: "This agent did not allow that tool for you",
@@ -191,8 +210,10 @@ export function createToolProvider({
     } catch (error) {
       return { error: error.message, code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE };
     }
+    if (controller.signal.aborted) return cancelled();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
+      if (controller.signal.aborted) return cancelled();
       const value = await Promise.race([
         Promise.resolve(
           entry.handler(request.input, {
