@@ -7,7 +7,7 @@ All signed objects use UTF-8 RFC 8785 JSON Canonicalization Scheme bytes. Unknow
   "body": {
     "protocol": "ai-auth-wallet",
     "version": 1,
-    "type": "message/text",
+    "type": "collab/text",
     "issuer": "agent:<base64url-sha256-public-key-fingerprint>",
     "createdAt": "2026-11-14T00:00:00.000Z",
     "payload": {}
@@ -21,6 +21,8 @@ All signed objects use UTF-8 RFC 8785 JSON Canonicalization Scheme bytes. Unknow
 ```
 
 The signature covers the canonical `body` object. The verifier derives the `agent:` issuer fingerprint from the public JWK and rejects a mismatch. Signature payloads must be JSON-compatible values with finite numbers and valid Unicode.
+
+`collab/text` (with `collab/element` and `collab/attachment`) is the current chat family. The older `message/text` type is still accepted for compatibility, but it carries no signed message id or target and gets no delivery receipt; nothing new sends it.
 
 ## Permission request
 
