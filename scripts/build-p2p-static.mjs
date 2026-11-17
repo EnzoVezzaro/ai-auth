@@ -1,6 +1,7 @@
 import { build } from "esbuild";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { renderDocPage } from "./render-docs.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const output = resolve(root, "dist-p2p");
@@ -14,6 +15,9 @@ await mkdir(resolve(output, "docs"), { recursive: true });
 await mkdir(resolve(output, "landing"), { recursive: true });
 await cp(resolve(root, "index.html"), resolve(output, "index.html"));
 await cp(resolve(root, "landing.css"), resolve(output, "landing.css"));
+await cp(resolve(root, "docs.css"), resolve(output, "docs.css"));
+await mkdir(resolve(output, "docs"), { recursive: true });
+await cp(resolve(root, "docs.css"), resolve(output, "docs", "docs.css"));
 // Crawler files: the landing page is the only indexable page. The wallet and
 // the demo are crawlable so their noindex tags can be read, and they say no.
 await cp(resolve(root, "robots.txt"), resolve(output, "robots.txt"));
@@ -97,14 +101,67 @@ await build({
   sourcemap: false,
 });
 
-for (const name of [
-  "ARCHITECTURE.md",
-  "SECURITY.md",
-  "protocol.md",
-  "RECOVERY.md",
-]) {
-  await cp(resolve(root, "docs", name), resolve(output, "docs", name));
+// Docs are rendered to styled HTML at .html URLs. Raw Markdown stays at the
+// .md URLs for llms.txt and for anyone who wants the source. Every doc in the
+// index is rendered, so internal links such as [limits](limits.md) become
+// .html links that resolve instead of leading to a dead end.
+const DOC_PAGES = [
+  { file: "README.md", label: "Index", nav: true },
+  { file: "ARCHITECTURE.md", label: "Architecture", nav: true },
+  { file: "quickstart.md", label: "Quickstart", nav: true },
+  { file: "site-integration.md", label: "Site integration", nav: true },
+  { file: "agents.md", label: "Agents and MCP", nav: true },
+  { file: "protocol.md", label: "Protocol", nav: true },
+  { file: "SECURITY.md", label: "Security", nav: true },
+  { file: "RECOVERY.md", label: "Recovery", nav: true },
+  { file: "mcp.md", label: "MCP command" },
+  { file: "lifecycle.md", label: "Lifecycle" },
+  { file: "limits.md", label: "Limits" },
+  { file: "HOSTING.md", label: "Hosting" },
+  { file: "DISCOVERY.md", label: "Discovery" },
+  { file: "BOUNDARIES.md", label: "Boundaries" },
+  { file: "E2E.md", label: "E2E tests" },
+  { file: "GENERIC_INTEGRATION_REVIEW.md", label: "Integration review" },
+  { file: "TRACEABILITY.md", label: "Traceability" },
+  { file: "evidence.md", label: "Evidence" },
+];
+const navDocs = DOC_PAGES.filter((doc) => doc.nav);
+for (const doc of DOC_PAGES) {
+  const markdown = await readFile(resolve(root, "docs", doc.file), "utf8");
+  const title = markdown.match(/^#\s+(.+)$/mu)?.[1] ?? doc.label;
+  const page = renderDocPage({
+    markdown,
+    title,
+    name: doc.file,
+    docs: navDocs,
+    rawPath: `./${doc.file}`,
+  });
+  await writeFile(
+    resolve(output, "docs", doc.file.replace(/\.md$/u, ".html")),
+    page,
+  );
+  await writeFile(resolve(output, "docs", doc.file), markdown);
 }
+// /docs/ serves the same index as /docs/README.html.
+await cp(
+  resolve(output, "docs", "README.html"),
+  resolve(output, "docs", "index.html"),
+);
+// The root README is linked as ../README.html from the docs index.
+const rootReadme = await readFile(resolve(root, "README.md"), "utf8");
+await writeFile(
+  resolve(output, "README.html"),
+  renderDocPage({
+    markdown: rootReadme,
+    title: "AI Auth",
+    name: "",
+    docs: navDocs,
+    rawPath: "https://github.com/EnzoVezzaro/ai-auth/blob/main/README.md",
+  }),
+);
+await cp(resolve(root, "docs", "assets"), resolve(output, "docs", "assets"), {
+  recursive: true,
+});
 
 const landing = await readFile(resolve(output, "index.html"), "utf8");
 const wallet = await readFile(resolve(output, "wallet/index.html"), "utf8");
@@ -112,15 +169,22 @@ const landingBundle = await readFile(
   resolve(output, "landing/entry.js"),
   "utf8",
 );
+const architecture = await readFile(
+  resolve(output, "docs", "ARCHITECTURE.html"),
+  "utf8",
+);
 if (
   !landing.includes('href="./wallet/"') ||
-  !landing.includes('href="./docs/ARCHITECTURE.md"') ||
+  !landing.includes('href="./docs/ARCHITECTURE.html"') ||
   !landing.includes('src="./landing/entry.js"') ||
   !landingBundle.includes("data-scene") ||
   !wallet.includes(`src="./app.js?v=${version}"`) ||
-  !wallet.includes(`href="./styles.css?v=${version}"`)
+  !wallet.includes(`href="./styles.css?v=${version}"`) ||
+  !architecture.includes('href="./docs.css"') ||
+  !architecture.includes("<table>") ||
+  !architecture.includes('href="./ARCHITECTURE.md"')
 ) {
-  throw new Error("Static landing page has a broken asset reference");
+  throw new Error("Static landing or docs page has a broken asset reference");
 }
 await writeFile(
   resolve(output, "BUILD_INFO.json"),

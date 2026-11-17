@@ -25,4 +25,4 @@ Start with the [quickstart](quickstart.md) or the [site integration guide](site-
 - [Hosting policy](HOSTING.md) · [Wallet recovery](RECOVERY.md)
 - [End-to-end tests](E2E.md) · [Generic integration review](GENERIC_INTEGRATION_REVIEW.md)
 - [Traceability](TRACEABILITY.md) · [Verification evidence](evidence.md)
-- [Changelog](../CHANGELOG.md) · [Dated snapshots](archive/)
+- [Changelog](../CHANGELOG.md) · [Dated snapshots](https://github.com/EnzoVezzaro/ai-auth/tree/main/docs/archive)
