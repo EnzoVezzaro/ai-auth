@@ -145,6 +145,22 @@ test("closing the provider withdraws the catalog", async (t) => {
   );
 });
 
+test("agent providers use the shared WebMCP tool-name rule", () => {
+  const room = {
+    wallet: { id: "w" },
+    session: "s",
+    send: async () => {},
+    subscribe: () => () => {},
+  };
+  const provider = createToolProvider({
+    room,
+    tools: [{ name: "Notes.Search", handler: async () => ({}) }],
+    authorize: () => true,
+  });
+  assert.deepEqual(provider.tools, ["Notes.Search"]);
+  provider.close();
+});
+
 test("provider validation rejects unsafe tool definitions", () => {
   const room = {
     wallet: { id: "w" },
@@ -164,7 +180,7 @@ test("provider validation rejects unsafe tool definitions", () => {
         tools: [{ name: "Bad Name", handler: async () => {} }],
         authorize,
       }),
-    /lowercase name/u,
+    /valid name/u,
   );
   assert.throws(
     () =>

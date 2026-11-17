@@ -1,4 +1,5 @@
 import { TOOL_ERROR_CODES } from "@enzovezzaro/ai-auth-wallet";
+import { TOOL_NAME_PATTERN } from "@enzovezzaro/ai-auth-wallet/webmcp";
 
 // Agent-local tool provider: an agent runtime publishes tools it executes
 // itself, so other participants can call them with no browser present.
@@ -7,7 +8,9 @@ import { TOOL_ERROR_CODES } from "@enzovezzaro/ai-auth-wallet";
 // chooses its own nonce and reads the runtime's live room session, so it needs
 // no visitor, wallet popup, or site consent flow.
 
-const TOOL_NAME = /^[a-z][a-z0-9._-]{0,63}$/u;
+// One name rule for the whole chain: a name the site accepts must also be
+// accepted by an agent provider.
+const TOOL_NAME = TOOL_NAME_PATTERN;
 const MAX_TOOLS = 32;
 const MAX_INPUT_BYTES = 8_192;
 const MAX_RESULT_BYTES = 8_192;
@@ -28,9 +31,7 @@ function validateTools(tools) {
   const byName = new Map();
   for (const tool of tools) {
     if (!tool || typeof tool.name !== "string" || !TOOL_NAME.test(tool.name))
-      throw new TypeError(
-        "Each tool needs a lowercase name such as notes.search",
-      );
+      throw new TypeError("Each tool needs a valid name such as notes.search");
     if (byName.has(tool.name))
       throw new TypeError(`Duplicate tool name: ${tool.name}`);
     if (typeof tool.handler !== "function")
