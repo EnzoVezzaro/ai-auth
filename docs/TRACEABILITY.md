@@ -71,16 +71,16 @@ scenario is `npm run test:e2e` and the Body4AI scenario is
 
 ## Integration and user experience
 
-| Feature                                            | Code                               | Evidence                                                                                           | Status                               |
-| -------------------------------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| Copyable connect instruction and connect panel     | `packages/p2p/agent-connect.js`    | `agent-connect.test.mjs`, scenario G, browser connect flow                                         | Verified (unit + scenario + browser) |
-| SDK works on a generic site with no example code   | public package exports             | scenario G (generic origin, no private imports)                                                    | Verified (scenario)                  |
-| Example site: identity, cursor, chat, wheel, tools | `examples/body4ai/site/*`          | browser E2E steps 1–20; site `e2e/visual/body4ai-visual.mjs`                                       | Verified (browser E2E)               |
-| MCP over stdio and HTTP                            | `packages/mcp/index.js`, `http.js` | `server.test.mjs`, `cli.test.mjs`                                                                  | Verified (unit)                      |
-| Claude Code as a harness                           | `packages/mcp` docs                | `docs/AGENT_ADAPTERS.md` 2026-11-15 record                                                         | Verified (manual)                    |
-| Codex as a harness                                 | `packages/mcp` docs                | registration only; model call blocked by usage limit                                               | **Limitation**                       |
-| OpenCode as a harness                              | `packages/mcp` docs                | connected and listed tools; no completed call                                                      | **Limitation**                       |
-| ChatGPT desktop plugin harness                     | `--http` MCP endpoint              | `docs/AGENT_ADAPTERS.md` ChatGPT section; 2026-11-16 three-agent run (A/C active, B manual re-add) | Verified (manual)                    |
+| Feature                                            | Code                               | Evidence                                                                                 | Status                               |
+| -------------------------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------ |
+| Copyable connect instruction and connect panel     | `packages/p2p/agent-connect.js`    | `agent-connect.test.mjs`, scenario G, browser connect flow                               | Verified (unit + scenario + browser) |
+| SDK works on a generic site with no example code   | public package exports             | scenario G (generic origin, no private imports)                                          | Verified (scenario)                  |
+| Example site: identity, cursor, chat, wheel, tools | `examples/body4ai/site/*`          | browser E2E steps 1–20; site `e2e/visual/body4ai-visual.mjs`                             | Verified (browser E2E)               |
+| MCP over stdio and HTTP                            | `packages/mcp/index.js`, `http.js` | `server.test.mjs`, `cli.test.mjs`                                                        | Verified (unit)                      |
+| Claude Code as a harness                           | `packages/mcp` docs                | `docs/agents.md` 2026-11-15 record                                                       | Verified (manual)                    |
+| Codex as a harness                                 | `packages/mcp` docs                | registration only; model call blocked by usage limit                                     | **Limitation**                       |
+| OpenCode as a harness                              | `packages/mcp` docs                | connected and listed tools; no completed call                                            | **Limitation**                       |
+| ChatGPT desktop plugin harness                     | `--http` MCP endpoint              | `docs/agents.md` harness notes; 2026-11-16 three-agent run (A/C active, B manual re-add) | Verified (manual)                    |
 
 ## Remaining limitations (real, not hidden)
 

@@ -58,7 +58,7 @@ After a page refresh the connection ends. The visitor clicks Resume to bring it 
 ## Links
 
 - [Docs index](docs/README.md) and [connect a site in ten minutes](docs/quickstart.md)
-- [Site integration](docs/site-integration.md) and [agent adapters](docs/AGENT_ADAPTERS.md)
+- [Site integration](docs/site-integration.md), [agents](docs/agents.md) and [MCP command](docs/mcp.md)
 - [Architecture](docs/ARCHITECTURE.md), [protocol](docs/PROTOCOL.md), [security](docs/SECURITY.md)
 - [Wallet recovery](docs/RECOVERY.md), [hosting](docs/HOSTING.md), [changelog](CHANGELOG.md)
 - [`examples/body4ai/`](examples/body4ai/) is a demo consumer, not the live site.

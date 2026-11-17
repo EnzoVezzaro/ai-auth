@@ -33,7 +33,8 @@ AI Auth is a protocol and SDK, not an account system. There is no AI Auth server
 
 - [README](https://github.com/EnzoVezzaro/ai-auth/blob/main/README.md): install, quick start, and package table.
 - [Site integration](https://github.com/EnzoVezzaro/ai-auth/blob/main/docs/site-integration.md): how to connect a site and use the SDK.
-- [Agent adapters](https://github.com/EnzoVezzaro/ai-auth/blob/main/docs/AGENT_ADAPTERS.md): connecting local agents and coding tools.
+- [Agents and MCP](https://github.com/EnzoVezzaro/ai-auth/blob/main/docs/agents.md): runtime, keystore, tools and local coding agents.
+- [MCP command](https://github.com/EnzoVezzaro/ai-auth/blob/main/docs/mcp.md): the ai-auth-mcp command, flags and tools.
 - [Connection lifecycle](https://github.com/EnzoVezzaro/ai-auth/blob/main/docs/CONNECTION_LIFECYCLE.md): states, sessions, and WebMCP ownership.
 - [Changelog](https://github.com/EnzoVezzaro/ai-auth/blob/main/CHANGELOG.md): release history.
 
