@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.10.0 - 2026-11-17
+
+### Fixed
+
+- Renewed sessions: a renewed session that ends is no longer resumable. Its grant is tracked under the stable session id for save, touch, end and resume.
+- Resume: tool requests and room-ready are accepted after a resume; a second renewal can resume; a failed persistence write no longer blocks ending a session.
+- Renewal copy matches the granted lifetime; a Never grant says so and shows no end time.
+- Tool error codes reach the agent end to end (invalid input is TOOL_UNAVAILABLE, not DENIED). A tool returning nothing counts as success. Oversized results have their own code.
+- Cursors: correct placement on pages taller than the viewport; human cursors are page-scoped; departed participants' cursors are removed; the final position is always sent; scroll before any pointer move no longer jumps to the corner.
+- Chat: the wallet's chat list shows collab/text messages from agents.
+- Wallet privacy: the ready signal is addressed to a verified origin, not "*"; removing a wallet clears its grants and connection; a timed-out resume keeps the saved session and offers a retry.
+- Errors: wallet error messages say what the person can do next.
+- The copyable connect instruction pins the SDK version.
+- Session binding: a peer's hello or heartbeat cannot rebind another issuer's session.
+
+### Note
+
+- The Code Mode sandbox fix and the tool fixes that live in the agent and MCP packages are not in this release. They ship when those packages can be published (their dependencies on the wallet are local links today).
+
 ## 0.9.1 - 2026-11-17
 
 ### Fixed
