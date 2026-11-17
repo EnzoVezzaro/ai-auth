@@ -1,9 +1,9 @@
 import vm from "node:vm";
 import { z } from "zod";
 import {
-  COLLABORATION_LIMITS,
   createAIAuthAgentClient,
   parseCursorPayload,
+  MAX_MESSAGE_CHARS,
   RECEIPT_TYPE,
   TOOL_ERROR_CODES,
 } from "@enzovezzaro/ai-auth-wallet";
@@ -205,9 +205,9 @@ export function createAgentBridge({
       if (
         typeof text !== "string" ||
         text.length < 1 ||
-        text.length > COLLABORATION_LIMITS.textCharacters
+        text.length > MAX_MESSAGE_CHARS
       )
-        throw new TypeError("text must contain 1–4000 characters");
+        throw new TypeError(`text must contain 1–${MAX_MESSAGE_CHARS} characters`);
       if (to !== undefined && !WALLET_ID.test(to))
         throw new TypeError("Invalid recipient wallet id");
       // `target` is signed into the payload, so non-targets drop the message.
@@ -419,7 +419,10 @@ const SPECS = [
     "messages.send",
     false,
     "Send a signed text message to the room (or one peer).",
-    { text: z.string().min(1).max(2_000), to: z.string().max(200).optional() },
+    {
+      text: z.string().min(1).max(MAX_MESSAGE_CHARS),
+      to: z.string().max(200).optional(),
+    },
     (b, i) => b.send(i),
   ],
   [

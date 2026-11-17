@@ -25,6 +25,7 @@ import {
   parseCursorPayload,
 } from "./presence.js";
 import { isMessageId, isWalletId } from "./receipts.js";
+import { MAX_MESSAGE_CHARS } from "./message-limits.js";
 import {
   markVerifiedPageConnection,
   renewVerifiedPageConnection,
@@ -746,8 +747,9 @@ export async function connectAIAuthModal({
     )
       return;
     if (
-      envelope.body.type === "message/text" &&
-      (typeof payload.text !== "string" || payload.text.length > 3000)
+      ["message/text", "collab/text"].includes(envelope.body.type) &&
+      (typeof payload.text !== "string" ||
+        payload.text.length > MAX_MESSAGE_CHARS)
     )
       return;
     if (

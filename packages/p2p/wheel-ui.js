@@ -1,4 +1,5 @@
 // Static styles, markup and focus helpers for the collaboration wheel.
+import { MAX_MESSAGE_CHARS } from "./message-limits.js";
 
 export const WHEEL_STYLE = `
 :host{all:initial} *{box-sizing:border-box}
@@ -58,7 +59,7 @@ export const WHEEL_MARKUP = `
         <button type="button" data-action="record">Record screen</button>
         <button type="button" data-action="cancel-record" class="cancel-record" hidden>Cancel recording</button>
       </div>
-      <form><input aria-label="Message" aria-describedby="wheel-hint" maxlength="3000" placeholder="Message collaborators" autocomplete="off"><button class="send" type="submit">Send</button></form>
+      <form><input aria-label="Message" aria-describedby="wheel-hint" maxlength="${MAX_MESSAGE_CHARS}" placeholder="Message collaborators" autocomplete="off"><button class="send" type="submit">Send</button></form>
       <p class="hint" id="wheel-hint"></p>
       <p class="status" role="status"></p>
     </div>

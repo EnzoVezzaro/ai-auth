@@ -494,6 +494,7 @@ export { mountCollaborationWheel } from "./collaboration-wheel.js";
 export {
   CollaborationTransfers,
   COLLABORATION_LIMITS,
+  MAX_MESSAGE_CHARS,
 } from "./collaboration.js";
 export {
   createAIAuthConnectInstruction,

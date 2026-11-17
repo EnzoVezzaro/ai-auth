@@ -7,9 +7,11 @@ import {
   isWalletId,
   verifyReceipt,
 } from "./receipts.js";
+import { MAX_MESSAGE_CHARS } from "./message-limits.js";
 
+export { MAX_MESSAGE_CHARS };
 export const COLLABORATION_LIMITS = Object.freeze({
-  textCharacters: 4000,
+  textCharacters: MAX_MESSAGE_CHARS,
   elementBytes: 4096,
   screenshotBytes: 512 * 1024,
   recordingBytes: 1024 * 1024,
@@ -127,7 +129,7 @@ export class CollaborationTransfers {
   async sendText(text, options) {
     this.checkAuthorization();
     if (!validText(text))
-      throw new TypeError("Messages must contain 1–4000 characters");
+      throw new TypeError(`Messages must contain 1–${MAX_MESSAGE_CHARS} characters`);
     return this.room.send("collab/text", {
       text,
       ...this.addressing(options),
