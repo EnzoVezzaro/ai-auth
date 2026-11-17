@@ -210,6 +210,11 @@ export class CollaborationTransfers {
     if (type === "collab/text" && validText(payload.text)) {
       this.notify({ type: "text", text: payload.text, envelope });
       this.acknowledge(envelope);
+    } else if (type === "message/text" && validText(payload.text)) {
+      // Legacy chat from site code and old agents. Shown as a normal message
+      // from that peer; nothing new sends it and it carries no signed target
+      // or message id, so there is no receipt to acknowledge.
+      this.notify({ type: "text", text: payload.text, envelope });
     } else if (type === "collab/element" && validElement(payload.metadata)) {
       this.notify({ type: "element", metadata: payload.metadata, envelope });
       this.acknowledge(envelope);

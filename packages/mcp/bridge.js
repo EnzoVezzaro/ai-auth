@@ -1,8 +1,10 @@
 import vm from "node:vm";
 import { z } from "zod";
 import {
+  COLLABORATION_LIMITS,
   createAIAuthAgentClient,
   parseCursorPayload,
+  RECEIPT_TYPE,
   TOOL_ERROR_CODES,
 } from "@enzovezzaro/ai-auth-wallet";
 
@@ -10,6 +12,7 @@ const MAX_EVENTS = 200;
 const MAX_PAGE = 50;
 const MAX_PAYLOAD_CHARS = 1_500;
 const SILENT_TYPES = new Set(["peer/heartbeat"]);
+const WALLET_ID = /^agent:[A-Za-z0-9_-]{20,100}$/u;
 
 // Code Mode's guest bridge is built from this source *inside* the vm context.
 // It runs in the guest realm, so every function, Promise, Error and JSON it
@@ -136,13 +139,18 @@ export function createAgentBridge({
         else peerPages.set(issuer, parsed.cursor.pageKey);
       }
     } else if (type === "peer/goodbye") peerPages.delete(issuer);
-    const { kind, text } = payload ?? {};
+    const { kind, text, messageId } = payload ?? {};
+    const receipt = type === RECEIPT_TYPE;
     ring.push({
       seq,
       type,
       from: issuer,
       at: Date.now(),
       ...(kind ? { kind } : {}),
+      // Chat and receipts carry a message id so an agent can match its own
+      // outgoing messages to the signed receipts that acknowledge them.
+      ...(messageId ? { messageId } : {}),
+      ...(receipt ? { receiver: payload.receiver } : {}),
       payload:
         kind === "tool-catalog"
           ? { kind }
@@ -192,15 +200,28 @@ export function createAgentBridge({
       await runtime.leave();
       return { connection: runtime.connectionState.status };
     },
-    async send({ text, to }) {
+    async send({ text, to } = {}) {
+      if (
+        typeof text !== "string" ||
+        text.length < 1 ||
+        text.length > COLLABORATION_LIMITS.textCharacters
+      )
+        throw new TypeError("text must contain 1–4000 characters");
+      if (to !== undefined && !WALLET_ID.test(to))
+        throw new TypeError("Invalid recipient wallet id");
+      // `target` is signed into the payload, so non-targets drop the message.
+      // `to` is only the transport routing hint for the same recipient.
+      const messageId = crypto.randomUUID();
       const envelope = await runtime.send(
-        "message/text",
-        { text },
+        "collab/text",
+        { text, messageId, ...(to ? { target: to } : {}) },
         to ? { to } : {},
       );
       return {
         sent: true,
-        type: envelope?.body?.type ?? "message/text",
+        messageId,
+        state: "sent-to-transport",
+        type: envelope?.body?.type ?? "collab/text",
         note: "Submitted to the transport; delivery is not confirmed.",
       };
     },

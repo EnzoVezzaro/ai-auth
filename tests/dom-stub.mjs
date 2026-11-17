@@ -107,6 +107,15 @@ function createNode(tag, doc) {
     set id(value) {
       this.attrs.set("id", String(value));
     },
+    get childNodes() {
+      return this.children;
+    },
+    get firstChild() {
+      return this.children[0] ?? null;
+    },
+    get scrollHeight() {
+      return this.children.length;
+    },
     get hidden() {
       return this.attrs.has("hidden");
     },

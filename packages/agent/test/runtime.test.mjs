@@ -130,6 +130,59 @@ test("two runtimes become direct peers and exchange verified signed events", asy
   );
 });
 
+test("a headless runtime signs a receipt for an addressed chat message", async (t) => {
+  const hub = createHub();
+  const sender = await setup(t, hub, { name: "Sender" });
+  const receiver = await setup(t, hub, { name: "Receiver" });
+  await sender.runtime.join();
+  await receiver.runtime.join();
+  await until(
+    () => sender.runtime.connectionState.status === "direct-peer-connected",
+  );
+  await until(
+    () => receiver.runtime.connectionState.status === "direct-peer-connected",
+  );
+
+  const receipts = [];
+  sender.runtime.onEvent((m) => {
+    if (m.direction === "in" && m.envelope?.body?.type === "ai-auth-receipt")
+      receipts.push(m.envelope);
+  });
+  const messageId = crypto.randomUUID();
+  await sender.runtime.send(
+    "collab/text",
+    {
+      text: "for the headless agent",
+      messageId,
+      target: receiver.runtime.identity.id,
+    },
+    { to: receiver.runtime.identity.id },
+  );
+  await until(() =>
+    receipts.some((e) => e.body.payload.messageId === messageId),
+  );
+  const receipt = receipts.find((e) => e.body.payload.messageId === messageId);
+  assert.equal(receipt.body.issuer, receiver.runtime.identity.id);
+  assert.equal(receipt.body.payload.sender, sender.runtime.identity.id);
+  assert.equal(receipt.body.payload.receiver, receiver.runtime.identity.id);
+  assert.equal(
+    await verifyEnvelope(receipt, {
+      expectedIssuer: receiver.runtime.identity.id,
+    }),
+    true,
+  );
+
+  // A message addressed to another wallet earns no receipt from this agent.
+  const other = crypto.randomUUID();
+  await sender.runtime.send(
+    "collab/text",
+    { text: "not for you", messageId: other, target: sender.runtime.identity.id },
+    { to: receiver.runtime.identity.id },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(receipts.some((e) => e.body.payload.messageId === other), false);
+});
+
 test("send requires a granted capability and a joined room", async (t) => {
   const hub = createHub();
   const { runtime } = await setup(t, hub, { capabilities: ["presence.read"] });
