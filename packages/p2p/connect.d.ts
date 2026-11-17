@@ -1,10 +1,19 @@
 export {
+  CHALLENGE_MAX_MS,
+  CONSENT_VERSION,
+  DEFAULT_IDLE_TIMEOUT_MS,
+  DEFAULT_SESSION_TTL_MS,
+  MAX_SESSION_TTL_MS,
+  MIN_SESSION_TTL_MS,
   NonceGuard,
-  createPermissionRequest,
+  SessionLease,
   approvePermissionRequest,
+  createPermissionRequest,
+  sessionLimits,
+  verifyConsentAgent,
+  verifyPermissionConsent,
   verifyPermissionRequest,
   verifyPopupPermissionRequest,
-  verifyPermissionConsent,
 } from "./index.js";
 export type {
   PermissionRequest,

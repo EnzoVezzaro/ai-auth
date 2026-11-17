@@ -10,9 +10,9 @@ AI Auth operates no authentication server, database, or collaboration backend. T
 
 | Package                        | Use it for                                                                               | Version |
 | ------------------------------ | ---------------------------------------------------------------------------------------- | ------- |
-| `@enzovezzaro/ai-auth-wallet`  | Browser SDK, wallet modal, collaboration, WebMCP bridge (this repository's root package) | 0.6.2   |
-| `@enzovezzaro/ai-auth-agent`   | Headless Node agents: encrypted per-instance keystore, room runtime, real WebRTC         | 0.1.3   |
-| `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local agent runtimes such as Claude Code         | 0.3.2   |
+| `@enzovezzaro/ai-auth-wallet`  | Browser SDK, wallet modal, collaboration, WebMCP bridge (this repository's root package) | 0.9.1   |
+| `@enzovezzaro/ai-auth-agent`   | Headless Node agents: encrypted per-instance keystore, room runtime, real WebRTC         | 0.1.5   |
+| `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local agent runtimes such as Claude Code         | 0.3.4   |
 | `@enzovezzaro/ai-auth-runtime` | Provider-neutral plugin host for local agent applications                                | 0.1.0   |
 
 Every package works without an AI Auth-operated service.
@@ -140,7 +140,7 @@ WebMCP is the primary in-page agent tool surface: the SDK discovers tools expose
 
 A connection grants a session. By default it never expires: a site that names no limit gets Never, and the session lasts until the owner ends it, the site ends it, or it is revoked. The wallet lets the owner choose 5, 15, 30 or 60 minutes or Never. A site can cap the session through `sessionTtlMs` and `idleTimeoutMs` (numbers in milliseconds, or `null` for Never); a numeric cap rules out Never, and the wallet honors it. A numeric session without an idle choice ends after 10 minutes without authorized activity. Call `connection.renew()` to ask the wallet owner to approve again; renewal can keep or narrow capabilities, never widen them. The wallet shows the expiry countdown and lets the owner end the session. Expired, idle, or ended sessions stop authorized publishing, receiving, transfers and WebMCP calls.
 
-A session consent can be kept for later within the site origin: the SDK stores a record in that origin's `sessionStorage`, and it holds public data only — the signed consent, the wallet's public key, granted capabilities, ids and activity times. Private keys, backups and passphrases stay in the wallet and are never written there. `listResumableSessions` returns the records that can still be resumed, filtering out expired, idle, foreign-origin and tampered entries. To use one, show a Resume action and call `resumeAIAuthSession` after the visitor clicks it; the SDK never resumes silently from a stored record. The wallet re-verifies the signed consent and confirms the session still exists (so a session the site or wallet ended cannot be revived), and resuming reuses the original grant — it does not re-grant or widen scope.
+A session consent can be kept for later within the site origin: the SDK stores a record in that origin's `localStorage`, and it holds public data only — the signed consent, the wallet's public key, granted capabilities, ids and activity times. Private keys, backups and passphrases stay in the wallet and are never written there. `listResumableSessions` returns the records that can still be resumed, filtering out expired, idle, foreign-origin and tampered entries. To use one, show a Resume action and call `resumeAIAuthSession` after the visitor clicks it; the SDK never resumes silently from a stored record. The wallet re-verifies the signed consent and confirms the session still exists (so a session the site or wallet ended cannot be revived), and resuming reuses the original grant — it does not re-grant or widen scope.
 
 ## Participation modes
 
@@ -189,4 +189,4 @@ npm run test:browser:e2e
 npm run test:e2e:body4ai # multi-agent BODY4AI scenario (see docs/E2E.md)
 ```
 
-The browser E2E uses two isolated wallets and public relay/WebRTC connectivity. It currently requires network paths that allow direct ICE; do not interpret peer discovery alone as a successful collaboration session. Release status and remaining work are tracked in [the implementation plan](IMPLEMENTATION_PLAN.md).
+The browser E2E uses two isolated wallets and public relay/WebRTC connectivity. It currently requires network paths that allow direct ICE; do not interpret peer discovery alone as a successful collaboration session. Release status and remaining work are tracked in [the verification evidence](evidence.md) and [the changelog](../CHANGELOG.md).

@@ -45,7 +45,7 @@ against a live import of each package entry on 2026-11-16. Type-only
 declarations (interfaces and type aliases) are part of the typed contract but
 are not runtime imports, so they are not in these lists.
 
-### `@enzovezzaro/ai-auth-wallet` — 129 runtime exports (entry `packages/p2p/index.js`)
+### `@enzovezzaro/ai-auth-wallet` — 138 runtime exports (entry `packages/p2p/index.js`)
 
 ```text
 AGENT_DESCRIPTOR_TYPE
@@ -101,8 +101,10 @@ REVOCATION_VERSION
 ROLES
 ROOM_MODES
 SENSITIVE_SELECTOR
+SESSION_RECORD_VERSION
 SessionLease
 TOOL_ERROR_CODES
+agentKeyFor
 appendActivity
 approveLink
 approvePermissionRequest
@@ -110,6 +112,7 @@ authorizeProtected
 bindInstance
 buildCursorPayload
 buildReceiptPayload
+canResumeSession
 canTransition
 canonicalize
 connectAIAuthModal
@@ -132,6 +135,7 @@ createPresenceTracker
 createRevocation
 createRevocationGossip
 createRevokedLinkSet
+createSessionStore
 createSharedRoomTopic
 createWallet
 deriveLinkId
@@ -141,11 +145,13 @@ fetchDiscovery
 forgetWallet
 identityFor
 importWalletBackup
+inlineCreateWalletForm
 isAddressedTo
 isSensitiveElement
 issueExecutionGrant
 issueMembership
 listLinks
+listResumableSessions
 loadWallet
 mountAIAuthCollaboration
 mountAIAuthConnectPanel
@@ -154,9 +160,11 @@ mountCollaborationWheel
 parseCursorPayload
 randomNonce
 readActivity
+recordFromConsent
 registerAIAuthPageActions
 renewExecutionGrant
 resolveDuration
+resumeAIAuthSession
 sessionLimits
 signEnvelope
 unlink
@@ -177,6 +185,7 @@ verifyPermissionRequest
 verifyPopupPermissionRequest
 verifyReceipt
 verifyRevocation
+verifyStoredConsent
 ```
 
 ### `@enzovezzaro/ai-auth-agent` — 6 runtime exports (entry `packages/agent/index.js`)

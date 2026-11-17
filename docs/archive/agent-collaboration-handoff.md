@@ -23,7 +23,7 @@
 - **Interaction wheel:** `packages/p2p/collaboration-wheel.js`, `collaboration.js`, `scripts/test-browser-e2e.mjs`. Chat, element selection and synthetic media coverage; per-peer delivery not acknowledged.
 - **Page WebMCP tools:** `packages/p2p/webmcp.js`, `tests/in-page-agent.test.mjs`. Local tool catalog, scope, approval, cancellation and response tests exist.
 - **Local integrations:** `packages/runtime/`, `packages/mcp/`. Host-local APIs; no core hosted service.
-- **Release:** `.github/workflows/ci.yml`, `pages.yml`, `release.yml`, `docs/IMPLEMENTATION_PLAN.md`. Tracker reports npm 0.4.0 and static Pages; main CI passed on reviewed SHA, not evidence of six participants.
+- **Release:** `.github/workflows/ci.yml`, `pages.yml`, `release.yml`, `docs/evidence.md`, `CHANGELOG.md`. This archived tracker reports npm 0.4.0 and static Pages; main CI passed on reviewed SHA, not evidence of six participants.
 
 The browser test uses two isolated wallets and a separate agent wallet in the current machine/network. It does **not** establish cross-NAT, mobile, interoperability with an installed external coding agent, six-participant scale, or persistence across browser restarts.
 
