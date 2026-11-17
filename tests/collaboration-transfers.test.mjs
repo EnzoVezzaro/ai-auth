@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { webcrypto } from "node:crypto";
-import { identityFor } from "../packages/p2p/index.js";
+import { identityFor, signEnvelope } from "../packages/p2p/index.js";
 import { NostrWebRTC, P2PRoom } from "../packages/p2p/p2p.js";
 import { CollaborationTransfers } from "../packages/p2p/collaboration.js";
 
@@ -134,6 +134,78 @@ test("multiple signed chunks reconstruct their original bytes", async () => {
   });
   await Promise.all(pending);
   assert.deepEqual(new Uint8Array(await received.blob.arrayBuffer()), bytes);
+  outgoing.close();
+  incoming.close();
+});
+
+test("a re-delivered completed attachment is not shown or acknowledged twice", async () => {
+  const options = {
+    origin: "https://example.test",
+    capabilities: ["messages.send", "content.share"],
+  };
+  const sender = new P2PRoom(await wallet("sender"), "demo", options);
+  sender.directPeerCount = 1;
+  const receiver = new P2PRoom(await wallet("receiver"), "demo", options);
+  const outgoing = new CollaborationTransfers(sender);
+  const incoming = new CollaborationTransfers(receiver);
+  const attachments = [];
+  const receipts = [];
+  const chunks = [];
+  incoming.subscribe((event) => {
+    if (event.type === "attachment") attachments.push(event);
+  });
+  const pending = new Set();
+  const wire = (from, to) =>
+    from.subscribe(({ direction, envelope }) => {
+      if (direction !== "out") return;
+      if (envelope.body.type === "ai-auth-receipt")
+        receipts.push(envelope.body.payload.messageId);
+      if (from === sender && envelope.body.type === "collab/attachment")
+        chunks.push(envelope);
+      const job = to.receive(envelope);
+      pending.add(job);
+      job.finally(() => pending.delete(job));
+    });
+  wire(sender, receiver);
+  wire(receiver, sender);
+  const settle = async () => {
+    for (let i = 0; i < 4; i++) {
+      await Promise.all([...pending]);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  };
+
+  const messageId = crypto.randomUUID();
+  await outgoing.sendAttachment(new Blob(["image data"], { type: "image/png" }), {
+    kind: "screenshot",
+    name: "screen.png",
+    messageId,
+  });
+  await settle();
+  assert.equal(attachments.length, 1);
+  assert.equal(receipts.length, 1);
+  assert.equal(chunks.length, 1);
+
+  // A transport hiccup can re-deliver the same chunk with a fresh nonce. It is
+  // a different envelope but the same completed transfer.
+  const replay = await signEnvelope(sender.wallet, "collab/attachment", {
+    ...chunks[0].body.payload,
+    nonce: "replayed-nonce-0123456789",
+    expiresAt: Date.now() + 60_000,
+  });
+  await receiver.receive(replay);
+  await settle();
+  assert.equal(
+    attachments.length,
+    1,
+    "the duplicate chunk must not be displayed again",
+  );
+  assert.equal(
+    receipts.length,
+    1,
+    "the duplicate chunk must not be acknowledged again",
+  );
+  assert.equal(incoming.transfers.size, 0);
   outgoing.close();
   incoming.close();
 });

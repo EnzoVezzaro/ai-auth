@@ -19,6 +19,7 @@ const CHUNK_BYTES = 24 * 1024;
 const CHUNK_INTERVAL_MS = 1800;
 const TRANSFER_TTL_MS = 3 * 60 * 1000;
 const MAX_TRANSFERS = 4;
+const MAX_COMPLETED = 256;
 const MEDIA_TYPES = {
   screenshot: new Set(["image/png", "image/jpeg", "image/webp"]),
   recording: new Set(["video/webm", "video/mp4"]),
@@ -89,6 +90,9 @@ export class CollaborationTransfers {
     this.authorize = authorize;
     this.listeners = new Set();
     this.transfers = new Map();
+    // Completed transfer keys → expiry. A re-delivered chunk must not rebuild
+    // a finished transfer and fire a second notify/acknowledge.
+    this.completed = new Map();
     this.closed = false;
     this.sending = false;
     this.unsubscribe = room.subscribe((event) => {
@@ -247,6 +251,8 @@ export class CollaborationTransfers {
     const now = Date.now();
     for (const [key, transfer] of this.transfers)
       if (transfer.expiresAt <= now) this.transfers.delete(key);
+    for (const [key, until] of this.completed)
+      if (until <= now) this.completed.delete(key);
     const { id, kind, name, size, total, index, data, session } = payload ?? {};
     const limit = mediaLimit(kind);
     const mime = mediaMime(kind, payload?.mime);
@@ -277,6 +283,7 @@ export class CollaborationTransfers {
     )
       return;
     const key = `${issuer}:${session}:${id}`;
+    if (this.completed.has(key)) return;
     let transfer = this.transfers.get(key);
     if (!transfer) {
       if (this.transfers.size >= MAX_TRANSFERS) return;
@@ -305,6 +312,9 @@ export class CollaborationTransfers {
     transfer.count++;
     if (transfer.count === total) {
       this.transfers.delete(key);
+      this.completed.set(key, now + TRANSFER_TTL_MS);
+      while (this.completed.size > MAX_COMPLETED)
+        this.completed.delete(this.completed.keys().next().value);
       this.acknowledge(envelope, id);
       this.notify({
         type: "attachment",
@@ -321,6 +331,7 @@ export class CollaborationTransfers {
     this.closed = true;
     this.unsubscribe();
     this.transfers.clear();
+    this.completed.clear();
     this.listeners.clear();
   }
 }
