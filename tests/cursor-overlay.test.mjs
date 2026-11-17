@@ -452,7 +452,22 @@ test("scroll updates are captured on the document, not only the target", async (
     pageKey: "/",
   });
   t.after(stop);
+  // A scroll with no real pointer position must not publish a cursor at 0,0.
   dom.doc.dispatch("scroll");
-  await waitUntil(() => conn.published.length >= 1);
-  assert.equal(conn.published.length, 1, "the scroll fraction is published");
+  assert.equal(
+    conn.published.length,
+    0,
+    "a scroll before any pointer move is ignored",
+  );
+  dom.target.dispatch("pointermove", { clientX: 100, clientY: 200 });
+  assert.equal(conn.published.length, 1, "the pointer position is published");
+  const sentAt = Date.now();
+  await waitUntil(() => Date.now() - sentAt >= 460);
+  dom.doc.dispatch("scroll");
+  assert.equal(
+    conn.published.length,
+    2,
+    "a later document scroll is published with the known position",
+  );
+  assert.equal(conn.published[1].x, conn.published[0].x);
 });

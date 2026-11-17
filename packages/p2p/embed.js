@@ -1493,6 +1493,7 @@ export function mountAIAuthCollaboration(
   let lastSentAt = 0;
   let lastX = 0;
   let lastY = 0;
+  let hasPointerPosition = false;
   // Scroll and pointer share one throttle so page activity produces at most
   // one signed presence event per interval. Only normalized coordinates and a
   // scroll fraction leave the page; never text, form values, or element data.
@@ -1518,11 +1519,17 @@ export function mountAIAuthCollaboration(
     const { x: scrollX, y: scrollY } = scrollOffset(document.documentElement);
     lastX = fraction(event.clientX, width, scrollX);
     lastY = fraction(event.clientY, height, scrollY);
+    hasPointerPosition = true;
     publishPresence(lastX, lastY, true, scrollFraction());
   };
-  const publishScroll = () =>
+  const publishScroll = () => {
+    // Without a real pointer position lastX/lastY are the initial 0,0: a
+    // scroll-only event would jump the published cursor to the top-left.
+    if (!hasPointerPosition) return;
     publishPresence(lastX, lastY, true, scrollFraction());
-  const leave = () =>
+  };
+  const leave = () => {
+    if (!hasPointerPosition) return;
     connection.publishCursor({
       x: lastX,
       y: lastY,
@@ -1530,6 +1537,7 @@ export function mountAIAuthCollaboration(
       scroll: scrollFraction(),
       page: viewerPage,
     });
+  };
   target.addEventListener("pointermove", publish, { passive: true });
   target.addEventListener("pointerleave", leave);
   // Viewport scroll fires on document, not on body: capture it there so the
