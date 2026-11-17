@@ -1,4 +1,4 @@
-// Per-agent session records kept in the SITE origin's sessionStorage. Only
+// Per-agent session records kept in the SITE origin's localStorage. Only
 // public data lives here: the signed consent envelope, the wallet's public key,
 // granted capabilities and activity time. Private keys and recovery passphrases
 // stay in the wallet origin's IndexedDB and are never written by this module.
@@ -124,14 +124,15 @@ export async function listResumableSessions(
 }
 
 /**
- * sessionStorage-backed store. `storage` is injectable so tests use a plain
- * object instead of a browser. All reads drop invalid, expired, idle or foreign
- * records so a tampered entry cannot grant access after a refresh.
+ * localStorage-backed store, so a record survives a page refresh. `storage` is
+ * injectable so tests use a plain object instead of a browser. All reads drop
+ * invalid, expired, idle or foreign records so a tampered entry cannot grant
+ * access after a refresh.
  */
 export function createSessionStore({ storage, now = () => Date.now() } = {}) {
-  const backing = storage ?? globalThis.sessionStorage;
+  const backing = storage ?? globalThis.localStorage;
   if (!backing || typeof backing.getItem !== "function")
-    throw new TypeError("A sessionStorage-compatible store is required");
+    throw new TypeError("A localStorage-compatible store is required");
 
   const readAll = (origin) => {
     try {

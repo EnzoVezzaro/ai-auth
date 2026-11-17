@@ -22,9 +22,13 @@ function closingBrace(source, open) {
 }
 
 export function extractFunction(source, name) {
-  const start = source.indexOf(`function ${name}(`);
-  if (start === -1) throw new Error(`app.js has no function ${name}`);
-  const open = source.indexOf("{", start);
+  const at = source.indexOf(`function ${name}(`);
+  if (at === -1) throw new Error(`app.js has no function ${name}`);
+  // Keep a leading `async` if the function has become asynchronous.
+  const start = source.slice(0, at).endsWith("async ")
+    ? at - "async ".length
+    : at;
+  const open = source.indexOf("{", at);
   return source.slice(start, closingBrace(source, open) + 1);
 }
 

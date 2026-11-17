@@ -92,9 +92,10 @@ test("a site disconnect sends peer/goodbye and removes the peer at once", async 
     clearTimeout,
     Date,
   });
-  vm.runInContext(expire, context);
   try {
-    await vm.runInContext(`(async () => { ${branch} })()`, context);
+    // expireExternalSession now awaits the durable ended-flag write, so both
+    // the function and the branch must run in one async scope.
+    await vm.runInContext(`(async () => { ${expire}\n${branch} })()`, context);
     // expireExternalSession closes the room fire-and-forget; let the signed
     // goodbye finish signing and reach the stub transport.
     for (let i = 0; i < 20; i += 1)

@@ -304,7 +304,27 @@ test("R2 the site record carries only public data", async () => {
   assert.ok(!json.includes("passphrase"));
 });
 
-test("R2 the store defaults to sessionStorage, never localStorage", async () => {
+test("R2 a record written by one store is readable by a second store after a restart", async () => {
+  const storage = memoryStorage();
+  globalThis.localStorage = storage;
+  try {
+    const first = createSessionStore();
+    const record = recordFor(await makeGrant(await makeWallet()));
+    await first.save(ORIGIN, record);
+
+    // A new store instance models a new tab or a browser restart over the
+    // same durable, origin-scoped storage.
+    const second = createSessionStore();
+    const [loaded] = await second.list(ORIGIN);
+    assert.ok(loaded, "the second instance reads the first instance's record");
+    assert.equal(loaded.agentKey, record.agentKey);
+    assert.equal(loaded.savedAt, record.savedAt);
+  } finally {
+    delete globalThis.localStorage;
+  }
+});
+
+test("R2 the store defaults to localStorage, never sessionStorage", async () => {
   const session = memoryStorage();
   const local = memoryStorage();
   globalThis.sessionStorage = session;
@@ -313,8 +333,8 @@ test("R2 the store defaults to sessionStorage, never localStorage", async () => 
     const store = createSessionStore();
     const record = recordFor(await makeGrant(await makeWallet()));
     await store.save(ORIGIN, record);
-    assert.equal(session.map.size, 1);
-    assert.equal(local.map.size, 0);
+    assert.equal(local.map.size, 1, "the durable backing is localStorage");
+    assert.equal(session.map.size, 0, "sessionStorage is never used");
   } finally {
     delete globalThis.sessionStorage;
     delete globalThis.localStorage;

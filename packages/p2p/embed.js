@@ -224,9 +224,12 @@ export async function connectAIAuthModal({
   });
   // Site-origin storage is optional in headless integrations. Without it there
   // is no record to save or restore, and the normal consent flow is unchanged.
+  // The default is localStorage so a record survives a page refresh.
   const store =
     sessionStore ??
-    (globalThis.sessionStorage ? createSessionStore({ storage }) : null);
+    (storage || globalThis.localStorage
+      ? createSessionStore({ storage })
+      : null);
   const document = windowObject.document;
   const dialog = document.createElement("dialog");
   dialog.setAttribute("aria-label", "Connect AI Auth wallet");
@@ -1169,7 +1172,7 @@ export async function resumeAIAuthSession(options = {}) {
     );
   const store =
     options.sessionStore ??
-    (globalThis.sessionStorage
+    (options.storage || globalThis.localStorage
       ? createSessionStore({ storage: options.storage })
       : null);
   if (!store) return null;

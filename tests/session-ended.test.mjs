@@ -9,12 +9,15 @@ import {
   signEnvelope,
 } from "../packages/p2p/index.js";
 import { connectAIAuthModal } from "../packages/p2p/embed.js";
-import { canResumeSession } from "../packages/p2p/resume-verification.js";
+import { canResumeStoredSession } from "../packages/p2p/resume-verification.js";
+import {
+  createGrantStore,
+  memoryGrantAdapter,
+} from "../packages/p2p/grant-store.js";
 import {
   appSource,
   extractFunction,
   extractIfContaining,
-  memoryStorage,
   runFragment,
 } from "./helpers/app-source.mjs";
 
@@ -176,11 +179,14 @@ test("the wallet records a site-ended session and can no longer resume it", asyn
   const consent = await makeGrant(wallet);
   const sessionId = consent.body.payload.requestNonce;
   const source = await appSource();
-  const storage = memoryStorage();
+  const backing = new Map();
+  const grantStore = createGrantStore({
+    adapter: memoryGrantAdapter({ backing }),
+  });
+  await grantStore.save(consent, { audience: ORIGIN, room: ROOM });
   const externalHost = { postMessage() {} };
   const sandbox = runFragment(
     [
-      extractFunction(source, "endedSessionIds"),
       extractFunction(source, "markSessionEnded"),
       extractFunction(source, "expireExternalSession"),
       `async function handle(event) { ${extractIfContaining(
@@ -189,8 +195,7 @@ test("the wallet records a site-ended session and can no longer resume it", asyn
       )} }`,
     ].join("\n"),
     {
-      sessionStorage: storage,
-      ENDED_SESSIONS_KEY: "ai-auth-ended-sessions",
+      grantStore,
       externalHost,
       roomGeneration: 0,
       clearTimeout() {},
@@ -215,15 +220,16 @@ test("the wallet records a site-ended session and can no longer resume it", asyn
     origin: ORIGIN,
     data: { type: "ai-auth/session-ended", reason: "ended" },
   });
-  const ended = JSON.parse(storage.getItem("ai-auth-ended-sessions") ?? "[]");
-  assert.deepEqual(ended, [sessionId], "the wallet remembers the ended id");
+  const record = await grantStore.get(ORIGIN, sessionId);
+  assert.equal(record.ended, true, "the wallet flips the durable ended flag");
   assert.equal(
-    await canResumeSession(consent, {
+    await canResumeStoredSession(consent, {
       audience: ORIGIN,
       sessionId,
       room: ROOM,
       walletId: wallet.id,
-      endedIds: new Set(ended),
+      store: createGrantStore({ adapter: memoryGrantAdapter({ backing }) }),
+      now: Date.now(),
     }),
     false,
     "a site-ended session cannot be resumed",
@@ -234,10 +240,14 @@ test("a session-ended message from another source or origin is ignored", async (
   const wallet = await makeWallet();
   const consent = await makeGrant(wallet);
   const source = await appSource();
-  const storage = memoryStorage();
+  const backing = new Map();
+  const grantStore = createGrantStore({
+    adapter: memoryGrantAdapter({ backing }),
+  });
+  const sessionId = consent.body.payload.requestNonce;
+  await grantStore.save(consent, { audience: ORIGIN, room: ROOM });
   const sandbox = runFragment(
     [
-      extractFunction(source, "endedSessionIds"),
       extractFunction(source, "markSessionEnded"),
       `async function handle(event) { ${extractIfContaining(
         source,
@@ -245,8 +255,7 @@ test("a session-ended message from another source or origin is ignored", async (
       )} }`,
     ].join("\n"),
     {
-      sessionStorage: storage,
-      ENDED_SESSIONS_KEY: "ai-auth-ended-sessions",
+      grantStore,
       externalHost: "opener",
       state: {
         consent,
@@ -263,8 +272,8 @@ test("a session-ended message from another source or origin is ignored", async (
     data,
   });
   assert.equal(
-    storage.getItem("ai-auth-ended-sessions"),
-    null,
-    "untrusted session-ended messages do not end a session",
+    (await grantStore.get(ORIGIN, sessionId)).ended,
+    false,
+    "untrusted session-ended messages do not flip the durable ended flag",
   );
 });

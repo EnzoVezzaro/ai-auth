@@ -13,7 +13,11 @@ import {
   sessionEndText,
 } from "../../packages/p2p/copy.js";
 import { inlineCreateWalletForm } from "../../packages/p2p/wallet-setup-copy.js";
-import { canResumeSession } from "../../packages/p2p/resume-verification.js";
+import { canResumeStoredSession } from "../../packages/p2p/resume-verification.js";
+import {
+  createGrantStore,
+  indexedDbGrantAdapter,
+} from "../../packages/p2p/grant-store.js";
 import {
   appendActivity,
   approvePermissionRequest,
@@ -85,6 +89,9 @@ const state = {
   error: "",
   connectionLabel: "",
 };
+// Approved grants are durable in the wallet origin, so a wallet reload can
+// still confirm a resume. The adapter is a thin IndexedDB wrapper.
+const grantStore = createGrantStore({ adapter: indexedDbGrantAdapter() });
 const capabilityOptions = [
   "presence.read",
   "messages.send",
@@ -488,6 +495,7 @@ async function startRoom() {
           ].includes(type)
         )
           state.lease?.touch();
+        touchGrant();
         externalHost.postMessage(
           { type: "ai-auth/collaboration-event", envelope },
           state.externalOrigin,
@@ -788,6 +796,12 @@ function bindView() {
                 ),
         },
       );
+      // Save the signed grant before the site is told, so a wallet reload can
+      // confirm a resume from its durable record rather than page memory.
+      await grantStore.save(consent, {
+        audience: state.externalOrigin,
+        room: state.externalRequest.room ?? "default",
+      });
       externalHost.postMessage(
         {
           type: "ai-auth/connect-consent",
@@ -847,6 +861,10 @@ function bindView() {
         },
         state.externalOrigin,
       );
+      await grantStore.save(consent, {
+        audience: state.externalOrigin,
+        room: renewal.room ?? state.externalRequest?.room ?? "default",
+      });
       state.consent = consent;
       state.renewal = null;
       scheduleSessionExpiry();
@@ -874,8 +892,8 @@ function bindView() {
       toast(renewalKeptText(state.consent.body.payload.expiresAt));
     render();
   });
-  $("#end-session")?.addEventListener("click", () => {
-    expireExternalSession("ended");
+  $("#end-session")?.addEventListener("click", async () => {
+    await expireExternalSession("ended");
   });
   $("#reject-external-request")?.addEventListener("click", () => {
     if (externalHost && state.externalSource === externalHost)
@@ -989,27 +1007,20 @@ function externalSessionActive() {
   return state.externalStatus === "sent" && state.lease?.isActive() === true;
 }
 
-// The wallet remembers ended session ids so it can refuse a resume even after
-// its own page reloaded. Only public ids are stored here.
-const ENDED_SESSIONS_KEY = "ai-auth-ended-sessions";
-function endedSessionIds() {
-  try {
-    const ids = JSON.parse(sessionStorage.getItem(ENDED_SESSIONS_KEY) ?? "[]");
-    return new Set(Array.isArray(ids) ? ids : []);
-  } catch {
-    return new Set();
-  }
+// Ending a grant flips a durable flag on its saved record. There is no capped
+// id list: IndexedDB holds one record per audience and request nonce.
+async function markSessionEnded(id) {
+  const audience = state.externalOrigin;
+  if (typeof id !== "string" || typeof audience !== "string" || !audience)
+    return;
+  await grantStore.markEnded(audience, id);
 }
-function markSessionEnded(id) {
-  if (typeof id !== "string") return;
-  try {
-    const ids = endedSessionIds();
-    ids.add(id);
-    sessionStorage.setItem(
-      ENDED_SESSIONS_KEY,
-      JSON.stringify([...ids].slice(-100)),
-    );
-  } catch {}
+
+function touchGrant() {
+  const audience = state.externalOrigin;
+  const id = state.consent?.body?.payload?.requestNonce;
+  if (typeof audience === "string" && audience && typeof id === "string")
+    void grantStore.touch(audience, id);
 }
 
 // A resume never re-grants a scope. It re-checks the stored, signed consent
@@ -1021,13 +1032,12 @@ async function confirmSessionResume(event) {
   const valid =
     event.source === externalHost &&
     Boolean(state.wallet) &&
-    (await canResumeSession(data?.consent, {
+    (await canResumeStoredSession(data?.consent, {
       audience: origin,
       sessionId: data?.sessionId,
       room: data?.room,
       walletId: state.wallet?.id,
-      endedIds: endedSessionIds(),
-      lastActivity: data?.lastActivity,
+      store: grantStore,
     }));
   if (!valid) {
     externalHost?.postMessage(
@@ -1078,7 +1088,7 @@ function scheduleSessionExpiry() {
   clearTimeout(state.sessionTimer);
   if (state.externalStatus !== "sent" || !state.lease) return;
   if (!state.lease.isActive()) {
-    expireExternalSession(state.lease.status());
+    void expireExternalSession(state.lease.status());
     return;
   }
   // A Never grant has no deadline; it is re-checked when the visitor acts.
@@ -1089,10 +1099,10 @@ function scheduleSessionExpiry() {
   );
 }
 
-function expireExternalSession(reason = "expired") {
+async function expireExternalSession(reason = "expired") {
   if (state.externalStatus !== "sent") return;
   clearTimeout(state.sessionTimer);
-  markSessionEnded(state.consent?.body?.payload?.requestNonce);
+  await markSessionEnded(state.consent?.body?.payload?.requestNonce);
   state.lease?.revoke();
   state.renewal = null;
   if (externalHost && state.externalOrigin)
@@ -1276,7 +1286,7 @@ if (externalConnectMode) {
       state.lease &&
       !state.lease.isActive()
     )
-      expireExternalSession(state.lease.status());
+      await expireExternalSession(state.lease.status());
     if (
       event.data?.type === "ai-auth/transfer-request" &&
       event.source === state.externalSource &&
@@ -1286,6 +1296,7 @@ if (externalConnectMode) {
       grantOpen(state.consent?.body?.payload)
     ) {
       state.lease?.touch();
+      touchGrant();
       const { id, method, args } = event.data;
       if (
         typeof id !== "string" ||
@@ -1327,6 +1338,7 @@ if (externalConnectMode) {
     ) {
       debug("opener-event-matched", event.data?.type);
       state.lease?.touch();
+      touchGrant();
       if (!state.externalRoomReady) {
         if (state.externalPendingEvents.length < 32)
           state.externalPendingEvents.push(event.data);
@@ -1379,7 +1391,7 @@ if (externalConnectMode) {
     ) {
       // The site already revoked its side of the connection. End the wallet's
       // room too so peers get a signed goodbye instead of waiting for the lease.
-      expireExternalSession("ended");
+      await expireExternalSession("ended");
       return;
     }
     // Authenticate the message itself: data.audience is caller-controlled, so
