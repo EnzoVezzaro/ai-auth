@@ -176,11 +176,14 @@ test("a re-delivered completed attachment is not shown or acknowledged twice", a
   };
 
   const messageId = crypto.randomUUID();
-  await outgoing.sendAttachment(new Blob(["image data"], { type: "image/png" }), {
-    kind: "screenshot",
-    name: "screen.png",
-    messageId,
-  });
+  await outgoing.sendAttachment(
+    new Blob(["image data"], { type: "image/png" }),
+    {
+      kind: "screenshot",
+      name: "screen.png",
+      messageId,
+    },
+  );
   await settle();
   assert.equal(attachments.length, 1);
   assert.equal(receipts.length, 1);

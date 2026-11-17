@@ -207,7 +207,9 @@ export function createAgentBridge({
         text.length < 1 ||
         text.length > MAX_MESSAGE_CHARS
       )
-        throw new TypeError(`text must contain 1–${MAX_MESSAGE_CHARS} characters`);
+        throw new TypeError(
+          `text must contain 1–${MAX_MESSAGE_CHARS} characters`,
+        );
       if (to !== undefined && !WALLET_ID.test(to))
         throw new TypeError("Invalid recipient wallet id");
       // `target` is signed into the payload, so non-targets drop the message.
@@ -260,8 +262,7 @@ export function createAgentBridge({
       return {
         events,
         nextCursor: events.length ? events.at(-1).seq : cursor,
-        dropped:
-          (ring.length > 0 && since < ring[0].seq - 1) || since > latest,
+        dropped: (ring.length > 0 && since < ring[0].seq - 1) || since > latest,
         untrusted: true,
       };
     },

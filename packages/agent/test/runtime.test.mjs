@@ -176,11 +176,18 @@ test("a headless runtime signs a receipt for an addressed chat message", async (
   const other = crypto.randomUUID();
   await sender.runtime.send(
     "collab/text",
-    { text: "not for you", messageId: other, target: sender.runtime.identity.id },
+    {
+      text: "not for you",
+      messageId: other,
+      target: sender.runtime.identity.id,
+    },
     { to: receiver.runtime.identity.id },
   );
   await new Promise((resolve) => setTimeout(resolve, 50));
-  assert.equal(receipts.some((e) => e.body.payload.messageId === other), false);
+  assert.equal(
+    receipts.some((e) => e.body.payload.messageId === other),
+    false,
+  );
 });
 
 test("send requires a granted capability and a joined room", async (t) => {

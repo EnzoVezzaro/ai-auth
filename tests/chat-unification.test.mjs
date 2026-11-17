@@ -159,10 +159,7 @@ test("a collab/text sent through ai_auth_send appears in the wheel log", async (
   await until(() =>
     shadow.querySelector(".log").textContent.includes("from the agent"),
   );
-  assert.match(
-    shadow.querySelector(".log").textContent,
-    /from the agent/u,
-  );
+  assert.match(shadow.querySelector(".log").textContent, /from the agent/u);
 });
 
 test("a targeted wheel message reaches the agent and the sender sees a receipt", async (t) => {
@@ -184,15 +181,14 @@ test("a targeted wheel message reaches the agent and the sender sees a receipt",
 
   await settle();
   await until(() =>
-    received.some((event) => event.type === "text" && event.text === "hello agent"),
+    received.some(
+      (event) => event.type === "text" && event.text === "hello agent",
+    ),
   );
   await until(() =>
     shadow.querySelector(".log").textContent.includes("Signed receipt"),
   );
-  assert.match(
-    shadow.querySelector(".log").textContent,
-    /Signed receipt/u,
-  );
+  assert.match(shadow.querySelector(".log").textContent, /Signed receipt/u);
 });
 
 test("ai_auth_send signs the recipient so non-targets drop the message", async (t) => {
@@ -219,7 +215,8 @@ test("ai_auth_send signs the recipient so non-targets drop the message", async (
 
   const listeners = new Set();
   agent.subscribe(({ direction, envelope }) => {
-    if (direction === "in") for (const fn of listeners) fn({ direction, envelope });
+    if (direction === "in")
+      for (const fn of listeners) fn({ direction, envelope });
   });
   const bridge = createAgentBridge({
     runtime: runtimeForRoom(agent, listeners),
@@ -254,7 +251,8 @@ test("ai_auth_events surfaces peer chat and a receipt for the agent's own messag
   const { transfers } = await mountWheel(t, human, agent);
   const listeners = new Set();
   agent.subscribe(({ direction, envelope }) => {
-    if (direction === "in") for (const fn of listeners) fn({ direction, envelope });
+    if (direction === "in")
+      for (const fn of listeners) fn({ direction, envelope });
   });
   const bridge = createAgentBridge({
     runtime: runtimeForRoom(agent, listeners),
@@ -277,7 +275,9 @@ test("ai_auth_events surfaces peer chat and a receipt for the agent's own messag
     bridge
       .events({})
       .events.some(
-        (event) => event.type === "collab/text" && event.payload?.text === "reply from human",
+        (event) =>
+          event.type === "collab/text" &&
+          event.payload?.text === "reply from human",
       ),
   );
   const events = bridge.events({}).events;

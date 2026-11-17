@@ -129,7 +129,9 @@ export class CollaborationTransfers {
   async sendText(text, options) {
     this.checkAuthorization();
     if (!validText(text))
-      throw new TypeError(`Messages must contain 1–${MAX_MESSAGE_CHARS} characters`);
+      throw new TypeError(
+        `Messages must contain 1–${MAX_MESSAGE_CHARS} characters`,
+      );
     return this.room.send("collab/text", {
       text,
       ...this.addressing(options),

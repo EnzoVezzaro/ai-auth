@@ -91,8 +91,9 @@ test("the chat log keeps arrival order across incoming and outgoing messages", a
     shadow.querySelector("input").value = "outgoing second";
     shadow.querySelector("form").dispatch("submit");
     const text = () => shadow.querySelector(".log").textContent;
-    await until(() =>
-      text().includes("incoming first") && text().includes("outgoing second"),
+    await until(
+      () =>
+        text().includes("incoming first") && text().includes("outgoing second"),
     );
     const lines = [...shadow.querySelectorAll(".log .entry")].map(
       (node) => node.textContent,
