@@ -791,6 +791,7 @@ export async function connectAIAuthModal({
           "failed",
           "cancelled",
           "needs-human",
+          "denied",
         ].includes(payload.state) ||
         typeof payload.summary !== "string" ||
         payload.summary.length > 240)
@@ -1095,6 +1096,7 @@ export async function connectAIAuthModal({
             "failed",
             "cancelled",
             "needs-human",
+            "denied",
           ].includes(state) ||
           typeof summary !== "string" ||
           summary.length > 240

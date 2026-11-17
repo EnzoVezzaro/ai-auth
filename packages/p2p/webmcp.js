@@ -22,6 +22,7 @@ export const TOOL_ERROR_CODES = Object.freeze({
   CANCELLED: "CANCELLED",
   TIMEOUT: "TIMEOUT",
   NOT_JOINED: "NOT_JOINED",
+  DENIED: "DENIED",
 });
 
 function toolError(code, message) {
@@ -491,8 +492,8 @@ export async function registerAIAuthPageActions({
           await publishAction({
             name: action.name,
             capability: action.requiredCapability,
-            state: "needs-human",
-            summary: `Human approval required for ${action.name}`,
+            state: "denied",
+            summary: `Human approval declined for ${action.name}`,
           });
         } catch {
           // A failed announcement must not leak authorization details.
@@ -1112,6 +1113,7 @@ export function createAIAuthAgentClient(
           "failed",
           "cancelled",
           "needs-human",
+          "denied",
         ].includes(state) ||
         typeof summary !== "string" ||
         summary.length > 240
