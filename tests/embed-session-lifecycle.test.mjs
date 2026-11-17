@@ -232,6 +232,9 @@ async function connectedWithRenew(t) {
 
 async function startRenewal(b, connection) {
   const renewing = connection.renew();
+  // The session may reject this renewal before the caller observes it; keep
+  // the rejection handled while preserving the original promise to assert on.
+  void renewing.catch(() => {});
   await waitFor(() =>
     b.sentToWallet.some((m) => m.type === "ai-auth/renew-request"),
   );

@@ -354,7 +354,18 @@ export async function connectAIAuthModal({
     clearTimeout(timeout);
     clearTimeout(expiryTimer);
     clearTimeout(resumeTimer);
-    clearTimeout(pendingRenewal?.timer);
+    if (pendingRenewal) {
+      const renewal = pendingRenewal;
+      pendingRenewal = null;
+      clearTimeout(renewal.timer);
+      renewal.reject(
+        keptSessionError(
+          "renewal-declined",
+          consent?.body?.payload?.expiresAt,
+          "The AI Auth connection closed. ",
+        ),
+      );
+    }
     dialog.removeEventListener("cancel", onCancel);
     dialog.removeEventListener("close", onDialogClose);
     if (deferFrame) setTimeout(teardownFrame, SESSION_ENDED_GRACE_MS);
