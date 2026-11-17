@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.0 - 2026-11-17
+
+### Changed
+
+- The site's saved session record moves from `sessionStorage` to `localStorage`. It survives a tab close, a tab change, and a browser restart, for as long as the browser profile keeps it. It holds public data only.
+- The wallet keeps approved grants and ended-session flags in IndexedDB. After a wallet reload it can still confirm a session, and a session that was ended is refused.
+- Resume is one click after a refresh: the page offers Resume, and the wallet confirms the session. Automatic restore on load is not yet available. Browsers partition storage for an embedded wallet, so a silent check cannot read the grants.
+
+### Fixed
+
+- The "ended sessions" list in the wallet is no longer capped at 100 entries, so an old ended session cannot become resumable again.
+
+### Added
+
+- The landing page has a canonical URL, a social preview card, structured data, `robots.txt`, a sitemap, and `llms.txt`. The wallet and the demo are marked `noindex`.
+- The GitHub Pages hosting policy is enforced in CI: the only deployment target is GitHub Pages, and a Vercel configuration fails the build.
+
 ## 0.8.0 - 2026-11-17
 
 ### Added
