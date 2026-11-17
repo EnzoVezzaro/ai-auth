@@ -1569,8 +1569,25 @@ try {
     if (!state.privateMode) await startRoom();
   }
   render();
-  if (externalConnectMode && externalHost)
-    externalHost.postMessage({ type: "ai-auth/connect-ready" }, "*");
+  if (externalConnectMode && externalHost) {
+    // A connect-ready signal is addressed to the opener we actually belong to,
+    // never to "*". Prefer the origin of an already verified connect-request;
+    // otherwise use the browser-provided referrer, which is the embedding
+    // page's origin and cannot be forged by page script.
+    let readyOrigin = state.externalOrigin;
+    if (!readyOrigin) {
+      try {
+        readyOrigin = new URL(document.referrer).origin;
+      } catch {
+        readyOrigin = "";
+      }
+    }
+    if (readyOrigin)
+      externalHost.postMessage(
+        { type: "ai-auth/connect-ready" },
+        readyOrigin,
+      );
+  }
 } catch (error) {
   state.error = error.message;
   render();
