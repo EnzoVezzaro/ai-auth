@@ -498,7 +498,7 @@ async function startRoom() {
       type === "peer/goodbye" ||
       type === "message/text" ||
       type === "presence/cursor";
-    if (type === "message/text") {
+    if (type === "message/text" || type === "collab/text") {
       state.messages.push({
         direction,
         text: String(envelope.body.payload.text ?? ""),
@@ -1248,7 +1248,7 @@ async function handleExternalSiteEvent(data) {
   const capabilities = state.consent.body.payload.capabilities;
   if (data.type === "ai-auth/site-cursor") {
     if (!capabilities.includes("presence.read")) return;
-    const { x, y, visible = true, scroll } = data.cursor ?? {};
+    const { x, y, visible = true, scroll, pageKey } = data.cursor ?? {};
     if (
       !Number.isFinite(x) ||
       !Number.isFinite(y) ||
@@ -1259,10 +1259,21 @@ async function handleExternalSiteEvent(data) {
       typeof visible !== "boolean"
     )
       return;
-    // Only normalized coordinates and an optional scroll fraction are signed
-    // and shared. Keystrokes, form values, passwords, and hidden page data are
-    // never part of this event path.
-    const payload = { x, y, visible, label: state.wallet.name };
+    let page = null;
+    if (pageKey !== undefined && pageKey !== null) {
+      if (
+        typeof pageKey !== "string" ||
+        !pageKey ||
+        pageKey.length > 200 ||
+        /[\u0000-\u001f]/u.test(pageKey)
+      )
+        return;
+      page = pageKey;
+    }
+    // Only normalized coordinates, an optional scroll fraction and the page
+    // key are signed and shared. Keystrokes, form values, passwords, and hidden
+    // page data are never part of this event path.
+    const payload = { x, y, visible, pageKey: page, label: state.wallet.name };
     if (scroll !== undefined) {
       if (!Number.isFinite(scroll) || scroll < 0 || scroll > 1) return;
       payload.scroll = scroll;

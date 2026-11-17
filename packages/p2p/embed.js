@@ -1174,7 +1174,7 @@ export async function connectAIAuthModal({
           walletPage.origin,
         );
       },
-      publishCursor({ x, y, visible = true, scroll }) {
+      publishCursor({ x, y, visible = true, scroll, page = null }) {
         if (!guardActive()) return;
         if (!consent.body.payload.capabilities.includes("presence.read"))
           return;
@@ -1192,6 +1192,14 @@ export async function connectAIAuthModal({
           (!Number.isFinite(scroll) || scroll < 0 || scroll > 1)
         )
           return;
+        if (
+          page !== null &&
+          (typeof page !== "string" ||
+            !page ||
+            page.length > 200 ||
+            /[\u0000-\u001f]/u.test(page))
+        )
+          return;
         recordActivity();
         popup.postMessage(
           {
@@ -1200,6 +1208,9 @@ export async function connectAIAuthModal({
               x,
               y,
               visible,
+              // pageKey is omitted when the caller does not scope the cursor,
+              // so older wallets keep treating it as a site-wide cursor.
+              ...(page === null ? {} : { pageKey: page }),
               ...(scroll === undefined ? {} : { scroll }),
             },
           },
@@ -1372,6 +1383,22 @@ function createCursorNode(document) {
   return { node, path, label };
 }
 
+// A cursor is dimmed once it goes idle (OFFLINE_AFTER_MS) and dropped after a
+// longer grace period; an explicit goodbye drops it immediately.
+const CURSOR_REMOVE_AFTER_MS = 60_000;
+
+// Cursor fractions are relative to the whole document, never the viewport.
+// The sender and the overlay receiver share this basis so a point below the
+// first viewport is rendered where it was published (docs/PROTOCOL.md §8).
+const documentSize = (docEl) => ({
+  width: docEl?.scrollWidth ?? docEl?.clientWidth ?? 1,
+  height: docEl?.scrollHeight ?? docEl?.clientHeight ?? 1,
+});
+const scrollOffset = (docEl) => ({
+  x: globalThis.scrollX ?? docEl?.scrollLeft ?? 0,
+  y: globalThis.scrollY ?? docEl?.scrollTop ?? 0,
+});
+
 export function mountAIAuthCollaboration(
   connection,
   { target = globalThis.document?.body, pageKey } = {},
@@ -1401,21 +1428,14 @@ export function mountAIAuthCollaboration(
   target.append(host);
   const cursors = new Map();
   const place = (node, cursor) => {
-    const docEl = document.documentElement;
-    const width = docEl?.scrollWidth ?? docEl?.clientWidth ?? 1;
-    const height = docEl?.scrollHeight ?? docEl?.clientHeight ?? 1;
-    const scrollX = globalThis.scrollX ?? docEl?.scrollLeft ?? 0;
-    const scrollY = globalThis.scrollY ?? docEl?.scrollTop ?? 0;
+    const { width, height } = documentSize(document.documentElement);
+    const { x: scrollX, y: scrollY } = scrollOffset(document.documentElement);
     node.style.left = `${(cursor.x / MAX_COORDINATE) * width - scrollX}px`;
     node.style.top = `${(cursor.y / MAX_COORDINATE) * height - scrollY}px`;
   };
   const show = (key, issuer, cursor) => {
     if (cursor.pageKey !== null && cursor.pageKey !== viewerPage) {
-      const old = cursors.get(key);
-      if (old) {
-        old.node.remove();
-        cursors.delete(key);
-      }
+      removeCursor(key);
       return;
     }
     let entry = cursors.get(key);
@@ -1432,21 +1452,39 @@ export function mountAIAuthCollaboration(
     entry.seenAt = Date.now();
     place(entry.node, cursor);
   };
+  const removeCursor = (key) => {
+    const entry = cursors.get(key);
+    if (!entry) return;
+    entry.node.remove();
+    cursors.delete(key);
+  };
+  const cursorKey = (issuer, session) => `${issuer}:${session ?? "default"}`;
   const fadeIdle = () => {
     const now = Date.now();
-    for (const entry of cursors.values())
-      if (now - entry.seenAt > OFFLINE_AFTER_MS)
-        entry.node.style.opacity = "0.35";
+    for (const [key, entry] of cursors) {
+      const age = now - entry.seenAt;
+      if (age > CURSOR_REMOVE_AFTER_MS) removeCursor(key);
+      else if (age > OFFLINE_AFTER_MS) entry.node.style.opacity = "0.35";
+    }
   };
   const idleTimer = setInterval(fadeIdle, 2_000);
   idleTimer.unref?.();
   const unsubscribe = connection.onEvent((envelope) => {
+    if (envelope.body.type === "peer/goodbye") {
+      removeCursor(
+        cursorKey(
+          envelope.body.issuer,
+          envelope.body.payload?.session ?? "default",
+        ),
+      );
+      return;
+    }
     if (envelope.body.type !== "presence/cursor") return;
     const parsed = parseCursorPayload(envelope.body.payload);
     if (!parsed.ok) return;
     const session = envelope.body.payload.session ?? "default";
     show(
-      `${envelope.body.issuer}:${session}`,
+      cursorKey(envelope.body.issuer, session),
       envelope.body.issuer,
       parsed.cursor,
     );
@@ -1455,6 +1493,7 @@ export function mountAIAuthCollaboration(
   let lastSentAt = 0;
   let lastX = 0;
   let lastY = 0;
+  let hasPointerPosition = false;
   // Scroll and pointer share one throttle so page activity produces at most
   // one signed presence event per interval. Only normalized coordinates and a
   // scroll fraction leave the page; never text, form values, or element data.
@@ -1467,37 +1506,69 @@ export function mountAIAuthCollaboration(
     const position = globalThis.scrollY ?? docEl?.scrollTop ?? 0;
     return Math.max(0, Math.min(1, position / max));
   };
+  const CURSOR_THROTTLE_MS = 450;
+  let pendingPresence = null;
+  let trailingTimer = null;
   const publishPresence = (x, y, visible, scroll) => {
     const now = Date.now();
-    if (now - lastSentAt < 450) return;
+    if (now - lastSentAt < CURSOR_THROTTLE_MS) {
+      // Remember only the newest point and flush it when the window closes,
+      // so the final position is never silently dropped by the throttle.
+      pendingPresence = { x, y, visible, scroll };
+      if (trailingTimer === null) {
+        trailingTimer = setTimeout(
+          () => {
+            trailingTimer = null;
+            const pending = pendingPresence;
+            pendingPresence = null;
+            if (pending)
+              publishPresence(
+                pending.x,
+                pending.y,
+                pending.visible,
+                pending.scroll,
+              );
+          },
+          CURSOR_THROTTLE_MS - (now - lastSentAt),
+        );
+        trailingTimer.unref?.();
+      }
+      return;
+    }
+    if (trailingTimer !== null) {
+      clearTimeout(trailingTimer);
+      trailingTimer = null;
+    }
+    pendingPresence = null;
     lastSentAt = now;
-    connection.publishCursor({ x, y, visible, scroll });
+    connection.publishCursor({ x, y, visible, scroll, page: viewerPage });
   };
   const fraction = (client, size, scroll) =>
     Math.max(0, Math.min(1, (client + scroll) / Math.max(1, size)));
   const publish = (event) => {
-    const docEl = document.documentElement;
-    lastX = fraction(
-      event.clientX,
-      docEl?.clientWidth ?? 0,
-      globalThis.scrollX ?? 0,
-    );
-    lastY = fraction(
-      event.clientY,
-      docEl?.clientHeight ?? 0,
-      globalThis.scrollY ?? 0,
-    );
+    const { width, height } = documentSize(document.documentElement);
+    const { x: scrollX, y: scrollY } = scrollOffset(document.documentElement);
+    lastX = fraction(event.clientX, width, scrollX);
+    lastY = fraction(event.clientY, height, scrollY);
+    hasPointerPosition = true;
     publishPresence(lastX, lastY, true, scrollFraction());
   };
-  const publishScroll = () =>
+  const publishScroll = () => {
+    // Without a real pointer position lastX/lastY are the initial 0,0: a
+    // scroll-only event would jump the published cursor to the top-left.
+    if (!hasPointerPosition) return;
     publishPresence(lastX, lastY, true, scrollFraction());
-  const leave = () =>
+  };
+  const leave = () => {
+    if (!hasPointerPosition) return;
     connection.publishCursor({
       x: lastX,
       y: lastY,
       visible: false,
       scroll: scrollFraction(),
+      page: viewerPage,
     });
+  };
   target.addEventListener("pointermove", publish, { passive: true });
   target.addEventListener("pointerleave", leave);
   // Viewport scroll fires on document, not on body: capture it there so the
@@ -1510,6 +1581,7 @@ export function mountAIAuthCollaboration(
   return () => {
     unsubscribe();
     clearInterval(idleTimer);
+    if (trailingTimer !== null) clearTimeout(trailingTimer);
     target.removeEventListener("pointermove", publish);
     target.removeEventListener("pointerleave", leave);
     document.removeEventListener("scroll", publishScroll, { capture: true });

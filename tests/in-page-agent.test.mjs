@@ -499,6 +499,30 @@ test("peer presence accepts a scroll fraction and rejects out-of-range values", 
   stop();
 });
 
+test("publishCursor carries an explicit page to the wallet as pageKey", async () => {
+  const { connection, popupMessages } = await makeVerifiedConnection([
+    "presence.read",
+  ]);
+  connection.publishCursor({ x: 0.25, y: 0.5, page: "/docs" });
+  const cursors = popupMessages.filter(
+    ({ message }) => message.type === "ai-auth/site-cursor",
+  );
+  assert.equal(
+    cursors.at(-1).message.cursor.pageKey,
+    "/docs",
+    "the page argument must survive the postMessage to the wallet",
+  );
+  connection.publishCursor({ x: 0.25, y: 0.5, page: null });
+  const afterNull = popupMessages.filter(
+    ({ message }) => message.type === "ai-auth/site-cursor",
+  );
+  assert.ok(
+    !afterNull.at(-1).message.cursor.pageKey,
+    "an explicit null keeps the cursor site-wide",
+  );
+  connection.close();
+});
+
 test("in-page agent discovers WebMCP tools, targets requests, and returns signed-wallet events", async () => {
   const { connection, wallet, popupMessages, dispatch } =
     await makeVerifiedConnection(["tools.invoke", "presence.read"], true, {

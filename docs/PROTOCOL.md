@@ -145,14 +145,14 @@ Data travels directly peer to peer. There is no AI Auth server and no relay-medi
 
 A protocol-level virtual position. It is data an agent publishes to say where it is working; it is **not** a physical mouse or an OS pointer and never moves one.
 
-| Field       | Rule                                                                                                                                       |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `type`, `v` | `"ai-auth-cursor"`, `1`                                                                                                                    |
-| `pageKey`   | page or route key (for example the normalized path), at most 200 characters. The origin is implied by the room and is not part of this key |
-| `x`, `y`    | finite numbers in **document coordinates** (CSS pixels from the top left of the document, not the viewport)                                |
-| `selector`  | optional stable element hint                                                                                                               |
-| `label`     | optional **claim**                                                                                                                         |
-| `seq`       | per-sender monotonic integer; older values are dropped                                                                                     |
+| Field       | Rule                                                                                                                                                     |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`, `v` | `"ai-auth-cursor"`, `1`                                                                                                                                  |
+| `pageKey`   | page or route key (for example the normalized path), at most 200 characters. The origin is implied by the room and is not part of this key               |
+| `x`, `y`    | finite numbers in `0..MAX_COORDINATE` (`0..1_000_000`): a 0..1 fraction of the document width/height scaled by `MAX_COORDINATE`, never raw pixel offsets |
+| `selector`  | optional stable element hint                                                                                                                             |
+| `label`     | optional **claim**                                                                                                                                       |
+| `seq`       | per-sender monotonic integer; older values are dropped                                                                                                   |
 
 Cursor events are ordinary signed room events: they inherit signature, session, room, origin, nonce, replay and membership checks, and in restricted rooms require `presence.read`. Receivers clamp or reject out-of-range values, throttle, and render at most an overlay. A cursor grants no permission to click, type or run tools.
 

@@ -168,7 +168,8 @@ export async function step6(w, evidence) {
 
 export async function step7(w, evidence) {
   const { ha, a1, a2, a3 } = w.p;
-  // Protocol v1 cursors: document coordinates (CSS px) on a page key.
+  // Protocol v1 cursors: the example adapter converts these pixel spots into
+  // document fractions scaled by MAX_COORDINATE (PROTOCOL.md §8).
   const spots = [
     [ha, 110, 210],
     [a1, 330, 430],

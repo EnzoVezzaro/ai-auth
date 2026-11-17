@@ -3,6 +3,7 @@ import test from "node:test";
 import { webcrypto } from "node:crypto";
 import { createAIAuthAgentClient, identityFor } from "../packages/p2p/index.js";
 import { mountAIAuthCollaboration } from "../packages/p2p/embed.js";
+import { MAX_COORDINATE, OFFLINE_AFTER_MS } from "../packages/p2p/presence.js";
 
 globalThis.crypto ??= webcrypto;
 
@@ -326,6 +327,193 @@ test("a hidden participant fades but stays in the overlay", async (t) => {
   assert.ok(Number(node.style.opacity) < 1, "the node is dimmed");
 });
 
+test("a pointer below the first viewport uses the document-size basis, not a clamped bottom", async (t) => {
+  const dom = makeDom({ width: 1000, height: 4000, viewHeight: 800 });
+  const previousX = globalThis.scrollX;
+  const previousY = globalThis.scrollY;
+  globalThis.scrollX = 50;
+  globalThis.scrollY = 1000;
+  t.after(() => {
+    globalThis.scrollX = previousX;
+    globalThis.scrollY = previousY;
+  });
+  const conn = makeConnection();
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/",
+  });
+  t.after(stop);
+
+  // client (500, 400) + scroll (50, 1000) = document point (550, 1400),
+  // which is below the first 800 px viewport of a 4000 px document.
+  dom.target.dispatch("pointermove", { clientX: 500, clientY: 400 });
+  assert.equal(conn.published.length, 1);
+  const sent = conn.published[0];
+  assert.ok(
+    sent.y > 0 && sent.y < 1,
+    `document point below the first viewport must not clamp to the bottom (got ${sent.y})`,
+  );
+  assert.ok(Math.abs(sent.x - 0.55) < 1e-9, `x fraction was ${sent.x}`);
+  assert.ok(Math.abs(sent.y - 0.35) < 1e-9, `y fraction was ${sent.y}`);
+
+  // Round-trip: a peer rendering that same normalized cursor with the same
+  // scroll must land back on the original client coordinates.
+  const agent = await makeWallet("Tall page");
+  conn.emit(
+    envelope(agent, {
+      type: "ai-auth-cursor",
+      v: 1,
+      pageKey: "/",
+      x: Math.round(sent.x * MAX_COORDINATE),
+      y: Math.round(sent.y * MAX_COORDINATE),
+      seq: 1,
+      visible: true,
+      session: "tall-session",
+    }),
+  );
+  const node = cursorNodes(conn, dom)[0];
+  assert.equal(node.style.left, "500px");
+  assert.equal(node.style.top, "400px");
+});
+
+test("two live sessions of one identity keep two stable cursors", async (t) => {
+  const dom = makeDom();
+  const conn = makeConnection();
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/",
+  });
+  t.after(stop);
+  const agent = await makeWallet("Two tabs");
+  const sessionA = "session-AAAA1111";
+  const sessionB = "session-BBBB2222";
+  const cursorFor = (session, x, y, seq) => ({
+    type: "ai-auth-cursor",
+    v: 1,
+    pageKey: "/",
+    x,
+    y,
+    seq,
+    visible: true,
+    label: "Two tabs",
+    session,
+  });
+  conn.emit(envelope(agent, cursorFor(sessionA, 200_000, 200_000, 1)));
+  conn.emit(envelope(agent, cursorFor(sessionB, 800_000, 800_000, 2)));
+  const nodes = cursorNodes(conn, dom);
+  assert.equal(nodes.length, 2, "each tab is its own participant");
+  const fill = (node) => node.children[0].children[0].getAttribute("fill");
+  assert.equal(fill(nodes[0]), fill(nodes[1]), "one identity keeps one colour");
+  assert.match(nodes[0].textContent, /Two tabs/u);
+  assert.match(nodes[1].textContent, /Two tabs/u);
+
+  // A fresh update for session A reuses its node; neither cursor flip-flops.
+  conn.emit(envelope(agent, cursorFor(sessionA, 300_000, 300_000, 3)));
+  const afterUpdate = cursorNodes(conn, dom);
+  assert.equal(afterUpdate.length, 2);
+  assert.equal(afterUpdate[0], nodes[0], "session A keeps its own node");
+  assert.equal(afterUpdate[1], nodes[1], "session B keeps its own node");
+
+  // A goodbye for one tab removes only that tab's cursor.
+  conn.emit({
+    type: "peer/goodbye",
+    issuer: agent.id,
+    payload: { session: sessionA },
+  });
+  const remaining = cursorNodes(conn, dom);
+  assert.equal(remaining.length, 1);
+  assert.equal(remaining[0], nodes[1], "the other session's cursor survives");
+});
+
+test("peer/goodbye removes that participant's cursor at once", async (t) => {
+  const dom = makeDom();
+  const conn = makeConnection();
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/",
+  });
+  t.after(stop);
+  const agent = await makeWallet("Leaving");
+  const shown = await agentPayload(agent, { x: 0.3, y: 0.3 });
+  conn.emit(envelope(agent, shown.payload));
+  assert.equal(cursorNodes(conn, dom).length, 1, "cursor is shown");
+  conn.emit({
+    type: "peer/goodbye",
+    issuer: agent.id,
+    payload: { session: "room-session" },
+  });
+  assert.equal(
+    cursorNodes(conn, dom).length,
+    0,
+    "the departing peer's cursor is removed immediately",
+  );
+});
+
+test("an idle cursor is dimmed and then removed, not kept forever", async (t) => {
+  const agent = await makeWallet("Idle");
+  const dom = makeDom();
+  t.mock.timers.enable({ apis: ["Date", "setInterval"] });
+  const conn = makeConnection();
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/",
+  });
+  t.after(stop);
+  const shown = await agentPayload(agent, { x: 0.3, y: 0.3 });
+  conn.emit(envelope(agent, shown.payload));
+  const node = cursorNodes(conn, dom)[0];
+  assert.ok(node, "cursor is shown");
+
+  t.mock.timers.tick(OFFLINE_AFTER_MS + 2_000);
+  assert.ok(Number(node.style.opacity) < 1, "the idle cursor is dimmed");
+  assert.equal(cursorNodes(conn, dom).length, 1, "idle is not yet goodbye");
+
+  t.mock.timers.tick(120_000);
+  assert.equal(
+    cursorNodes(conn, dom).length,
+    0,
+    "a long-idle cursor is removed, not kept until reload",
+  );
+});
+
+test("the overlay's own human cursor is published page-scoped", (t) => {
+  const dom = makeDom();
+  const conn = makeConnection();
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/docs",
+  });
+  t.after(stop);
+  dom.target.dispatch("pointermove", { clientX: 100, clientY: 200 });
+  assert.equal(conn.published.length, 1);
+  assert.equal(
+    conn.published[0].page,
+    "/docs",
+    "the human cursor carries the viewer's page key",
+  );
+});
+
+test("a throttled final pointer position is sent as a trailing update", async (t) => {
+  const dom = makeDom();
+  const conn = makeConnection();
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/",
+  });
+  t.after(stop);
+  dom.target.dispatch("pointermove", { clientX: 100, clientY: 200 });
+  dom.target.dispatch("pointermove", { clientX: 900, clientY: 600 });
+  assert.equal(
+    conn.published.length,
+    1,
+    "the second move falls inside the throttle window",
+  );
+  await waitUntil(() => conn.published.length >= 2);
+  const last = conn.published.at(-1);
+  assert.ok(Math.abs(last.x - 0.9) < 1e-9, `final x fraction was ${last.x}`);
+  assert.ok(Math.abs(last.y - 0.15) < 1e-9, `final y fraction was ${last.y}`);
+});
+
 test("scroll updates are captured on the document, not only the target", async (t) => {
   const dom = makeDom();
   const conn = makeConnection();
@@ -334,7 +522,22 @@ test("scroll updates are captured on the document, not only the target", async (
     pageKey: "/",
   });
   t.after(stop);
+  // A scroll with no real pointer position must not publish a cursor at 0,0.
   dom.doc.dispatch("scroll");
-  await waitUntil(() => conn.published.length >= 1);
-  assert.equal(conn.published.length, 1, "the scroll fraction is published");
+  assert.equal(
+    conn.published.length,
+    0,
+    "a scroll before any pointer move is ignored",
+  );
+  dom.target.dispatch("pointermove", { clientX: 100, clientY: 200 });
+  assert.equal(conn.published.length, 1, "the pointer position is published");
+  const sentAt = Date.now();
+  await waitUntil(() => Date.now() - sentAt >= 460);
+  dom.doc.dispatch("scroll");
+  assert.equal(
+    conn.published.length,
+    2,
+    "a later document scroll is published with the known position",
+  );
+  assert.equal(conn.published[1].x, conn.published[0].x);
 });
