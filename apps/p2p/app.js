@@ -1387,6 +1387,12 @@ async function handleExternalSiteEvent(data) {
             ...(typeof agentEvent.error === "string"
               ? { error: agentEvent.error.slice(0, 240) }
               : {}),
+            // Forward the machine-readable reason with the human message so a
+            // typed site failure (e.g. invalid input) survives the relay hop.
+            ...(typeof agentEvent.code === "string" &&
+            agentEvent.code.length <= 40
+              ? { code: agentEvent.code }
+              : {}),
             targetWallet: state.wallet.id,
             targetNonce: state.externalRequest.nonce,
             targetSession: state.room.session,
