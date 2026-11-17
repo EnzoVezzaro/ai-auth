@@ -34,11 +34,15 @@ export class Participant {
     return this.call("snapshot");
   }
 
-  get(expression, arg) {
+  get(expression, arg, arg2) {
     return this.page.evaluate(
-      ([source, value]) =>
-        new Function("b4a", "arg", `return ${source}`)(window.__b4a, value),
-      [expression, arg ?? null],
+      ([source, value, value2]) =>
+        new Function("b4a", "arg", "arg2", `return ${source}`)(
+          window.__b4a,
+          value,
+          value2,
+        ),
+      [expression, arg ?? null, arg2 ?? null],
     );
   }
 

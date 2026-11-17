@@ -7,6 +7,7 @@ import {
   expectEventually,
   networkAware,
 } from "./world.mjs";
+import { gotText } from "./messages.mjs";
 import { Participant, newContext } from "./participants.mjs";
 import { approveNext, discover } from "./steps-tools.mjs";
 
@@ -25,12 +26,6 @@ const nodeCursor = (x, y) => ({
     label: "headless agent",
   },
 });
-const gotText = (p, from, text) =>
-  p.get(
-    "b4a.state.events.some((e) => e.type === 'message/text' && e.issuer === arg)",
-    from,
-  );
-
 export async function step12(w, evidence) {
   const { ha, hb, a1, a2 } = w.p;
   await ha.context.close();
@@ -56,10 +51,11 @@ export async function step12(w, evidence) {
     () => gotText(a2, a1.walletId, marker),
     "Agent 2 hears Agent 1 after Human A left",
   );
-  await a2.call("sendSigned", "message/text", { text: marker + " reply" });
+  const reply = marker + " reply";
+  await a2.call("sendSigned", "message/text", { text: reply });
   await expectEventually(
-    () => gotText(a1, a2.walletId, marker),
-    "Agent 1 hears Agent 2",
+    () => gotText(a1, a2.walletId, reply),
+    "Agent 1 hears Agent 2's reply",
   );
   evidence.agentPeerCounts = {
     a1: (await a1.snapshot()).directPeerCount,
