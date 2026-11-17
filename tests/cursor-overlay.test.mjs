@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { webcrypto } from "node:crypto";
-import {
-  createAIAuthAgentClient,
-  identityFor,
-} from "../packages/p2p/index.js";
+import { createAIAuthAgentClient, identityFor } from "../packages/p2p/index.js";
 import { mountAIAuthCollaboration } from "../packages/p2p/embed.js";
 
 globalThis.crypto ??= webcrypto;
@@ -139,13 +136,18 @@ async function agentPayload(wallet, args) {
   } finally {
     client.close();
   }
-  return { type: sent[0].type, payload: { ...sent[0].payload, session: room.session } };
+  return {
+    type: sent[0].type,
+    payload: { ...sent[0].payload, session: room.session },
+  };
 }
 
 const cursorNodes = (conn, dom) => {
   const host = dom.target.children.at(-1);
   const layer = host.shadowRoot.children.at(-1);
-  return layer.children.filter((n) => n.className.split(/\s+/u).includes("cursor"));
+  return layer.children.filter((n) =>
+    n.className.split(/\s+/u).includes("cursor"),
+  );
 };
 
 const envelope = (wallet, payload) => ({
@@ -166,7 +168,10 @@ const waitUntil = async (fn, ms = 2000) => {
 test("an agent-published v1 cursor appears on the example site overlay", async (t) => {
   const dom = makeDom();
   const conn = makeConnection();
-  const stop = mountAIAuthCollaboration(conn, { target: dom.target, pageKey: "/" });
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/",
+  });
   t.after(stop);
   const agent = await makeWallet("ChatGPT agent A");
   const published = await agentPayload(agent, { x: 0.5, y: 0.5 });
@@ -180,7 +185,10 @@ test("an agent-published v1 cursor appears on the example site overlay", async (
 test("a cursor from another page is not drawn, but a site-wide cursor is", async (t) => {
   const dom = makeDom();
   const conn = makeConnection();
-  const stop = mountAIAuthCollaboration(conn, { target: dom.target, pageKey: "/docs" });
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/docs",
+  });
   t.after(stop);
   const other = await makeWallet("Other page");
   conn.emit(
@@ -215,7 +223,10 @@ test("a cursor from another page is not drawn, but a site-wide cursor is", async
 test("two identities get different colours derived from the verified issuer", async (t) => {
   const dom = makeDom();
   const conn = makeConnection();
-  const stop = mountAIAuthCollaboration(conn, { target: dom.target, pageKey: "/" });
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/",
+  });
   t.after(stop);
   const a = await makeWallet("A");
   const b = await makeWallet("B");
@@ -233,7 +244,10 @@ test("two identities get different colours derived from the verified issuer", as
 test("a legacy normalized cursor still renders as a site-wide v1 cursor", async (t) => {
   const dom = makeDom();
   const conn = makeConnection();
-  const stop = mountAIAuthCollaboration(conn, { target: dom.target, pageKey: "/" });
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/",
+  });
   t.after(stop);
   const legacy = await makeWallet("Legacy");
   conn.emit(
@@ -261,7 +275,10 @@ test("cursors are document-anchored with the viewer's current scroll", async (t)
     globalThis.scrollY = previousY;
   });
   const conn = makeConnection();
-  const stop = mountAIAuthCollaboration(conn, { target: dom.target, pageKey: "/" });
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/",
+  });
   t.after(stop);
   const agent = await makeWallet("Scrolled");
   const published = await agentPayload(agent, { x: 0.25, y: 0.5 });
@@ -275,7 +292,10 @@ test("cursors are document-anchored with the viewer's current scroll", async (t)
 test("updates reuse the same node for a stable identity", async (t) => {
   const dom = makeDom();
   const conn = makeConnection();
-  const stop = mountAIAuthCollaboration(conn, { target: dom.target, pageKey: "/" });
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/",
+  });
   t.after(stop);
   const agent = await makeWallet("Moving");
   const first = await agentPayload(agent, { x: 0.1, y: 0.1 });
@@ -291,7 +311,10 @@ test("updates reuse the same node for a stable identity", async (t) => {
 test("a hidden participant fades but stays in the overlay", async (t) => {
   const dom = makeDom();
   const conn = makeConnection();
-  const stop = mountAIAuthCollaboration(conn, { target: dom.target, pageKey: "/" });
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/",
+  });
   t.after(stop);
   const agent = await makeWallet("Hiding");
   const shown = await agentPayload(agent, { x: 0.3, y: 0.3 });
@@ -306,7 +329,10 @@ test("a hidden participant fades but stays in the overlay", async (t) => {
 test("scroll updates are captured on the document, not only the target", async (t) => {
   const dom = makeDom();
   const conn = makeConnection();
-  const stop = mountAIAuthCollaboration(conn, { target: dom.target, pageKey: "/" });
+  const stop = mountAIAuthCollaboration(conn, {
+    target: dom.target,
+    pageKey: "/",
+  });
   t.after(stop);
   dom.doc.dispatch("scroll");
   await waitUntil(() => conn.published.length >= 1);

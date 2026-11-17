@@ -1378,7 +1378,10 @@ export function mountAIAuthCollaboration(
   // scroll fraction leave the page; never text, form values, or element data.
   const scrollFraction = () => {
     const docEl = document.documentElement;
-    const max = Math.max(1, (docEl?.scrollHeight ?? 0) - (docEl?.clientHeight ?? 0));
+    const max = Math.max(
+      1,
+      (docEl?.scrollHeight ?? 0) - (docEl?.clientHeight ?? 0),
+    );
     const position = globalThis.scrollY ?? docEl?.scrollTop ?? 0;
     return Math.max(0, Math.min(1, position / max));
   };
@@ -1392,8 +1395,16 @@ export function mountAIAuthCollaboration(
     Math.max(0, Math.min(1, (client + scroll) / Math.max(1, size)));
   const publish = (event) => {
     const docEl = document.documentElement;
-    lastX = fraction(event.clientX, docEl?.clientWidth ?? 0, globalThis.scrollX ?? 0);
-    lastY = fraction(event.clientY, docEl?.clientHeight ?? 0, globalThis.scrollY ?? 0);
+    lastX = fraction(
+      event.clientX,
+      docEl?.clientWidth ?? 0,
+      globalThis.scrollX ?? 0,
+    );
+    lastY = fraction(
+      event.clientY,
+      docEl?.clientHeight ?? 0,
+      globalThis.scrollY ?? 0,
+    );
     publishPresence(lastX, lastY, true, scrollFraction());
   };
   const publishScroll = () =>

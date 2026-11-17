@@ -163,7 +163,11 @@ test("an agent's cursor is labeled with its name when the room has one", async (
   const published = sent[0].payload;
   assert.equal(published.type, "ai-auth-cursor", "the agent publishes v1");
   assert.equal(published.v, 1);
-  assert.equal(published.x, 500000, "0..1 fractions scale into the tracker range");
+  assert.equal(
+    published.x,
+    500000,
+    "0..1 fractions scale into the tracker range",
+  );
   assert.equal(published.y, 500000);
   assert.equal(published.pageKey, null, "no page argument means site-wide");
   assert.equal(published.seq, 1, "seq increments per sender");
@@ -202,7 +206,11 @@ test("an agent can scope its v1 cursor to a page and hide it", async (t) => {
     scroll: 0.2,
   });
   const payload = sent[0].payload;
-  assert.equal(payload.pageKey, "/product?id=7", "the optional page scopes the cursor");
+  assert.equal(
+    payload.pageKey,
+    "/product?id=7",
+    "the optional page scopes the cursor",
+  );
   assert.equal(payload.visible, false);
   assert.equal(payload.scroll, 0.2);
   assert.throws(

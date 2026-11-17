@@ -212,7 +212,13 @@ export function createAgentBridge({
         visible,
         ...(page === undefined ? {} : { page }),
       });
-      return { moved: true, x, y, visible, ...(page === undefined ? {} : { page }) };
+      return {
+        moved: true,
+        x,
+        y,
+        visible,
+        ...(page === undefined ? {} : { page }),
+      };
     },
     // Publishes a signed activity status that people and agents on the page see.
     act({ name, state, summary }) {

@@ -274,10 +274,18 @@ test("status reports which page each peer is on and move accepts a page", async 
     },
   });
   const peer = bridge.status().peers.find((p) => p.id === "agent:peer");
-  assert.equal(peer?.pageKey, "/product", "the peer's page is visible to agents");
+  assert.equal(
+    peer?.pageKey,
+    "/product",
+    "the peer's page is visible to agents",
+  );
 
   await bridge.move({ x: 0.5, y: 0.5, page: "/product" });
-  assert.equal(published.at(-1).page, "/product", "move forwards the page argument");
+  assert.equal(
+    published.at(-1).page,
+    "/product",
+    "move forwards the page argument",
+  );
 });
 
 test("room tools are executed by the agent runtime with no page involved", async () => {

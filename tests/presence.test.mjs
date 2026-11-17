@@ -159,7 +159,11 @@ test("a legacy normalized cursor is converted to v1 on receipt", () => {
   });
   assert.equal(parsed.ok, true, "legacy payloads are still accepted");
   assert.equal(parsed.cursor.pageKey, null, "no page means site-wide");
-  assert.equal(parsed.cursor.x, 250000, "0..1 is scaled into the tracker range");
+  assert.equal(
+    parsed.cursor.x,
+    250000,
+    "0..1 is scaled into the tracker range",
+  );
   assert.equal(parsed.cursor.y, 500000);
   assert.equal(parsed.cursor.visible, true);
   assert.equal(parsed.cursor.scroll, 0.1);
