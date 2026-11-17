@@ -66,7 +66,6 @@ class Wheel {
     this.objectUrls = new Set();
     this.entries = new Map();
     this.inbox = Promise.resolve();
-    this.sendingText = false;
     this.restoreFocus = null;
     this.bind();
     this.refresh();

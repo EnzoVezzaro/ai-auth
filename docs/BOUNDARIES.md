@@ -45,7 +45,7 @@ against a live import of each package entry on 2026-11-16. Type-only
 declarations (interfaces and type aliases) are part of the typed contract but
 are not runtime imports, so they are not in these lists.
 
-### `@enzovezzaro/ai-auth-wallet` — 138 runtime exports (entry `packages/p2p/index.js`)
+### `@enzovezzaro/ai-auth-wallet` — 139 runtime exports (entry `packages/p2p/index.js`)
 
 ```text
 AGENT_DESCRIPTOR_TYPE
@@ -79,6 +79,7 @@ MAX_DESCRIPTOR_TTL_MS
 MAX_EVENT_AGE_MS
 MAX_EXECUTION_GRANT_TTL_MS
 MAX_MEMBERSHIP_TTL_MS
+MAX_MESSAGE_CHARS
 MAX_SEEN_EVENTS
 MAX_SESSION_TTL_MS
 MEMBERSHIP_TYPE
