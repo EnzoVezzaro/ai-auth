@@ -909,6 +909,23 @@ export class NostrWebRTC {
     this.scheduleDeliveryRetry();
   }
 
+  // Every path that queues an outbound event goes through here so the cap and
+  // expiry filter hold for the no-peer queue, send failures and retry re-adds.
+  enqueueOutbound(queued, { front = false } = {}) {
+    if (this.closed) return false;
+    const now = Date.now();
+    if (!Number.isFinite(queued?.expiresAt) || queued.expiresAt <= now)
+      return false;
+    this.outbox = this.outbox.filter(({ expiresAt }) => expiresAt > now);
+    if (this.outbox.length >= MAX_QUEUED_OUTBOUND_EVENTS) {
+      this.onStatus("Waiting for peers; the outgoing event queue is full");
+      return false;
+    }
+    if (front) this.outbox.unshift(queued);
+    else this.outbox.push(queued);
+    return true;
+  }
+
   forward(envelope, to) {
     if (this.closed) return;
     const wire = JSON.stringify(envelope);
@@ -934,18 +951,11 @@ export class NostrWebRTC {
         );
         return;
       }
-      this.outbox = this.outbox.filter(
-        ({ expiresAt: expiry }) => expiry > Date.now(),
-      );
-      if (this.outbox.length >= MAX_QUEUED_OUTBOUND_EVENTS) {
-        this.onStatus("Waiting for peers; the outgoing event queue is full");
-        return;
-      }
-      this.outbox.push({ envelope, expiresAt, to });
-      this.onDiagnostic({
-        stage: "event-queued-until-direct-peer",
-        type: envelope?.body?.type,
-      });
+      if (this.enqueueOutbound({ envelope, expiresAt, to }))
+        this.onDiagnostic({
+          stage: "event-queued-until-direct-peer",
+          type: envelope?.body?.type,
+        });
       return;
     }
     this.onDiagnostic({
@@ -964,10 +974,10 @@ export class NostrWebRTC {
           this.onStatus("An attachment chunk could not be sent");
           return;
         }
-        this.outbox.unshift({ envelope, expiresAt, to });
-        this.onStatus(
-          "A peer message could not be sent; it is queued for retry",
-        );
+        if (this.enqueueOutbound({ envelope, expiresAt, to }, { front: true }))
+          this.onStatus(
+            "A peer message could not be sent; it is queued for retry",
+          );
       });
   }
 
@@ -995,12 +1005,13 @@ export class NostrWebRTC {
             type: queued.envelope?.body?.type,
           });
         } catch {
-          this.outbox.unshift(queued);
+          this.enqueueOutbound(queued, { front: true });
           this.onStatus("A queued peer event could not be sent yet");
           break;
         }
       }
-      this.outbox.unshift(...waiting);
+      for (const item of [...waiting].reverse())
+        this.enqueueOutbound(item, { front: true });
     } finally {
       this.flushingOutbox = false;
     }

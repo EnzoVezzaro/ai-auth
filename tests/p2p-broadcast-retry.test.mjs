@@ -133,6 +133,36 @@ test("a broadcast reaches a peer whose channel reopens after the send", async ()
   await adapter.close();
 });
 
+test("a burst of failed sends cannot grow the outbox past its cap", async () => {
+  const net = fakeTrystero();
+  const room = fakeRoom();
+  const adapter = new NostrWebRTC(room, {
+    joinRoom: () => net.transport,
+    retryMs: 10,
+  });
+  await adapter.start();
+  net.join("a"); // a direct peer exists, so forward takes the deliver branch
+  await wait(5);
+
+  // Force the send-failure branch so the real outbox enqueue code runs.
+  adapter.deliver = () => Promise.reject(new Error("peer send failed"));
+  for (let index = 0; index < 200; index += 1) {
+    room.emitOut({
+      body: {
+        type: "message/text",
+        payload: { expiresAt: Date.now() + 30_000 },
+      },
+    });
+    await wait(0);
+  }
+  await wait(20);
+  assert.ok(
+    adapter.outbox.length <= 128,
+    `the outbox is capped on the send-failure path (got ${adapter.outbox.length})`,
+  );
+  await adapter.close();
+});
+
 test("missed broadcasts are not retried past the envelope expiry", async () => {
   const net = fakeTrystero();
   const room = fakeRoom();
