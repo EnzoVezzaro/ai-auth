@@ -11,7 +11,13 @@ import { webcrypto } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { TOOL_ERROR_CODES } from "../packages/p2p/index.js";
+import {
+  createSharedRoomTopic,
+  identityFor,
+  randomNonce,
+  signEnvelope,
+  TOOL_ERROR_CODES,
+} from "../packages/p2p/index.js";
 import { createFileKeystore } from "../packages/agent/keystore.js";
 import { createAgentRuntime } from "../packages/agent/runtime.js";
 import { createHub } from "../packages/agent/test/fake-transport.mjs";
@@ -53,6 +59,26 @@ const until = async (fn, ms = 4000) => {
   }
   assert.fail("condition not reached");
 };
+
+async function makeWallet(name) {
+  const keys = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  );
+  const publicKey = await crypto.subtle.exportKey("jwk", keys.publicKey);
+  const id = await identityFor(publicKey);
+  return {
+    id,
+    name,
+    sign: (type, payload) =>
+      signEnvelope(
+        { id, publicKey, privateKey: keys.privateKey },
+        type,
+        payload,
+      ),
+  };
+}
 
 function provideEcho(runtime, calls = []) {
   return runtime.provideTools({
@@ -345,4 +371,41 @@ test("13. an ICE failure in reconnecting schedules a fresh join", async (t) => {
     a.runtime.connectionState.generation,
     a.runtime.agentRoom.session,
   );
+});
+
+test("14. two tabs of one wallet stay separate in the runtime registry", async (t) => {
+  const hub = createHub();
+  const site = await makeRuntime(t, hub, "site");
+  await site.runtime.join();
+
+  // A second transport in the same room plays two tabs of one wallet: same
+  // issuer, different presence sessions.
+  const topic = await createSharedRoomTopic(ORIGIN, ROOM);
+  const tab = hub.joinRoom({}, topic);
+  const action = tab.makeAction();
+  const wallet = await makeWallet("Two tabs");
+  const sign = (type, session, extra = {}) =>
+    wallet.sign(type, {
+      room: ROOM,
+      origin: ORIGIN,
+      session,
+      nonce: randomNonce(),
+      expiresAt: Date.now() + 60_000,
+      ...extra,
+    });
+
+  action.send(await sign("peer/hello", "tab-a-session", { label: "Tab A" }));
+  action.send(await sign("peer/hello", "tab-b-session", { label: "Tab B" }));
+
+  // Before the fix both overwrote one issuer-keyed entry.
+  await until(() => site.runtime.peers().length === 2);
+  assert.deepEqual(
+    site.runtime.peers().map((peer) => peer.session).sort(),
+    ["tab-a-session", "tab-b-session"],
+  );
+
+  action.send(await sign("peer/goodbye", "tab-a-session"));
+  await until(() => site.runtime.peers().length === 1);
+  assert.equal(site.runtime.peers()[0].session, "tab-b-session");
+  await tab.leave();
 });
