@@ -146,6 +146,9 @@ export function createAgentBridge({
   const peerPages = new Map();
   let seq = 0;
   let client = null;
+  // leave() closes every provider in the runtime; the startup snapshot must
+  // not keep advertising tools that are no longer published.
+  let provided = [...providedTools];
   const notJoinedReason =
     "Join a room with ai_auth_join before calling this tool.";
   const notJoined = () => ({
@@ -239,7 +242,7 @@ export function createAgentBridge({
           stale,
           pageKey: peerPages.get(id) ?? null,
         })),
-        provides: [...providedTools],
+        provides: [...provided],
         diagnostics: state.diagnostics ?? {},
         note: "Presence lasts only while this MCP process runs.",
       };
@@ -254,6 +257,7 @@ export function createAgentBridge({
     },
     async leave() {
       await runtime.leave();
+      provided = [];
       return { connection: runtime.connectionState.status };
     },
     async send({ text, to } = {}) {
