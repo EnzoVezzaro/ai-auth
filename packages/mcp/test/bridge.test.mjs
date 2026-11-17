@@ -466,6 +466,19 @@ test("CT-01: code mode async calls return JSON copies and capture logs", async (
   assert.deepEqual(out.logs, ["before"]);
 });
 
+test("CT-11: ai_auth_invoke accepts spec-valid names up to 128 characters", () => {
+  const actions = buildAgentActions({
+    getBridge: () => ({}),
+    siteCapabilities: ["tools.invoke"],
+  });
+  const name = actions.find((action) => action.name === "ai_auth_invoke")
+    .inputSchema.name;
+  assert.equal(name.safeParse("a".repeat(128)).success, true);
+  assert.equal(name.safeParse("My.Tool-1").success, true);
+  assert.equal(name.safeParse("a".repeat(129)).success, false);
+  assert.equal(name.safeParse("bad/name").success, false);
+});
+
 test("ai_auth_code is opt-in and requires tools.invoke", () => {
   const getBridge = () => null;
   const names = (codeMode, caps) =>

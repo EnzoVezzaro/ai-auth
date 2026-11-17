@@ -7,6 +7,7 @@ import {
   RECEIPT_TYPE,
   TOOL_ERROR_CODES,
 } from "@enzovezzaro/ai-auth-wallet";
+import { TOOL_NAME_PATTERN } from "@enzovezzaro/ai-auth-wallet/webmcp";
 
 const MAX_EVENTS = 200;
 const MAX_PAGE = 50;
@@ -483,7 +484,7 @@ const SPECS = [
     false,
     "Call a tool advertised by a connected participant. Page tools require the site's page open; agent tools run in the providing agent's runtime. The provider approves each call.",
     {
-      name: z.string().min(1).max(64),
+      name: z.string().regex(TOOL_NAME_PATTERN),
       input: z.record(z.string(), z.unknown()).optional(),
       wallet: z.string().max(200).optional(),
     },

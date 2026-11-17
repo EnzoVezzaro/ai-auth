@@ -74,12 +74,18 @@ function validateInput(input, schema) {
   return input;
 }
 // WebMCP tool names: 1-128 chars from [A-Za-z0-9_.-] (draft index.bs).
-const TOOL_NAME = /^[A-Za-z0-9_.-]{1,128}$/u;
+// Shared with the publish path and the wallet so a name the SDK accepts is
+// never rejected later in the chain.
+export const TOOL_NAME_PATTERN = /^[A-Za-z0-9_.-]{1,128}$/u;
+const TOOL_NAME = TOOL_NAME_PATTERN;
+export const isValidToolName = (name) =>
+  typeof name === "string" && TOOL_NAME_PATTERN.test(name);
 // JSON Schema is an object or a boolean; other values are not schemas.
-const validSchema = (schema) =>
+export const isValidToolSchema = (schema) =>
   schema !== null &&
   schema !== undefined &&
   (typeof schema === "object" || typeof schema === "boolean");
+const validSchema = isValidToolSchema;
 const TOOL_EVENT_KINDS = new Set([
   "tool-catalog",
   "tool-request",
@@ -800,18 +806,31 @@ function allowedActionByName(api, name) {
 }
 
 // Keep only well-formed, bounded tools; one bad tool never drops the rest.
-function boundedCatalogTools(tools) {
+// The wallet uses the same filter when relaying a signed catalog, so the SDK,
+// the publish path and the wallet agree on which tools are callable.
+export function filterCatalogTools(tools, onSkip = () => {}) {
   const kept = [];
   for (const tool of tools) {
-    if (typeof tool?.name !== "string" || !TOOL_NAME.test(tool.name)) continue;
+    const name = typeof tool?.name === "string" ? tool.name : String(tool?.name);
+    if (
+      !isValidToolName(name) ||
+      typeof tool.description !== "string" ||
+      tool.description.length > 240 ||
+      !isValidToolSchema(tool.inputSchema)
+    ) {
+      onSkip(name);
+      continue;
+    }
     try {
       kept.push(boundedJson(tool, 4_096));
     } catch {
       // Oversized or non-serializable tool: skip it.
+      onSkip(name);
     }
   }
   return kept;
 }
+const boundedCatalogTools = filterCatalogTools;
 
 /**
  * Creates the agent-side half of the signed shared-room WebMCP protocol.
