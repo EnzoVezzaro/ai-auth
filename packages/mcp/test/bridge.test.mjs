@@ -313,6 +313,93 @@ test("code mode cannot reach Node globals", async () => {
   assert.equal(out.value, "undefined");
 });
 
+// CT-01: the guest must never receive a host-realm object. Each probe starts
+// from a value the sandbox exposes, climbs to a constructor, and asks it to
+// compile a string. A host constructor reveals the host `process`; a guest
+// constructor refuses string compilation under codeGeneration.strings:false.
+function codeBridge() {
+  const rt = fakeRuntime();
+  // A rejected host call must surface as a guest error, not a host Error.
+  rt.send = async () => {
+    throw new Error("send failed on purpose");
+  };
+  return createAgentBridge({
+    runtime: rt,
+    clientFactory: () => ({ catalogs: [] }),
+  });
+}
+
+const escapeProbes = [
+  {
+    name: "console.log.constructor",
+    code: `try { return console.log.constructor("return typeof process")(); } catch (e) { return "blocked:" + (e && e.name); }`,
+  },
+  {
+    name: "aiAuth.status.constructor",
+    code: `try { return aiAuth.status.constructor("return typeof process")(); } catch (e) { return "blocked:" + (e && e.name); }`,
+  },
+  {
+    name: "returned result object's constructor chain",
+    code: `try { return aiAuth.status().constructor.constructor("return typeof process")(); } catch (e) { return "blocked:" + (e && e.name); }`,
+  },
+  {
+    name: "thrown error's constructor chain",
+    code: `try { await aiAuth.send({ text: "x" }); return "no-throw"; } catch (e) { try { return e.constructor.constructor("return typeof process")(); } catch (x) { return "blocked:" + (x && x.name); } }`,
+  },
+  {
+    name: "aiAuth.invoke promise's constructor chain",
+    code: `try { const p = aiAuth.invoke("x"); return p.constructor.constructor("return typeof process")(); } catch (e) { return "blocked:" + (e && e.name); }`,
+  },
+  {
+    name: "Object.getPrototypeOf chain from console.log",
+    code: `try { return Object.getPrototypeOf(console.log).constructor("return typeof process")(); } catch (e) { return "blocked:" + (e && e.name); }`,
+  },
+  {
+    name: "Object.getPrototypeOf chain from a result object",
+    code: `try { return Object.getPrototypeOf(aiAuth.status()).constructor.constructor("return typeof process")(); } catch (e) { return "blocked:" + (e && e.name); }`,
+  },
+  {
+    name: "AsyncFunction constructor from an async call wrapper",
+    code: `try { return await aiAuth.send.constructor("return typeof process")(); } catch (e) { return "blocked:" + (e && e.name); }`,
+  },
+];
+
+for (const { name, code } of escapeProbes) {
+  test(`CT-01: ${name} cannot compile host code`, async () => {
+    const out = await codeBridge().runCode({ code });
+    assert.equal(out.ok, true, out.reason);
+    assert.match(
+      out.value,
+      /^blocked:/,
+      `${name} escaped to the host process (got ${JSON.stringify(out.value)})`,
+    );
+  });
+}
+
+test("CT-01: code mode async calls return JSON copies and capture logs", async () => {
+  const catalog = {
+    wallet: "agent:site",
+    session: "s",
+    requestNonce: "n".repeat(24),
+    expiresAt: Date.now() + 60_000,
+    tools: [{ name: "search" }],
+  };
+  const client = {
+    catalogs: [catalog],
+    callTool: async () => ({ hits: 2 }),
+  };
+  const bridge = createAgentBridge({
+    runtime: fakeRuntime(),
+    clientFactory: () => client,
+  });
+  const out = await bridge.runCode({
+    code: `console.log("before"); const r = await aiAuth.invoke("search"); return r.result.hits;`,
+  });
+  assert.equal(out.ok, true, out.reason);
+  assert.equal(out.value, 2);
+  assert.deepEqual(out.logs, ["before"]);
+});
+
 test("ai_auth_code is opt-in and requires tools.invoke", () => {
   const getBridge = () => null;
   const names = (codeMode, caps) =>

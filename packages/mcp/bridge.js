@@ -10,6 +10,92 @@ const MAX_PAGE = 50;
 const MAX_PAYLOAD_CHARS = 1_500;
 const SILENT_TYPES = new Set(["peer/heartbeat"]);
 
+// Code Mode's guest bridge is built from this source *inside* the vm context.
+// It runs in the guest realm, so every function, Promise, Error and JSON it
+// creates is guest-owned. The host callbacks are captured only in closures the
+// guest cannot inspect. Nothing crosses the boundary except JSON strings.
+const CODE_FACTORY = `(function makeAiAuth(
+  hostLog, hostStatus, hostListTools, hostEvents, hostSend, hostMove, hostInvoke
+) {
+  "use strict";
+  const parse = (json) => JSON.parse(json);
+  const failure = (info) => {
+    const error = new Error(info && info.message ? info.message : "aiAuth call failed");
+    if (info && info.code) error.code = info.code;
+    return error;
+  };
+  // The host reports synchronously into these guest callbacks before returning.
+  const syncCall = (invoke) => (...args) => {
+    let value, info, done = false;
+    invoke(JSON.stringify(args),
+      (json) => { value = parse(json); done = true; },
+      (json) => { info = parse(json); });
+    if (done) return value;
+    throw failure(info);
+  };
+  // The guest builds its own Promise; the host only hands back JSON strings.
+  const asyncCall = (invoke) => async (...args) =>
+    await new Promise((resolve, reject) => {
+      invoke(JSON.stringify(args),
+        (json) => resolve(parse(json)),
+        (json) => reject(failure(parse(json))));
+    });
+  const log = (...parts) => {
+    const text = parts.map((part) => {
+      if (typeof part === "string") return part;
+      try { return JSON.stringify(part ?? null); } catch { return String(part); }
+    }).join(" ");
+    hostLog(text);
+  };
+  return {
+    console: { log },
+    aiAuth: {
+      status: syncCall(hostStatus),
+      listTools: syncCall(hostListTools),
+      events: syncCall(hostEvents),
+      send: asyncCall(hostSend),
+      move: syncCall(hostMove),
+      invoke: asyncCall(hostInvoke),
+    },
+  };
+})`;
+
+function encodeAiAuthError(error) {
+  return JSON.stringify({
+    message: String(error?.message ?? "aiAuth call failed").slice(0, 240),
+    ...(error?.code ? { code: error.code } : {}),
+  });
+}
+
+// Turns a host API function into a callback that never throws into the guest
+// and never returns a host object: it only calls guest callbacks with strings.
+function makeHostCall(invoke) {
+  return (argsJson, ok, fail) => {
+    let args;
+    try {
+      args = JSON.parse(argsJson);
+      if (!Array.isArray(args))
+        throw new TypeError("arguments must be an array");
+    } catch {
+      fail(encodeAiAuthError(new TypeError("Invalid aiAuth arguments")));
+      return;
+    }
+    try {
+      const result = invoke(...args);
+      if (result && typeof result.then === "function") {
+        result.then(
+          (value) => ok(JSON.stringify(value ?? null)),
+          (error) => fail(encodeAiAuthError(error)),
+        );
+      } else {
+        ok(JSON.stringify(result ?? null));
+      }
+    } catch (error) {
+      fail(encodeAiAuthError(error));
+    }
+  };
+}
+
 function clip(value) {
   const text = JSON.stringify(value ?? null);
   return text.length <= MAX_PAYLOAD_CHARS
@@ -182,43 +268,39 @@ export function createAgentBridge({
         };
       }
     },
-    // Code Mode (Cloudflare's pattern): expose one tool that runs a small,
-    // sandboxed script which calls the same connection-checked APIs. The script
-    // has no network, no filesystem, no process and no imported modules; every
-    // side effect goes through `aiAuth`, which revalidates the live connection.
+    // Code Mode (Cloudflare's pattern): expose one tool that runs a small
+    // script against the same connection-checked APIs. The guest gets only
+    // guest-realm wrappers: host callbacks are captured in inaccessible
+    // closures and all data crosses as JSON strings parsed by the guest. This
+    // closes the constructor-escape (CT-01), but `vm` is a speed bump, not a
+    // hard security boundary -- the MCP process still runs with host rights.
     async runCode({ code }, { signal } = {}) {
       if (typeof code !== "string" || !code.trim())
         throw new TypeError("code must be a non-empty string");
       if (code.length > 8_000)
         throw new RangeError("code exceeds the 8 KB sandbox limit");
       const logs = [];
-      const format = (value) => {
-        if (typeof value === "string") return value;
-        try {
-          return JSON.stringify(value ?? null);
-        } catch {
-          return String(value);
-        }
-      };
-      const sandbox = Object.freeze({
-        console: Object.freeze({
-          log: (...parts) => {
-            if (logs.length < 50) logs.push(parts.map(format).join(" "));
-          },
-        }),
-        aiAuth: Object.freeze({
-          status: () => api.status(),
-          listTools: () => api.listTools(),
-          events: (options) => api.events(options),
-          send: (input) => api.send(input),
-          move: (input) => api.move(input),
-          invoke: (name, input = {}, wallet) =>
-            api.invoke({ name, input, wallet }, { signal }),
-        }),
-      });
+      const sandbox = Object.create(null);
       const context = vm.createContext(sandbox, {
         codeGeneration: { strings: false, wasm: false },
       });
+      const factory = vm.runInContext(CODE_FACTORY, context);
+      const callbacks = [
+        (text) => {
+          if (logs.length < 50) logs.push(text);
+        },
+        makeHostCall(() => api.status()),
+        makeHostCall(() => api.listTools()),
+        makeHostCall((options) => api.events(options)),
+        makeHostCall((input) => api.send(input)),
+        makeHostCall((input) => api.move(input)),
+        makeHostCall((name, input, wallet) =>
+          api.invoke({ name, input: input ?? {}, wallet }, { signal }),
+        ),
+      ];
+      const wrappers = factory(...callbacks);
+      sandbox.console = wrappers.console;
+      sandbox.aiAuth = wrappers.aiAuth;
       const script = new vm.Script(
         `"use strict";\n(async () => {\n${code}\n})()`,
         { timeout: 2_000 },
@@ -354,7 +436,7 @@ const SPECS = [
     "ai_auth_code",
     "tools.invoke",
     false,
-    "Code Mode: run a small sandboxed script that calls aiAuth.status/listTools/invoke/send. No network, filesystem, process or imports; every call revalidates the live connection.",
+    "Code Mode (opt-in with --code-mode): run a short script calling aiAuth.status/listTools/events/send/move/invoke. Guest code runs in a vm context with no host objects: aiAuth and console are guest-realm wrappers that exchange JSON strings through closures the guest cannot reach, and errors and promises are guest-realm too. vm is not a hard security boundary; the MCP process still runs with host privileges. 2 s timeout and 8 KB code limit.",
     { code: z.string().min(1).max(8_000) },
     (b, i, extra) => b.runCode(i, extra),
   ],
