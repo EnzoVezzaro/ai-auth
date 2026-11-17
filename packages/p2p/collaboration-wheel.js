@@ -80,11 +80,16 @@ class Wheel {
   get snapshot() {
     return this.options.network?.connectionState;
   }
+  // `expiresAt` may be a number captured at mount or a live getter/function;
+  // reading it on every refresh lets renewal extend the session without a
+  // re-mount. A network-supplied value is accepted as an alternative source.
+  get expiry() {
+    const source = this.options.expiresAt ?? this.options.network?.expiresAt;
+    return typeof source === "function" ? source() : source;
+  }
   get expired() {
-    return (
-      Number.isFinite(this.options.expiresAt) &&
-      Date.now() >= this.options.expiresAt
-    );
+    const at = this.expiry;
+    return Number.isFinite(at) && Date.now() >= at;
   }
 
   bind() {
