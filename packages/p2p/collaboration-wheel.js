@@ -61,6 +61,7 @@ class Wheel {
     this.selection = "everyone";
     this.staged = null;
     this.selecting = false;
+    this.sendingText = false;
     this.disposed = false;
     this.objectUrls = new Set();
     this.entries = new Map();
@@ -385,17 +386,21 @@ class Wheel {
   async onSubmit(event) {
     event.preventDefault();
     const text = this.ui.input.value.trim();
-    if (!text || this.ui.input.disabled) return;
+    if (!text || this.ui.input.disabled || this.sendingText) return;
+    this.sendingText = true;
+    this.ui.input.value = "";
     try {
       await this.deliver("text", text, (o) =>
         this.connection.sendText(text, o),
       );
-      this.ui.input.value = "";
       this.say(
         "Submitted to the peer transport. Waiting for a signed receipt.",
       );
     } catch (error) {
+      if (!this.ui.input.value) this.ui.input.value = text;
       this.say(error.message || "Could not send message.");
+    } finally {
+      this.sendingText = false;
     }
   }
 
