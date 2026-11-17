@@ -12,6 +12,9 @@ function actionCapability(type) {
 
 const MAX_REMOTE_TOOL_COUNT = 32;
 const MAX_TOOL_JSON_BYTES = 8_192;
+// Enough for a wallet's live tabs and a reconnect, but not enough for one
+// member to fill the map and evict other providers' catalogs.
+const MAX_CATALOGS_PER_ISSUER = 4;
 
 /** Machine-readable reasons a WebMCP call can fail. Harnesses can branch on these. */
 export const TOOL_ERROR_CODES = Object.freeze({
@@ -1051,6 +1054,9 @@ export function createAIAuthAgentClient(
         payload.targetSession !== payload.session ||
         typeof payload.targetNonce !== "string" ||
         payload.targetNonce.length < 20 ||
+        typeof payload.session !== "string" ||
+        payload.session.length < 1 ||
+        payload.session.length > 100 ||
         !Number.isFinite(payload.expiresAt) ||
         payload.expiresAt <= Date.now() ||
         !Array.isArray(payload.tools) ||
@@ -1092,6 +1098,12 @@ export function createAIAuthAgentClient(
       }
       for (const [catalogKey, existing] of catalogs)
         if (existing.expiresAt <= Date.now()) catalogs.delete(catalogKey);
+      // A catalog is bound to its signer above; also bound how much of the
+      // shared catalog map a single issuer may occupy before FIFO eviction.
+      const fromIssuer = [...catalogs.values()].filter(
+        (existing) => existing.wallet === envelope.body.issuer,
+      ).length;
+      if (fromIssuer >= MAX_CATALOGS_PER_ISSUER && !catalogs.has(key)) return;
       if (catalogs.size >= 128 && !catalogs.has(key))
         catalogs.delete(catalogs.keys().next().value);
       const tools = boundedCatalogTools(payload.tools);
