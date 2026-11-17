@@ -43,6 +43,8 @@ jobs:
           retention-days: 14
       - name: Build static landing page, wallet, and browser SDK
         run: npm run build
+      - name: Verify published docs render as styled HTML
+        run: npm run verify:docs
       - name: Verify package contents
         run: npm pack --dry-run
       - name: Verify packed consumer imports

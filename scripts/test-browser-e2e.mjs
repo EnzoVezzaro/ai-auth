@@ -346,7 +346,7 @@ try {
     response.text(),
   );
   assert.match(landing, /href="\.\/wallet\/"/u);
-  assert.match(landing, /href="\.\/docs\/ARCHITECTURE\.md"/u);
+  assert.match(landing, /href="\.\/docs\/ARCHITECTURE\.html"/u);
   assert.equal((await fetch(`${staticSiteUrl}landing.css`)).status, 200);
   const html = await fetch(walletUrl).then((response) => response.text());
   assert.match(html, /src="\.\/app\.js(\?v=[^"]*)?"/);
