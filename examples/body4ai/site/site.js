@@ -35,6 +35,7 @@ import {
   requireWallet,
   sessionEndText,
 } from "./messages.js";
+import { MAX_COORDINATE } from "../../../packages/p2p/presence.js";
 import { negotiateSession, renewSession } from "./session.js";
 import { buildActions, makeAuthorize } from "./tools.js";
 import { foreignChecks } from "./foreign.js";
@@ -124,14 +125,20 @@ function makeAdapter() {
       if (state.room) listener(state.room.session);
       return () => {};
     },
-    // Protocol v1 cursor: document coordinates on this page (PROTOCOL.md §8).
+    // Protocol v1 cursor: the input pixel point becomes a 0..1 fraction of the
+    // document, scaled by MAX_COORDINATE (PROTOCOL.md §8).
     publishCursor({ x, y }) {
+      const docEl = document.documentElement;
+      const width = docEl?.scrollWidth ?? docEl?.clientWidth ?? 1;
+      const height = docEl?.scrollHeight ?? docEl?.clientHeight ?? 1;
+      const fraction = (value, size) =>
+        Math.max(0, Math.min(1, value / Math.max(1, size)));
       return state.room.send(
         "presence/cursor",
         buildCursorPayload({
           pageKey: location.pathname,
-          x,
-          y,
+          x: Math.round(fraction(x, width) * MAX_COORDINATE),
+          y: Math.round(fraction(y, height) * MAX_COORDINATE),
           seq: ++cursorSeq,
           label: state.wallet.name,
         }),

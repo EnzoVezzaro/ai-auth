@@ -3,8 +3,19 @@
 // already verified (signature, room, origin, replay, membership), so every
 // entry is keyed by a verified wallet id and session. Labels are claims.
 import { createPresenceTracker } from "../../../packages/p2p/browser.js";
+import { MAX_COORDINATE } from "../../../packages/p2p/presence.js";
 
 const SWEEP_MS = 2_000;
+
+const documentSize = () => {
+  const docEl = document.documentElement;
+  return {
+    width: docEl?.scrollWidth ?? docEl?.clientWidth ?? 1,
+    height: docEl?.scrollHeight ?? docEl?.clientHeight ?? 1,
+  };
+};
+const toPixels = (value, size) =>
+  Math.round((value / MAX_COORDINATE) * Math.max(1, size));
 
 function presenceItem(peer) {
   const node = document.createElement("li");
@@ -13,8 +24,9 @@ function presenceItem(peer) {
   node.dataset.session = peer.session;
   node.dataset.state = peer.state;
   if (peer.cursor) {
-    node.dataset.x = String(peer.cursor.x);
-    node.dataset.y = String(peer.cursor.y);
+    const { width, height } = documentSize();
+    node.dataset.x = String(toPixels(peer.cursor.x, width));
+    node.dataset.y = String(toPixels(peer.cursor.y, height));
     node.dataset.page = peer.cursor.pageKey;
   }
   const fingerprint = document.createElement("code");
@@ -28,11 +40,12 @@ function presenceItem(peer) {
 }
 
 function cursorMarker(peer) {
+  const { width, height } = documentSize();
   const marker = document.createElement("div");
   marker.className = "remote-cursor";
   marker.dataset.issuer = peer.walletId;
-  marker.style.left = `${peer.cursor.x}px`;
-  marker.style.top = `${peer.cursor.y}px`;
+  marker.style.left = `${toPixels(peer.cursor.x, width)}px`;
+  marker.style.top = `${toPixels(peer.cursor.y, height)}px`;
   marker.textContent = `▲ ${peer.walletId.slice(6, 12)} · ${peer.label ?? ""}`;
   return marker;
 }
