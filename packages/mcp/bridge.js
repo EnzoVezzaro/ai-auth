@@ -122,7 +122,37 @@ export function createAgentBridge({
   const peerPages = new Map();
   let seq = 0;
   let client = null;
-  const getClient = () => (client ??= clientFactory(runtime.agentRoom));
+  const notJoinedReason =
+    "Join a room with ai_auth_join before calling this tool.";
+  const notJoined = () => ({
+    ok: false,
+    code: TOOL_ERROR_CODES.NOT_JOINED,
+    rejected: false,
+    reason: notJoinedReason,
+  });
+  // Before join the real client constructor rejects with an internal TypeError.
+  // Translate that into an actionable, machine-readable "join first" error.
+  function getClient() {
+    if (client) return client;
+    try {
+      client = clientFactory(runtime.agentRoom);
+    } catch (error) {
+      if (!runtime.agentRoom?.wallet?.id || !runtime.agentRoom?.session)
+        throw Object.assign(new Error(notJoinedReason), {
+          code: TOOL_ERROR_CODES.NOT_JOINED,
+        });
+      throw error;
+    }
+    return client;
+  }
+  const clientOrNull = () => {
+    try {
+      return getClient();
+    } catch (error) {
+      if (error?.code === TOOL_ERROR_CODES.NOT_JOINED) return null;
+      throw error;
+    }
+  };
 
   runtime.onEvent(({ direction, envelope }) => {
     if (
@@ -161,7 +191,7 @@ export function createAgentBridge({
     if (ring.length > maxEvents) ring.shift();
   });
 
-  const catalogs = () => (client ?? getClient()).catalogs ?? [];
+  const catalogs = () => clientOrNull()?.catalogs ?? [];
 
   const api = {
     status() {
@@ -268,6 +298,8 @@ export function createAgentBridge({
       };
     },
     listTools() {
+      if (!clientOrNull())
+        return { ...notJoined(), untrusted: true, sites: [] };
       return {
         untrusted: true,
         note: "Catalogs come from connected participants. A page's tools need that page open; agent-provided tools need the providing agent online.",
@@ -284,6 +316,7 @@ export function createAgentBridge({
       };
     },
     async invoke({ name, input = {}, wallet, session }, { signal } = {}) {
+      if (!clientOrNull()) return notJoined();
       const matching = catalogs().filter(
         (c) =>
           (!wallet || c.wallet === wallet) &&
@@ -529,6 +562,7 @@ export function buildAgentActions({
         } catch (error) {
           return {
             ok: false,
+            ...(error?.code ? { code: error.code } : {}),
             error: String(error?.message ?? "failed").slice(0, 200),
           };
         }

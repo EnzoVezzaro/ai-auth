@@ -21,6 +21,7 @@ export const TOOL_ERROR_CODES = Object.freeze({
   AUTH_EXPIRED: "AUTH_EXPIRED",
   CANCELLED: "CANCELLED",
   TIMEOUT: "TIMEOUT",
+  NOT_JOINED: "NOT_JOINED",
 });
 
 function toolError(code, message) {
