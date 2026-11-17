@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  countSensitiveRegions,
   describeElementForShare,
   extractSafeText,
   isSensitiveElement,
+  SENSITIVE_SELECTOR,
 } from "../packages/p2p/wheel-redaction.js";
 
 // Minimal DOM doubles: only what the redaction walk reads.
@@ -22,6 +24,55 @@ function el(tag, attrs = {}, children = []) {
 }
 const text = (value) => ({ nodeType: 3, nodeValue: value });
 const location = { origin: "https://example.test", pathname: "/page" };
+
+// A document double whose CSS selector lookup mirrors the legacy selector, so
+// the warning count under test is the one the old implementation produced.
+function sensitiveDoc(root) {
+  const all = [];
+  const walk = (node) => {
+    for (const child of node.childNodes ?? []) {
+      if (child.nodeType !== 1) continue;
+      all.push(child);
+      walk(child);
+    }
+  };
+  walk(root);
+  return {
+    documentElement: root,
+    querySelectorAll(selector) {
+      assert.equal(selector, SENSITIVE_SELECTOR);
+      return all.filter((node) => {
+        const type = String(node.getAttribute("type") ?? "").toLowerCase();
+        const autocomplete = node.getAttribute("autocomplete");
+        const editable = node.getAttribute("contenteditable");
+        return (
+          (node.tagName === "INPUT" && type === "password") ||
+          (node.tagName === "INPUT" && autocomplete !== null) ||
+          (editable !== null && editable.toLowerCase() !== "false") ||
+          node.hasAttribute("data-private") ||
+          node.hasAttribute("data-ai-auth-private")
+        );
+      });
+    },
+  };
+}
+
+test("the capture warning counts sensitive regions with the redaction predicate", () => {
+  const inheritedEditable = el("p");
+  inheritedEditable.isContentEditable = true;
+  const root = el("div", {}, [
+    el("input", { type: "password" }),
+    el("input", { type: "text", autocomplete: "off" }),
+    el("input", { type: "text", autocomplete: "off" }),
+    el("div", { contenteditable: "true" }, [el("span", {}, [text("draft")])]),
+    inheritedEditable,
+  ]);
+  assert.equal(
+    countSensitiveRegions(sensitiveDoc(root)),
+    3, // password field + editable region + inherited editable region
+    "benign autocomplete fields must not inflate the count and inherited editability must be seen",
+  );
+});
 
 test("password, credential autocomplete, contenteditable and private markers are sensitive", () => {
   assert.equal(isSensitiveElement(el("input", { type: "password" })), true);
