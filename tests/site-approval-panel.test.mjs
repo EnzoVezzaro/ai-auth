@@ -37,6 +37,14 @@ function stubDocument() {
         addEventListener(type, fn) {
           (this.listeners[type] ??= []).push(fn);
         },
+        removeEventListener(type, fn) {
+          this.listeners[type] = (this.listeners[type] ?? []).filter(
+            (listener) => listener !== fn,
+          );
+        },
+        focus() {
+          this.focused = true;
+        },
         remove() {
           this.removed = true;
         },
@@ -49,12 +57,12 @@ function stubDocument() {
 }
 
 async function loadSiteTools() {
-  const { document, created } = stubDocument();
-  globalThis.document = document;
+  const stub = stubDocument();
+  globalThis.document = stub.document;
   const { askHuman, makeAuthorize } = await import(
     "../examples/body4ai/site/tools.js"
   );
-  return { askHuman, makeAuthorize, created };
+  return { askHuman, makeAuthorize, ...stub };
 }
 
 test("CT-05: cancelling a pending approval removes the site's panel", async () => {
@@ -71,10 +79,63 @@ test("CT-05: cancelling a pending approval removes the site's panel", async () =
   );
   const panel = target.child;
   assert.ok(panel, "the Allow / Don't-allow panel is shown");
-  assert.equal(created.filter((node) => node.id === "approve-action").length, 1);
+  assert.equal(
+    created.filter((node) => node.id?.endsWith("-allow")).length,
+    1,
+    "the approval button has a unique id",
+  );
   controller.abort();
   assert.equal(await decision, false, "abort denies the pending request");
   assert.equal(panel.removed, true, "the stale panel is removed from the page");
+});
+
+test("CT-10: approval panels are labelled, focused, uniquely id'd and Escape-dismissible", async () => {
+  const { askHuman, created } = await loadSiteTools();
+  const targetA = { append(node) { this.child = node; } };
+  const targetB = { append(node) { this.child = node; } };
+  const first = bounded(
+    askHuman({ target: targetA, action: { name: "wishlist.add" }, signal: new AbortController().signal }),
+    "first approval",
+  );
+  void bounded(
+    askHuman({ target: targetB, action: { name: "wishlist.add" }, signal: new AbortController().signal }),
+    "second approval",
+  ).catch(() => {});
+  const [panelA, textA, approveA, , panelB, , approveB] = created;
+  assert.notEqual(approveA.id, approveB.id, "concurrent panels do not share ids");
+  assert.equal(panelA.attrs["aria-labelledby"], textA.id);
+  assert.equal(approveA.focused, true, "focus moves into the dialog");
+  panelA.listeners.keydown[0]({ key: "Escape" });
+  assert.equal(await first, false, "Escape denies the pending request");
+  assert.equal(panelA.removed, true);
+  assert.notEqual(panelB.removed, true, "the other request is untouched");
+});
+
+test("CT-12: a local WebMCP call with no requester is not denied", async () => {
+  const { makeAuthorize } = await loadSiteTools();
+  const target = { append(node) { this.child = node; } };
+  const authorize = makeAuthorize({ target, log: () => {} });
+  const local = await authorize(
+    { name: "catalog.search", readOnly: true },
+    {},
+    { signal: new AbortController().signal },
+  );
+  assert.equal(local, true, "read-only local tools need no remote gate");
+
+  const target2 = { append(node) { this.child = node; } };
+  const gate = makeAuthorize({ target: target2, log: () => {} });
+  const decision = bounded(
+    gate(
+      { name: "wishlist.add" },
+      {},
+      { signal: new AbortController().signal },
+    ),
+    "local approval",
+  );
+  assert.ok(target2.child, "a local side-effecting tool shows an on-page prompt");
+  assert.match(target2.child.children[0].textContent, /on this page/iu);
+  target2.child.children[1].listeners.click[0]();
+  assert.equal(await decision, true);
 });
 
 test("CT-05: a timed-out human gate removes the panel through its signal", async () => {
