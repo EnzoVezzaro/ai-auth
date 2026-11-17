@@ -211,7 +211,8 @@ test("C: a returning human sees connected agents with names and live cursors", a
       (c) =>
         c.issuer === a.runtime.identity.id &&
         c.payload.label === "Researcher" &&
-        c.payload.x === 0.4,
+        c.payload.type === "ai-auth-cursor" &&
+        c.payload.x === 400000,
     ),
   );
 });

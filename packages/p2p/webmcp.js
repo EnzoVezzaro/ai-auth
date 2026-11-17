@@ -1,4 +1,5 @@
 import { authorizeProtected } from "./membership.js";
+import { buildCursorPayload, MAX_COORDINATE } from "./presence.js";
 import {
   onVerifiedPageConnectionClose,
   readVerifiedPageConnection,
@@ -879,6 +880,7 @@ export function createAIAuthAgentClient(
   // flood the room with repeats.
   let lastCursor = null;
   let lastAction = null;
+  let cursorSeq = 0;
   const agentId = room.wallet?.id;
   const agentLabel = (r) =>
     typeof r.wallet?.name === "string" && r.wallet.name.trim()
@@ -1024,7 +1026,7 @@ export function createAIAuthAgentClient(
       for (const catalog of catalogs.values()) listener(catalog);
       return () => listeners.delete(listener);
     },
-    publishCursor({ x, y, visible = true, scroll } = {}) {
+    publishCursor({ x, y, visible = true, scroll, page = null } = {}) {
       if (closed) throw new Error("The AI Auth agent client is closed");
       if (
         !Number.isFinite(x) ||
@@ -1035,29 +1037,28 @@ export function createAIAuthAgentClient(
         y > 1 ||
         typeof visible !== "boolean" ||
         (scroll !== undefined &&
-          (!Number.isFinite(scroll) || scroll < 0 || scroll > 1))
+          (!Number.isFinite(scroll) || scroll < 0 || scroll > 1)) ||
+        (page !== null &&
+          (typeof page !== "string" ||
+            !page ||
+            page.length > 200 ||
+            /[\u0000-\u001f]/u.test(page)))
       )
         throw new TypeError(
           "Agent cursor coordinates must be normalized to the page",
         );
-      lastCursor = {
-        x,
-        y,
+      // One canonical v1 payload: scale 0..1 fractions into the tracker range,
+      // add a per-sender sequence, and pageKey null for a site-wide cursor.
+      lastCursor = buildCursorPayload({
+        pageKey: page,
+        x: Math.round(x * MAX_COORDINATE),
+        y: Math.round(y * MAX_COORDINATE),
+        seq: ++cursorSeq,
         visible,
         label: agentLabel(room),
         ...(scroll === undefined ? {} : { scroll }),
-      };
-      return room.send("presence/cursor", {
-        x,
-        y,
-        visible,
-        // Show the agent's chosen name when the room carries one; the id is the fallback.
-        label:
-          typeof room.wallet.name === "string" && room.wallet.name.trim()
-            ? room.wallet.name.trim().slice(0, 60)
-            : "Agent " + room.wallet.id.slice(6, 26),
-        ...(scroll === undefined ? {} : { scroll }),
       });
+      return room.send("presence/cursor", lastCursor);
     },
     publishAction({ name, state, summary } = {}) {
       if (closed) throw new Error("The AI Auth agent client is closed");

@@ -124,6 +124,67 @@ test("invalid identities, sessions and payloads never create entries", () => {
   assert.deepEqual(presence.list(), []);
 });
 
+test("v1 cursors accept a site-wide (null) page key, visibility and scroll", () => {
+  const payload = buildCursorPayload({
+    pageKey: null,
+    x: 250000,
+    y: 500000,
+    seq: 3,
+    visible: false,
+    scroll: 0.25,
+    label: "Ada",
+  });
+  assert.deepEqual(payload, {
+    type: "ai-auth-cursor",
+    v: 1,
+    pageKey: null,
+    x: 250000,
+    y: 500000,
+    seq: 3,
+    visible: false,
+    scroll: 0.25,
+    label: "Ada",
+  });
+  assert.equal(parseCursorPayload(payload).ok, true);
+  assert.equal(validateCursor({ ...good, scroll: 1.5 }).ok, false);
+  assert.equal(validateCursor({ ...good, visible: "yes" }).ok, false);
+});
+
+test("a legacy normalized cursor is converted to v1 on receipt", () => {
+  const parsed = parseCursorPayload({
+    x: 0.25,
+    y: 0.5,
+    visible: true,
+    scroll: 0.1,
+  });
+  assert.equal(parsed.ok, true, "legacy payloads are still accepted");
+  assert.equal(parsed.cursor.pageKey, null, "no page means site-wide");
+  assert.equal(parsed.cursor.x, 250000, "0..1 is scaled into the tracker range");
+  assert.equal(parsed.cursor.y, 500000);
+  assert.equal(parsed.cursor.visible, true);
+  assert.equal(parsed.cursor.scroll, 0.1);
+});
+
+test("a site-wide cursor is visible on every page through cursorsFor", () => {
+  const { presence } = tracker();
+  assert.equal(
+    presence.cursor({
+      walletId: A,
+      session: S1,
+      payload: buildCursorPayload({
+        pageKey: null,
+        x: 1,
+        y: 2,
+        seq: 1,
+        visible: true,
+      }),
+    }).ok,
+    true,
+  );
+  assert.equal(presence.cursorsFor("/docs").length, 1);
+  assert.equal(presence.cursorsFor("/other").length, 1);
+});
+
 test("the roster is bounded and subscribers see removals", () => {
   const clock = { t: 5 };
   const presence = createPresenceTracker({ now: () => clock.t, maxPeers: 2 });
