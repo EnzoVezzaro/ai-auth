@@ -72,13 +72,15 @@ provider is online instead of faking a result.
 
 Code Mode is **opt-in**: it is available only when the adapter is started with
 `--code-mode`, which adds `ai_auth_code` alongside (not instead of) the other
-tools. A short script runs in a `node:vm` context and calls the same
-connection-checked `aiAuth` APIs.
+tools. A short script runs in a `node:worker_threads` worker, inside a `vm`
+context, and calls the same connection-checked `aiAuth` APIs. The host terminates
+the worker when the 2-second timeout fires, so a runaway async loop is killed
+rather than merely timed out in a promise race.
 
-`vm` is **not a hard security boundary** — the MCP process still runs with the
-host's privileges, so Code Mode must not be treated as a sandbox for hostile
-code. The guard does limit the common escape route: the guest never receives a
-host-realm object. `console` and `aiAuth` are wrapper functions created _inside_
+Code Mode is **not a security boundary by itself** — `vm` is not a hard sandbox
+and the MCP process still runs with the host's privileges, so it must not be
+treated as a sandbox for hostile code. The guard does limit the common escape
+route: the guest never receives a host-realm object. `console` and `aiAuth` are wrapper functions created _inside_
 the context from a factory; they capture the host callbacks in a closure the
 guest cannot inspect. Only JSON strings cross that boundary and are parsed with
 the guest's own `JSON`, so results, thrown errors and Promises are all
@@ -86,7 +88,8 @@ guest-realm values with guest constructors, and dynamic string compilation is
 disabled (`codeGeneration: { strings: false, wasm: false }`). Guest code has no
 network, filesystem, `process`, `require` or imports; every side effect goes
 through `aiAuth`, which revalidates the live connection. Scripts are capped at
-8 KB and 2 seconds, and an abort signal is forwarded to `aiAuth.invoke()`.
+8 KB and 2 seconds (the worker is terminated on timeout), and an abort signal is
+forwarded to `aiAuth.invoke()`.
 
 By default the server speaks MCP over stdio. `--http PORT` serves Streamable
 HTTP on `127.0.0.1:PORT` instead (`0` picks a free port), for clients that

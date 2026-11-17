@@ -67,8 +67,9 @@ node packages/mcp/cli.js preview --connect 'https://site.example' --caps presenc
 `https://<origin>/.well-known/ai-auth.json` (public, nonsecret; exact-origin
 bound; no redirects; 16 KB cap). The manifest shape is provisional:
 `{ "origin", "room"?, "capabilities": [...] }`. Pass `--origin/--room/--caps`
-to skip it. After the package is published, replace
-`node /path/to/packages/mcp/cli.js` below with `npx -y @enzovezzaro/ai-auth-mcp`.
+to skip it. The package is published on npm, so you can use
+`npx -y @enzovezzaro/ai-auth-mcp` in place of `node /path/to/packages/mcp/cli.js`
+in the commands below; the local path is shown for a source checkout.
 
 The passphrase in a harness config is stored in plaintext in that config. That
 is a real trade-off: it protects the key file at rest from other users and from
@@ -200,18 +201,24 @@ out of band rather than committed to this repository.
 
 `--code-mode` adds `ai_auth_code` **in addition to** the existing tools,
 following Cloudflare's [Code Mode pattern](https://blog.cloudflare.com/code-mode):
-the harness can run a short sandboxed script against `aiAuth.status()`,
+the harness can run a short script against `aiAuth.status()`,
 `listTools()`, `invoke()`, `send()`, `move()` and `events()`, while every other
-action stays registered. The sandbox has no network, filesystem, process,
-imports or `eval`; side effects go through the same connection-checked bridge.
-A lost site connection makes `aiAuth.invoke()` return `SITE_DISCONNECTED` /
-`TOOL_UNAVAILABLE` codes; `send()` and `move()` instead throw plain errors, which
-Code Mode reports as `CODE_FAILED`. This is an adapter option, not a hosted
-service and not part of WebMCP itself.
+action stays registered. The script runs in a worker thread with a 2-second kill
+timeout, so a runaway script is terminated. The guest has no network,
+filesystem, process, imports or `eval`; side effects go through the same
+connection-checked bridge. This is not a security boundary by itself: the MCP
+process keeps the host's privileges, so do not treat Code Mode as a sandbox for
+hostile code. A lost site connection makes `aiAuth.invoke()` return
+`SITE_DISCONNECTED` / `TOOL_UNAVAILABLE` codes; `send()` and `move()` instead throw
+plain errors, which Code Mode reports as `CODE_FAILED`. This is an adapter
+option, not a hosted service and not part of WebMCP itself.
 
-`ai_auth_invoke` returns a machine-readable `code` alongside its reason:
-`TOOL_UNAVAILABLE`, `SITE_DISCONNECTED`, `CATALOG_EXPIRED`, `AUTH_EXPIRED`,
-`CANCELLED`, or `TIMEOUT`. A reachable stdio pipe or HTTP MCP URL only means
+`ai_auth_invoke` returns a machine-readable `code` alongside its reason. The
+codes in `TOOL_ERROR_CODES` are `TOOL_UNAVAILABLE`, `SITE_DISCONNECTED`,
+`CATALOG_EXPIRED`, `AUTH_EXPIRED`, `CANCELLED`, `TIMEOUT`, `NOT_JOINED` and
+`DENIED` (a denial or other rejection with no more specific code).
+
+A reachable stdio pipe or HTTP MCP URL only means
 the adapter is running; it is not evidence of a live site connection. See
 `docs/CONNECTION_LIFECYCLE.md` for the strict definition of `connected`.
 
