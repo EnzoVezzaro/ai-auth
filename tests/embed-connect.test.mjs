@@ -69,11 +69,20 @@ function fakeBrowser() {
     addEventListener: (type, fn) => type === "message" && handlers.add(fn),
     removeEventListener: (type, fn) => handlers.delete(fn),
   };
-  const fromWallet = async (data, origin = WALLET_ORIGIN) => {
+  const deliver = async (data, origin = WALLET_ORIGIN) => {
     for (const fn of [...handlers]) await fn({ source: popup, origin, data });
+  };
+  const fromWallet = async (data, origin = WALLET_ORIGIN) => {
+    await deliver(data, origin);
     await settle();
   };
-  return { win, sentToWallet, fromWallet, handlerCount: () => handlers.size };
+  return {
+    win,
+    sentToWallet,
+    fromWallet,
+    deliver,
+    handlerCount: () => handlers.size,
+  };
 }
 
 async function connect(
@@ -626,6 +635,73 @@ test("a first signed tool request introduces its caller's session", async (t) =>
     envelope: await requestFrom(other),
   });
   assert.equal(requests.length, 1, "the bound session is not stolen");
+});
+
+test("a peer hello cannot rebind a session already bound to another issuer", async (t) => {
+  const ctx = await connected(t);
+  const events = [];
+  ctx.connection.onEvent((event) => events.push(event));
+  const first = await makeWallet("First");
+  const second = await makeWallet("Second");
+  const announcement = (wallet, type) =>
+    wallet.sign(type, {
+      label: wallet.name,
+      room: ROOM,
+      origin: ORIGIN,
+      session: "shared-session-123456",
+      nonce: randomNonce(),
+      expiresAt: Date.now() + 60_000,
+    });
+  await ctx.b.fromWallet({
+    type: "ai-auth/collaboration-event",
+    envelope: await announcement(first, "peer/hello"),
+  });
+  assert.equal(events.length, 1, "the first binder owns the session");
+  await ctx.b.fromWallet({
+    type: "ai-auth/collaboration-event",
+    envelope: await announcement(second, "peer/hello"),
+  });
+  assert.equal(events.length, 1, "a different issuer cannot steal the binding");
+  await ctx.b.fromWallet({
+    type: "ai-auth/collaboration-event",
+    envelope: await announcement(second, "peer/heartbeat"),
+  });
+  assert.equal(events.length, 1, "a heartbeat cannot steal it either");
+  await ctx.b.fromWallet({
+    type: "ai-auth/collaboration-event",
+    envelope: await announcement(first, "peer/heartbeat"),
+  });
+  assert.equal(events.length, 2, "the original binder still owns the session");
+});
+
+test("a replay-cache flood from one issuer does not blackhole the room", async (t) => {
+  const ctx = await connected(t);
+  const events = [];
+  ctx.connection.onEvent((event) => events.push(event));
+  const attacker = await makeWallet("Flooder");
+  const victim = await makeWallet("Victim");
+  const heartbeat = (wallet, nonce) =>
+    wallet.sign("peer/heartbeat", {
+      label: wallet.name,
+      room: ROOM,
+      origin: ORIGIN,
+      session: `flood-session-${nonce}`,
+      nonce: `nonce-${nonce}-1234567890`,
+      expiresAt: Date.now() + 60_000,
+    });
+  for (let i = 0; i < 5_200; i += 1)
+    await ctx.b.deliver({
+      type: "ai-auth/collaboration-event",
+      envelope: await heartbeat(attacker, i),
+    });
+  await ctx.b.fromWallet({
+    type: "ai-auth/collaboration-event",
+    envelope: await heartbeat(victim, "victim"),
+  });
+  assert.ok(
+    events.some((event) => event.body.issuer === victim.id),
+    "a fresh event from another member is still delivered",
+  );
 });
 
 test("an authorized identity's tool request reaches listeners", async (t) => {

@@ -855,9 +855,11 @@ test("actions default to not read-only and every action still needs approval", a
   );
   assert.deepEqual(await api.execute("site.write"), {
     error: "This action needs explicit human approval",
+    code: "DENIED",
   });
   assert.deepEqual(await api.execute("site.read"), {
     error: "This action needs explicit human approval",
+    code: "DENIED",
   });
   assert.equal(counter.runs, 0);
   assert.deepEqual(decisions, ["site.write", "site.read"]);
@@ -960,6 +962,7 @@ test("a failed action publishes failed and does not leak its error", async (t) =
   const result = await api.execute("site.broken");
   assert.deepEqual(result, {
     error: "This page action failed. Check the site for details.",
+    code: "TOOL_UNAVAILABLE",
   });
   assert.equal(JSON.stringify(result).includes("hunter2"), false);
   assert.deepEqual(states, ["started", "failed"]);
@@ -1020,7 +1023,10 @@ test("aborting a running action through its signal publishes cancelled", async (
   const running = api.execute("site.wait", {}, { signal: controller.signal });
   await waitFor(() => executionRef.signal, "the action to start");
   controller.abort();
-  assert.deepEqual(await running, { error: "The site action was stopped" });
+  assert.deepEqual(await running, {
+    error: "The site action was stopped",
+    code: "CANCELLED",
+  });
   assert.deepEqual(states, ["started", "cancelled"]);
 });
 

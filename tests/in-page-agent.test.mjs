@@ -256,6 +256,7 @@ test("in-page agent discovers WebMCP tools and runs only human-authorized action
   const denied = await api.execute("workspace.read", { scope: "drafts" });
   assert.deepEqual(denied, {
     error: "This action needs explicit human approval",
+    code: "DENIED",
   });
   assert.equal(executions, 0);
   assert.deepEqual(decisions, [
@@ -280,6 +281,7 @@ test("in-page agent discovers WebMCP tools and runs only human-authorized action
   assert.equal(registrations.length, 1);
   assert.deepEqual(await api.execute("workspace.read"), {
     error: "This action is not approved for this page",
+    code: "DENIED",
   });
   assert.equal(executions, 1);
   connection.close();
@@ -343,6 +345,7 @@ test("in-page agent scope is limited to wallet-approved capabilities", async () 
   assert.equal(registrations.length, 0);
   assert.deepEqual(await api.execute("workspace.read"), {
     error: "This action is not approved for this page",
+    code: "DENIED",
   });
   api.close();
   connection.close();
@@ -377,9 +380,13 @@ test("in-page agent stops an in-flight execution when the connection closes", as
     await new Promise((resolve) => setImmediate(resolve));
   api.stop();
   assert.equal(executionSignal.aborted, true);
-  assert.deepEqual(await running, { error: "The site action was stopped" });
+  assert.deepEqual(await running, {
+    error: "The site action was stopped",
+    code: "CANCELLED",
+  });
   assert.deepEqual(await api.execute("long.report"), {
     error: "This action is not approved for this page",
+    code: "DENIED",
   });
   connection.close();
 });
@@ -423,6 +430,7 @@ test("in-page agent registrations expire with the verified connection", async ()
     assert.equal(registrationSignal.aborted, true);
     assert.deepEqual(await api.execute("workspace.read"), {
       error: "This action is not approved for this page",
+      code: "DENIED",
     });
     assert.equal(executions, 0);
   } finally {

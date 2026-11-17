@@ -1,4 +1,5 @@
 import { TOOL_ERROR_CODES } from "@enzovezzaro/ai-auth-wallet";
+import { TOOL_NAME_PATTERN } from "@enzovezzaro/ai-auth-wallet/webmcp";
 
 // Agent-local tool provider: an agent runtime publishes tools it executes
 // itself, so other participants can call them with no browser present.
@@ -7,7 +8,9 @@ import { TOOL_ERROR_CODES } from "@enzovezzaro/ai-auth-wallet";
 // chooses its own nonce and reads the runtime's live room session, so it needs
 // no visitor, wallet popup, or site consent flow.
 
-const TOOL_NAME = /^[a-z][a-z0-9._-]{0,63}$/u;
+// One name rule for the whole chain: a name the site accepts must also be
+// accepted by an agent provider.
+const TOOL_NAME = TOOL_NAME_PATTERN;
 const MAX_TOOLS = 32;
 const MAX_INPUT_BYTES = 8_192;
 const MAX_RESULT_BYTES = 8_192;
@@ -28,9 +31,7 @@ function validateTools(tools) {
   const byName = new Map();
   for (const tool of tools) {
     if (!tool || typeof tool.name !== "string" || !TOOL_NAME.test(tool.name))
-      throw new TypeError(
-        "Each tool needs a lowercase name such as notes.search",
-      );
+      throw new TypeError("Each tool needs a valid name such as notes.search");
     if (byName.has(tool.name))
       throw new TypeError(`Duplicate tool name: ${tool.name}`);
     if (typeof tool.handler !== "function")
@@ -170,16 +171,35 @@ export function createToolProvider({
       .catch(() => {});
   };
 
+  const cancelled = () => ({
+    error: "This tool call was cancelled",
+    code: TOOL_ERROR_CODES.CANCELLED,
+  });
+
   async function execute(requester, request, controller) {
     const entry = byName.get(request.name);
+    // A cancel while the human decision is pending must win the race: the
+    // handler may never run for a request that was already called off.
     let allowed = false;
     try {
-      allowed =
-        (await authorize(requester.wallet, request.name, request.input)) ===
-        true;
+      const decision = Promise.resolve().then(() =>
+        authorize(requester.wallet, request.name, request.input),
+      );
+      const aborted = new Promise((resolve) => {
+        if (controller.signal.aborted) resolve(false);
+        else
+          controller.signal.addEventListener("abort", () => resolve(false), {
+            once: true,
+          });
+      });
+      allowed = await Promise.race([
+        decision.then((value) => value === true),
+        aborted,
+      ]);
     } catch {
       allowed = false;
     }
+    if (controller.signal.aborted) return cancelled();
     if (!allowed)
       return {
         error: "This agent did not allow that tool for you",
@@ -190,8 +210,10 @@ export function createToolProvider({
     } catch (error) {
       return { error: error.message, code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE };
     }
+    if (controller.signal.aborted) return cancelled();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
+      if (controller.signal.aborted) return cancelled();
       const value = await Promise.race([
         Promise.resolve(
           entry.handler(request.input, {
@@ -214,6 +236,7 @@ export function createToolProvider({
         };
       return { result: value ?? null };
     } catch {
+      if (controller.signal.aborted) return cancelled();
       return {
         error: "The tool could not complete",
         code: TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
@@ -259,15 +282,20 @@ export function createToolProvider({
       return;
     }
     if (type === "agent/action" && validCancel(payload) && issuer !== ownId()) {
-      runningRequests.get(payload.requestId)?.abort();
+      const running = runningRequests.get(payload.requestId);
+      // A signed cancel only stops the request from that same issuer; another
+      // peer guessing a requestId must not be able to kill someone else's call.
+      if (running?.issuer === issuer) running.controller.abort();
       return;
     }
     if (type !== "agent/action" || !validRequest(payload) || issuer === ownId())
       return;
     const now = Date.now();
     const requester = { wallet: issuer, session: payload.session };
+    // requestId is chosen by the caller, so it is unique only per requester.
+    const requestKey = `${issuer}:${payload.session}:${payload.requestId}`;
     for (const [id, until] of seen) if (until <= now) seen.delete(id);
-    if (seen.has(payload.requestId)) return;
+    if (seen.has(requestKey)) return;
     if (running >= CONCURRENCY) {
       // A silent drop makes the caller wait for its full timeout with no hint.
       void respond(requester, {
@@ -277,10 +305,13 @@ export function createToolProvider({
       });
       return;
     }
-    seen.set(payload.requestId, now + REQUEST_MEMORY_MS);
+    seen.set(requestKey, now + REQUEST_MEMORY_MS);
     running += 1;
     const controller = new AbortController();
-    runningRequests.set(payload.requestId, controller);
+    runningRequests.set(payload.requestId, {
+      controller,
+      issuer: requester.wallet,
+    });
     execute(requester, payload, controller)
       .then((outcome) =>
         respond(requester, { requestId: payload.requestId, ...outcome }),
@@ -308,7 +339,8 @@ export function createToolProvider({
       if (closed) return;
       clearInterval(refresh);
       unsubscribe();
-      for (const controller of runningRequests.values()) controller.abort();
+      for (const running of runningRequests.values())
+        running.controller.abort();
       runningRequests.clear();
       const withdrawal = publish([]);
       closed = true;

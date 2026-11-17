@@ -250,6 +250,25 @@ test("list_tools exposes site tool names and descriptions only", () => {
   assert.equal(out.untrusted, true);
 });
 
+test("SEC-01: ai_auth_join refuses a room other than the approved one", async () => {
+  const rt = fakeRuntime();
+  rt.approvedRoom = "lobby";
+  const bridge = createAgentBridge({
+    runtime: rt,
+    clientFactory: () => ({}),
+  });
+  const other = await bridge.join({ room: "someone-elses-room" });
+  assert.equal(other.ok, false);
+  assert.match(other.reason, /approved room/i);
+  assert.deepEqual(rt.calls, [], "no join attempt reached the runtime");
+  const approved = await bridge.join({ room: "lobby" });
+  assert.equal(approved.room, "lobby");
+  assert.deepEqual(
+    rt.calls.map((c) => c[0]),
+    ["join"],
+  );
+});
+
 test("send and join/leave delegate to the runtime", async () => {
   const rt = fakeRuntime();
   const bridge = createAgentBridge({ runtime: rt, clientFactory: () => ({}) });

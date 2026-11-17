@@ -12,6 +12,9 @@ function actionCapability(type) {
 
 const MAX_REMOTE_TOOL_COUNT = 32;
 const MAX_TOOL_JSON_BYTES = 8_192;
+// Enough for a wallet's live tabs and a reconnect, but not enough for one
+// member to fill the map and evict other providers' catalogs.
+const MAX_CATALOGS_PER_ISSUER = 4;
 
 /** Machine-readable reasons a WebMCP call can fail. Harnesses can branch on these. */
 export const TOOL_ERROR_CODES = Object.freeze({
@@ -104,6 +107,9 @@ const TOOL_EVENT_KINDS = new Set([
 ]);
 
 function boundedJson(value, maxBytes = MAX_TOOL_JSON_BYTES) {
+  // A tool with no return value is a valid, empty success. JSON has no
+  // `undefined`, so it crosses the wire as `null` rather than a failure.
+  if (value === undefined) return null;
   let serialized;
   try {
     serialized = JSON.stringify(value);
@@ -324,13 +330,12 @@ export async function registerAIAuthPageActions({
   );
   let handlers = actionMap(allowedActions);
   // Results created by refusal paths, so callers can tell failure from data.
+  // The message stays a string; the machine-readable reason travels beside it.
   const failures = new WeakSet();
-  const refuse = (error) => {
+  const refuse = (message, code = TOOL_ERROR_CODES.DENIED) => {
     const result = {
-      error,
-      // Keep the machine-readable reason so a caller can tell invalid input
-      // (TOOL_UNAVAILABLE) from a refusal (DENIED) after the wire hop.
-      ...(typeof error?.code === "string" ? { code: error.code } : {}),
+      error: String(message),
+      ...(typeof code === "string" ? { code } : {}),
     };
     failures.add(result);
     return result;
@@ -347,15 +352,21 @@ export async function registerAIAuthPageActions({
   // Re-read the connection record when the timer fires so a renewed session
   // keeps its tools and an expired or revoked one loses them.
   const armExpiry = () => {
+    // Re-read on every tick: a renewed session extends the lease, while an
+    // expired or revoked one must stop accepting tools on the next check.
     const record = readVerifiedPageConnection(connection);
     if (!record) {
       controller.abort();
       return;
     }
-    expiryTimer = setTimeout(
-      armExpiry,
+    // `expiresAt === null` is a Never grant: there is no deadline to watch.
+    // Revocation still aborts through the connection-close listener below.
+    if (record.expiresAt === null) return;
+    const delay = Math.min(
+      0x7fffffff,
       Math.max(1, record.expiresAt - Date.now()),
     );
+    expiryTimer = setTimeout(armExpiry, delay);
     // The timer only watches for expiry; it must never keep a process alive.
     expiryTimer?.unref?.();
   };
@@ -420,7 +431,10 @@ export async function registerAIAuthPageActions({
       !action ||
       !activeConnection?.capabilities.includes(action.requiredCapability)
     )
-      return refuse("This action is not approved for this page");
+      return refuse(
+        "This action is not approved for this page",
+        TOOL_ERROR_CODES.DENIED,
+      );
     // In-flight executions are tied to this controller so a page close,
     // capability expiry, or caller abort also stops the running action.
     const executionController = new AbortController();
@@ -458,13 +472,16 @@ export async function registerAIAuthPageActions({
         `Blocked ${action.name}: not authorized`,
       );
       cleanupFollowers();
-      return refuse("This requester is not authorized to run this tool");
+      return refuse(
+        "This requester is not authorized to run this tool",
+        TOOL_ERROR_CODES.DENIED,
+      );
     }
     try {
       validateInput(input, action.inputSchema);
     } catch (error) {
       cleanupFollowers();
-      return refuse(error.message);
+      return refuse(error.message, error.code);
     }
     // Actions start only after an explicit human decision. The site supplies
     // this gate; without a positive decision nothing is announced or run.
@@ -498,7 +515,10 @@ export async function registerAIAuthPageActions({
       if (executionController.signal.aborted) {
         await announce(action, "cancelled", `Stopped ${action.name}`);
         cleanupFollowers();
-        return refuse("This action was stopped before it began");
+        return refuse(
+          "This action was stopped before it began",
+          TOOL_ERROR_CODES.CANCELLED,
+        );
       }
       if (!approved) {
         try {
@@ -512,12 +532,18 @@ export async function registerAIAuthPageActions({
           // A failed announcement must not leak authorization details.
         }
         cleanupFollowers();
-        return refuse("This action needs explicit human approval");
+        return refuse(
+          "This action needs explicit human approval",
+          TOOL_ERROR_CODES.DENIED,
+        );
       }
     }
     if (executionController.signal.aborted || registrationSignal.aborted) {
       cleanupFollowers();
-      return refuse("This action was stopped before it began");
+      return refuse(
+        "This action was stopped before it began",
+        TOOL_ERROR_CODES.CANCELLED,
+      );
     }
     const event = {
       name: action.name,
@@ -534,7 +560,10 @@ export async function registerAIAuthPageActions({
         executionController.signal.aborted ||
         !stillAuthorized?.capabilities.includes(action.requiredCapability)
       )
-        return refuse("This action is not approved for this page");
+        return refuse(
+          "This action is not approved for this page",
+          TOOL_ERROR_CODES.DENIED,
+        );
       const result = await action.execute(input ?? {}, executionContext);
       if (executionController.signal.aborted) {
         await publishAction({
@@ -542,7 +571,10 @@ export async function registerAIAuthPageActions({
           state: "cancelled",
           summary: `Stopped ${action.name}`,
         });
-        return refuse("The site action was stopped");
+        return refuse(
+          "The site action was stopped",
+          TOOL_ERROR_CODES.CANCELLED,
+        );
       }
       await publishAction({
         ...event,
@@ -566,6 +598,9 @@ export async function registerAIAuthPageActions({
         executionController.signal.aborted
           ? "The site action was stopped"
           : "This page action failed. Check the site for details.",
+        executionController.signal.aborted
+          ? TOOL_ERROR_CODES.CANCELLED
+          : TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
       );
     } finally {
       cleanupFollowers();
@@ -1019,6 +1054,9 @@ export function createAIAuthAgentClient(
         payload.targetSession !== payload.session ||
         typeof payload.targetNonce !== "string" ||
         payload.targetNonce.length < 20 ||
+        typeof payload.session !== "string" ||
+        payload.session.length < 1 ||
+        payload.session.length > 100 ||
         !Number.isFinite(payload.expiresAt) ||
         payload.expiresAt <= Date.now() ||
         !Array.isArray(payload.tools) ||
@@ -1060,6 +1098,12 @@ export function createAIAuthAgentClient(
       }
       for (const [catalogKey, existing] of catalogs)
         if (existing.expiresAt <= Date.now()) catalogs.delete(catalogKey);
+      // A catalog is bound to its signer above; also bound how much of the
+      // shared catalog map a single issuer may occupy before FIFO eviction.
+      const fromIssuer = [...catalogs.values()].filter(
+        (existing) => existing.wallet === envelope.body.issuer,
+      ).length;
+      if (fromIssuer >= MAX_CATALOGS_PER_ISSUER && !catalogs.has(key)) return;
       if (catalogs.size >= 128 && !catalogs.has(key))
         catalogs.delete(catalogs.keys().next().value);
       const tools = boundedCatalogTools(payload.tools);
@@ -1113,7 +1157,10 @@ export function createAIAuthAgentClient(
         request.resolve(boundedJson(payload.result));
       } catch {
         request.reject(
-          new Error("The site tool returned an invalid or oversized result"),
+          toolError(
+            TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
+            "The site tool returned an invalid or oversized result",
+          ),
         );
       }
     }

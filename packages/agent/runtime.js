@@ -124,8 +124,11 @@ export function createAgentRuntime(options = {}) {
   const site = validateOrigin(origin);
   const caps = validateCapabilities(capabilities);
   const meta = validateDescriptor(descriptor);
+  // The room named in the approved connection request. A runtime must not be
+  // talked into joining a different room of the same origin later.
   const configuredRoom =
     options.room === undefined ? undefined : validateRoom(options.room);
+  const approvedRoom = configuredRoom;
   const backoff = { ...DEFAULT_BACKOFF, ...options.backoff };
   const now = options.now ?? Date.now;
   const leaseMs = options.leaseMs ?? 24_000;
@@ -326,11 +329,17 @@ export function createAgentRuntime(options = {}) {
 
   async function join(roomArg) {
     if (closed) throw new Error("The agent runtime is closed");
-    if (pending) return pending;
-    pending = (async () => {
-      const room = validateRoom(
-        roomArg ?? currentRoom ?? configuredRoom ?? "default",
-      );
+    const requested = validateRoom(
+      roomArg ?? currentRoom ?? configuredRoom ?? "default",
+    );
+    if (approvedRoom && requested !== approvedRoom)
+      throw new Error(`Only the approved room "${approvedRoom}" can be joined`);
+    if (pending) {
+      if (pending.room === requested) return pending.promise;
+      throw new Error(`A join to "${pending.room}" is already in progress`);
+    }
+    const promise = (async () => {
+      const room = requested;
       if (core) await teardown({ goodbye: true });
       wallet ??= await keystore.unlock();
       const owner = liveIdentities.get(wallet.id);
@@ -359,10 +368,18 @@ export function createAgentRuntime(options = {}) {
       );
       timer.unref?.();
       return api.connectionState;
-    })().finally(() => {
-      pending = null;
-    });
-    return pending;
+    })();
+    pending = { room: requested, promise };
+    try {
+      return await promise;
+    } catch (error) {
+      // Every connect attempt failed: another runtime may now own this wallet.
+      if (wallet && liveIdentities.get(wallet.id) === instanceId)
+        liveIdentities.delete(wallet.id);
+      throw error;
+    } finally {
+      if (pending?.promise === promise) pending = null;
+    }
   }
 
   async function stop({ forget, final }) {
@@ -449,6 +466,7 @@ export function createAgentRuntime(options = {}) {
     get room() {
       return currentRoom;
     },
+    approvedRoom,
     agentRoom,
     capabilities: caps,
     descriptor: meta,
