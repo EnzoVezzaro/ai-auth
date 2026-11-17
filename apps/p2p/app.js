@@ -401,6 +401,24 @@ async function render() {
   bindView();
 }
 
+// Room events only need the peer panel refreshed. A plain render() rebuilds
+// #view and would silently drop an in-progress message, its focus and the list
+// scroll, so restore those three bits of UI state around the re-render.
+async function renderPeerPreservingDraft() {
+  const input = $("#peer-message");
+  const draft = input?.value;
+  const scroll = $("#message-list")?.scrollTop;
+  const focused = document.activeElement === input;
+  await render();
+  const nextInput = $("#peer-message");
+  if (nextInput) {
+    if (draft !== undefined) nextInput.value = draft;
+    if (focused) nextInput.focus();
+  }
+  const nextList = $("#message-list");
+  if (nextList && scroll !== undefined) nextList.scrollTop = scroll;
+}
+
 function downloadJson(filename, text) {
   const url = URL.createObjectURL(
     new Blob([text], { type: "application/json" }),
@@ -543,14 +561,17 @@ async function startRoom() {
         .then(async () => {
           if (state.view === "overview") state.activity = await readActivity();
           if (state.view === "overview") await render();
-          else if (state.view === "peer" && refreshPeerView) await render();
+          else if (state.view === "peer" && refreshPeerView)
+            await renderPeerPreservingDraft();
         })
         .catch(() => {});
-    } else if (
-      state.view === "overview" ||
-      (state.view === "peer" && (refreshPeerView || direction === "state"))
-    ) {
+    } else if (state.view === "overview") {
       void render();
+    } else if (
+      state.view === "peer" &&
+      (refreshPeerView || direction === "state")
+    ) {
+      void renderPeerPreservingDraft();
     }
   });
   if (external) {
