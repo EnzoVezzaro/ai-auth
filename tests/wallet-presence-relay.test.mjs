@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   appSource,
   extractFunction,
+  extractIfContaining,
   runFragment,
 } from "./helpers/app-source.mjs";
 
@@ -47,4 +48,31 @@ test("a malformed page key is not signed into a human cursor", async () => {
     pageKey: "x".repeat(201),
   });
   assert.equal(sent.length, 0, "an over-long page key is dropped");
+});
+
+test("the wallet chat list records agent collab/text as well as message/text", async () => {
+  const source = await appSource();
+  const branch = extractIfContaining(
+    source,
+    'if (type === "message/text" || type === "collab/text")',
+  );
+  for (const type of ["message/text", "collab/text"]) {
+    const state = { messages: [] };
+    runFragment(branch, {
+      state,
+      type,
+      direction: "in",
+      envelope: {
+        body: {
+          type,
+          payload: { text: `hello from ${type}` },
+          issuer: "agent:peer",
+          createdAt: 123,
+        },
+      },
+    });
+    assert.equal(state.messages.length, 1, `${type} appears in the chat list`);
+    assert.equal(state.messages[0].text, `hello from ${type}`);
+    assert.equal(state.messages[0].issuer, "agent:peer");
+  }
 });

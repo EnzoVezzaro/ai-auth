@@ -498,7 +498,7 @@ async function startRoom() {
       type === "peer/goodbye" ||
       type === "message/text" ||
       type === "presence/cursor";
-    if (type === "message/text") {
+    if (type === "message/text" || type === "collab/text") {
       state.messages.push({
         direction,
         text: String(envelope.body.payload.text ?? ""),
