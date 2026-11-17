@@ -12,6 +12,7 @@ import {
   renewalKeptText,
 } from "./copy.js";
 import { verifyEnvelope } from "./index.js";
+import { envelopeFingerprint } from "./resume-verification.js";
 import {
   createSessionStore,
   listResumableSessions,
@@ -322,6 +323,10 @@ export async function connectAIAuthModal({
     lease = new SessionLease(consent.body.payload);
     walletIdentity = verifiedWalletIdentity(null, consent);
     participant = participantFromRecord(resumeRecord);
+    // The wallet binds a resume to the stored session id, not to a fresh
+    // challenge. Route tool requests and room-ready with that same id so they
+    // are accepted instead of dropped against a random request nonce.
+    request = { ...request, nonce: resumeRecord.sessionId };
   }
   const ready = new Promise((resolve, reject) => {
     resolveReady = resolve;
@@ -454,9 +459,15 @@ export async function connectAIAuthModal({
     if (!record || !payload || data.sessionId !== record.sessionId)
       return false;
     if (data.wallet?.id && data.wallet.id !== record.walletId) return false;
-    // A renewed consent carries the renewal nonce but stays bound to the
-    // original session id, which this record keeps as its stable key.
+    // A renewed consent carries its own request nonce but stays bound to the
+    // stable session id the record keeps. After a second renewal it chains to
+    // the first renewal nonce instead, so neither nonce matches. As on the
+    // wallet side, the durable record pins the exact envelope: accept it when
+    // it is the stored one (boundByStore), which verifyStoredConsent rechecks.
+    const boundByStore =
+      envelopeFingerprint(data.consent) === envelopeFingerprint(record.consent);
     if (
+      !boundByStore &&
       payload.requestNonce !== record.sessionId &&
       payload.renewsNonce !== record.sessionId
     )
@@ -1019,8 +1030,11 @@ export async function connectAIAuthModal({
               renews: consent.body.payload.requestNonce,
             },
           );
-          if (closed || pendingRenewal)
-            throw new Error("The AI Auth connection is closed");
+          if (closed) throw new Error("The AI Auth connection is closed");
+          // A concurrent renew() may have published its pendingRenewal while
+          // this challenge was being created. Join that pending renewal instead
+          // of reporting the misleading "connection is closed" error.
+          if (pendingRenewal) return pendingRenewal.promise;
           const renewal = { request: renewalRequest };
           renewal.promise = new Promise((resolve, reject) => {
             renewal.resolve = resolve;

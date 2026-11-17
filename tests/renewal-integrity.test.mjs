@@ -313,6 +313,60 @@ test("03-02 repeated renewals still resume under the original session id", async
   );
 });
 
+// ---- FX1-03: the site accepts a second renewal on resume --------------------
+
+test("FX1-03 a twice-renewed consent still resumes on the site side", async () => {
+  const wallet = await makeWallet();
+  const original = await grant(wallet);
+  const sessionId = original.body.payload.requestNonce;
+  const first = await renew(wallet, original, ["presence.read"]);
+  const second = await renew(wallet, first, ["presence.read"]);
+  // The second renewal chains to the first renewal nonce, not to the stable id.
+  assert.notEqual(second.body.payload.renewsNonce, sessionId);
+  const record = recordFromConsent(second, {
+    origin: ORIGIN,
+    room: ROOM,
+    participant: {
+      identity: { id: wallet.id },
+      instanceId: sessionId,
+      sessionId,
+    },
+  });
+  const store = createSessionStore({ storage: memoryStorage() });
+  await store.save(ORIGIN, record);
+
+  const browser = fakeBrowser();
+  const promise = resumeAIAuthSession({
+    walletUrl: `${WALLET_ORIGIN}/`,
+    origin: ORIGIN,
+    room: ROOM,
+    capabilities: ["presence.read"],
+    windowObject: browser.win,
+    sessionStore: store,
+    resumeTimeoutMs: 1000,
+    timeoutMs: 5000,
+  });
+  promise.catch(() => {});
+  await browser.waitForHandler();
+  await browser.fromWallet({ type: "ai-auth/connect-ready" });
+  await browser.fromWallet({
+    type: "ai-auth/session-resumed",
+    sessionId,
+    wallet: { id: wallet.id, name: wallet.name },
+    consent: second,
+  });
+  const connection = await promise;
+  try {
+    assert.deepEqual(
+      connection.consent,
+      second,
+      "the exact stored envelope is accepted regardless of the renewal chain",
+    );
+  } finally {
+    connection.close();
+  }
+});
+
 // ---- 03-04: Never has no resume age cap; a timed grant still expires -------
 
 test("03-04 a Never grant older than seven days still resumes, an expired one does not", async () => {

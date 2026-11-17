@@ -259,6 +259,35 @@ test("C1-02: Escape during a renewal declines only the renewal, not the session"
   assert.doesNotThrow(() => connection.publishCursor({ x: 0.5, y: 0.5 }));
 });
 
+// ---- FX1-05: a second renew() while one is pending --------------------------
+
+test("FX1-05 a rapid second renew() joins the pending renewal", async (t) => {
+  const { b, connection } = await connectedWithRenew(t);
+  t.after(() => connection.close());
+
+  // Both calls start in the same tick, before the async challenge helper has
+  // resolved and published the first pendingRenewal.
+  const first = connection.renew();
+  const second = connection.renew();
+  void first.catch(() => {});
+  void second.catch(() => {});
+  await waitFor(() =>
+    b.sentToWallet.some((m) => m.type === "ai-auth/renew-request"),
+  );
+
+  const outcome = await settleOutcome(second, 300);
+  assert.equal(
+    outcome,
+    "timeout",
+    `the second renew() must stay pending with the first, not fail: ${outcome}`,
+  );
+  assert.equal(
+    b.sentToWallet.filter((m) => m.type === "ai-auth/renew-request").length,
+    1,
+    "only one renewal request is posted",
+  );
+});
+
 // ---- C1-03: renew() must settle on close/expiry/revoke -----------------------
 
 test("C1-03: closing the session rejects a pending renew() so Extend re-enables", async (t) => {

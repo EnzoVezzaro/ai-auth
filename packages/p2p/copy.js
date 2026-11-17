@@ -49,7 +49,26 @@ export function requestEndText(expiresAt, locale) {
 }
 
 export function renewalKeptText(expiresAt, locale) {
+  if (expiresAt === null)
+    return "Your session is still active with no time limit.";
   return `Your session is still active until ${clockTime(expiresAt, locale)}.`;
+}
+
+// Extension wording follows the lifetime the wallet will actually grant: a
+// numeric cap becomes "for N more minutes", while Never has no end at all.
+export function extensionPhrase(sessionTtlMs) {
+  if (sessionTtlMs === null || sessionTtlMs === undefined)
+    return "for good (no time limit)";
+  if (sessionTtlMs === EXTEND_MINUTES * MINUTE_MS)
+    return `for ${EXTEND_MINUTES} more minutes`;
+  const minutes = Math.round(sessionTtlMs / MINUTE_MS);
+  if (minutes < 1) return `for ${minutesPhrase(sessionTtlMs)}`;
+  return `for ${minutes} more minute${minutes === 1 ? "" : "s"}`;
+}
+
+export function extendLabel(sessionTtlMs) {
+  if (sessionTtlMs === EXTEND_MINUTES * MINUTE_MS) return EXTEND_LABEL;
+  return `Extend ${extensionPhrase(sessionTtlMs)}`;
 }
 
 export function approvalTimeoutMessage(timeoutMs) {

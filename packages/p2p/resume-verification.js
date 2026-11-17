@@ -82,7 +82,7 @@ export async function canResumeSession(
   });
 }
 
-function envelopeFingerprint(value) {
+export function envelopeFingerprint(value) {
   if (Array.isArray(value))
     return `[${value.map(envelopeFingerprint).join(",")}]`;
   if (value && typeof value === "object")

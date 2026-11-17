@@ -103,6 +103,22 @@ function recordFor(grant, overrides = {}) {
   });
 }
 
+// A real signed renewal: it carries its own request nonce but links back to the
+// original session, which stays the record's stable id.
+async function renewConsent(wallet, previous, capabilities = CAPS) {
+  const request = await createPermissionRequest(ORIGIN, capabilities, {
+    room: ROOM,
+    expiresInMs: 120_000,
+    sessionTtlMs: 30 * MINUTE,
+    idleTimeoutMs: 10 * MINUTE,
+    renews: previous.body.payload.requestNonce,
+  });
+  return approvePermissionRequest(wallet, request, capabilities, {
+    previousConsent: previous,
+    agent: agent(),
+  });
+}
+
 // ---- R2: per-agent session records -----------------------------------------
 
 test("R2 a session record round-trips through the store", async () => {
@@ -473,6 +489,44 @@ test("R1 restore resumes without a new consent when the wallet confirms", async 
     assert.equal((await ctx.store.list(ORIGIN)).length, 1);
   } finally {
     connection?.close?.();
+  }
+});
+
+test("FX1-02 resume aligns the site request nonce with the stored session id", async () => {
+  const storage = memoryStorage();
+  const store = createSessionStore({ storage });
+  const wallet = await makeWallet();
+  const grant = await makeGrant(wallet);
+  const sessionId = grant.consent.body.payload.requestNonce;
+  const renewed = await renewConsent(wallet, grant.consent);
+  assert.notEqual(renewed.body.payload.requestNonce, sessionId);
+  const record = recordFromConsent(renewed, {
+    origin: ORIGIN,
+    room: ROOM,
+    participant: { instanceId: sessionId, sessionId },
+  });
+  await store.save(ORIGIN, record);
+
+  const browser = fakeBrowser();
+  const promise = resumeAIAuthSession(resumeOptions({ store }, browser));
+  promise.catch(() => {});
+  await waitForHandler(browser);
+  await browser.fromWallet({ type: "ai-auth/connect-ready" });
+  await browser.fromWallet({
+    type: "ai-auth/session-resumed",
+    sessionId,
+    wallet: { id: wallet.id, name: wallet.name },
+    consent: renewed,
+  });
+  const connection = await promise;
+  try {
+    assert.equal(
+      connection.request.nonce,
+      sessionId,
+      "the site must route tool and room-ready traffic with the resumed session id",
+    );
+  } finally {
+    connection.close();
   }
 });
 
