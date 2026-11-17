@@ -1,6 +1,7 @@
-// Wallet-side checks before it confirms a saved session can be resumed. Pure
-// and storage-free: the caller supplies the ended-session ids it keeps in the
-// wallet origin. No new scope is granted here; the signed consent is reused.
+// Wallet-side checks before it confirms a saved session can be resumed. The
+// pure canResumeSession keeps every signature/origin/expiry/idle/version/
+// descriptor check; canResumeStoredSession adds the wallet's durable grant
+// record as the source of truth. No new scope is granted here.
 import { CONSENT_VERSION, verifyConsentAgent } from "./connect.js";
 import { verifyEnvelope } from "./index.js";
 
@@ -69,5 +70,55 @@ export async function canResumeSession(
     expectedIssuer: walletId,
     now,
     maxAgeMs: MAX_STORED_CONSENT_AGE_MS,
+  });
+}
+
+function envelopeFingerprint(value) {
+  if (Array.isArray(value))
+    return `[${value.map(envelopeFingerprint).join(",")}]`;
+  if (value && typeof value === "object")
+    return `{${Object.keys(value)
+      .sort()
+      .map(
+        (key) => `${JSON.stringify(key)}:${envelopeFingerprint(value[key])}`,
+      )
+      .join(",")}}`;
+  return JSON.stringify(value) ?? "null";
+}
+
+/**
+ * Confirm a resume against the wallet's durable grant record, never memory.
+ * The site must present the exact envelope the wallet saved when it approved,
+ * so a resume cannot widen a scope. Every existing canResumeSession check
+ * (signature, origin, expiry, idle, version, descriptor, wallet binding) still
+ * applies; this only adds the durable record as the source of the ended flag
+ * and the wallet-owned activity time.
+ */
+export async function canResumeStoredSession(
+  consent,
+  { audience, sessionId, room, walletId, store, now = Date.now() } = {},
+) {
+  if (
+    !store ||
+    typeof store.get !== "function" ||
+    typeof audience !== "string" ||
+    typeof sessionId !== "string"
+  )
+    return false;
+  const record = await store.get(audience, sessionId);
+  if (!record || record.ended || !record.consent) return false;
+  if (
+    record.room !== room ||
+    envelopeFingerprint(record.consent) !== envelopeFingerprint(consent)
+  )
+    return false;
+  return canResumeSession(record.consent, {
+    audience,
+    sessionId,
+    room,
+    walletId,
+    endedIds: new Set(),
+    lastActivity: record.lastActivity,
+    now,
   });
 }

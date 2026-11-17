@@ -138,6 +138,7 @@ async function setupWheel() {
   const forward = await walletRoomForwarder({
     state,
     externalHost,
+    touchGrant() {},
     externalConnectMode: true,
     externalSessionActive: () => true,
     debug() {},
