@@ -172,7 +172,7 @@ test("3. an agent invokes a generic site WebMCP tool through the live connection
     input: { message: 42 },
   });
   assert.equal(invalid.ok, false);
-  assert.equal(invalid.code, TOOL_ERROR_CODES.DENIED);
+  assert.equal(invalid.code, TOOL_ERROR_CODES.TOOL_UNAVAILABLE);
   assert.deepEqual(calls, ["hi"]);
 });
 
