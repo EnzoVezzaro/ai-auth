@@ -27,8 +27,12 @@ const runtime = createAgentRuntime({
 });
 runtime.onConnectionState((s) => console.log(s.status, s.directPeerCount));
 await runtime.join();
-await runtime.send("message/text", { text: "hello" }); // signed, verified by peers
+await runtime.send("collab/text", { text: "hello" }); // signed, verified by peers
 ```
+
+`collab/text` is the canonical chat type. The legacy `message/text` type is
+still accepted for compatibility, but it carries no signed message id or target
+and gets no delivery receipt.
 
 ## What the signature does and does not prove
 

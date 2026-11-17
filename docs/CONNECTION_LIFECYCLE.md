@@ -74,14 +74,17 @@ publish an empty catalog at once; a page that closes without calling them does
 not. In-flight calls are rejected with `SITE_DISCONNECTED` when the site leaves
 the room. Expired catalogs are pruned on read. Calls validate
 input against the advertised schema, apply the site's own authorization gate,
-and return the real executor result or a structured error. Stable error codes
-are `TOOL_UNAVAILABLE`, `SITE_DISCONNECTED`, `CATALOG_EXPIRED`,
-`AUTH_EXPIRED`, `CANCELLED`, `TIMEOUT`.
+and return the real executor result or a structured error. The codes in
+`TOOL_ERROR_CODES` are `TOOL_UNAVAILABLE`, `SITE_DISCONNECTED`,
+`CATALOG_EXPIRED`, `AUTH_EXPIRED`, `CANCELLED`, `TIMEOUT`, `NOT_JOINED` and
+`DENIED`.
 
 The optional MCP `--code-mode` flag follows Cloudflare's
-[Code Mode pattern](https://blog.cloudflare.com/code-mode): a single sandboxed
-`ai_auth_code` tool executes a short script against the connection-checked
-`aiAuth` API. It changes how tools are presented to a model, not who owns them;
+[Code Mode pattern](https://blog.cloudflare.com/code-mode): a single `ai_auth_code`
+tool runs a short script in a worker thread against the connection-checked
+`aiAuth` API, with a 2-second kill timeout so a runaway script is terminated.
+It is not a security boundary by itself: the MCP process keeps the host's
+privileges. It changes how tools are presented to a model, not who owns them;
 the website still owns its WebMCP schemas and approval policy.
 
 Agent-provided tools (`provideTools`, `--provide room`) are owned by the runtime,

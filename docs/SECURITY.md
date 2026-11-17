@@ -36,6 +36,8 @@ When a session expires, idles out, or is ended by the wallet, the connection clo
 
 The copyable connect instruction produced by `createAIAuthConnectInstruction` contains only public data (site origin, room name, wallet URL, requested capabilities) and no credentials. The connect panel renders in a closed shadow root and displays only values taken from verified signed lifecycle events; its copy action writes that same public instruction to the clipboard and nothing else.
 
+The wallet sends its `connect-ready` signal only to a verified origin: the origin of an already verified connect request, or, when there is no such request, the browser-provided referrer origin. The referrer is the embedding page's origin and cannot be forged by page script. The signal is never posted to `"*"`. A site whose Referrer-Policy hides the referrer gets no ready signal, so the connect will not start until a verified connect request arrives; keep the referrer for the wallet frame.
+
 ## Site/agent link lifecycle: what revocation means
 
 There is no global revocation and no AI Auth server that can enforce one. A site link stops working only through these mechanisms:
