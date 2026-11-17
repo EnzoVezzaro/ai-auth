@@ -108,6 +108,27 @@ function clip(value) {
     : { truncated: true, preview: text.slice(0, MAX_PAYLOAD_CHARS) };
 }
 
+// `rejected` is reserved for a provider refusing the call. Cancellations and
+// timeouts are transport outcomes, not denials, and must not invite a retry.
+function classifyToolCallError(error) {
+  const message = String(error?.message ?? "");
+  // DOMException carries a numeric `code` (20 for AbortError); only our own
+  // string codes are meaningful on the wire.
+  const supplied =
+    typeof error?.code === "string" &&
+    Object.hasOwn(TOOL_ERROR_CODES, error.code)
+      ? error.code
+      : null;
+  const code =
+    supplied ??
+    (error?.name === "AbortError" || /cancel/iu.test(message)
+      ? TOOL_ERROR_CODES.CANCELLED
+      : /tim(e)?d?\s*out|timeout/iu.test(message)
+        ? TOOL_ERROR_CODES.TIMEOUT
+        : TOOL_ERROR_CODES.DENIED);
+  return { code, rejected: code === TOOL_ERROR_CODES.DENIED };
+}
+
 /**
  * Glue between the headless agent runtime and the MCP tools. Everything read
  * from peers is untrusted data: it is bounded, labelled, and never executed.
@@ -352,8 +373,7 @@ export function createAgentBridge({
       } catch (error) {
         return {
           ok: false,
-          code: error?.code ?? TOOL_ERROR_CODES.TOOL_UNAVAILABLE,
-          rejected: true,
+          ...classifyToolCallError(error),
           reason: String(
             error?.message ?? "The site rejected the request",
           ).slice(0, 240),
@@ -492,6 +512,7 @@ const SPECS = [
         "failed",
         "cancelled",
         "needs-human",
+        "denied",
       ]),
       summary: z.string().max(240),
     },

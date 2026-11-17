@@ -1268,6 +1268,7 @@ async function handleExternalSiteEvent(data) {
         "failed",
         "cancelled",
         "needs-human",
+        "denied",
       ].includes(action.state) ||
       typeof action.summary !== "string" ||
       action.summary.length > 240
