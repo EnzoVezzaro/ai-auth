@@ -54,6 +54,18 @@ test("fenced code and inline markup are escaped and rendered", () => {
   );
 });
 
+test("images and standalone HTML tags are preserved", () => {
+  const { html } = renderMarkdown(
+    '![Banner](https://example.com/banner.png)\n\n<div align="center">\n\n**Hi**\n\n</div>\n',
+  );
+  assert.match(
+    html,
+    /<img class="doc-image" src="https:\/\/example\.com\/banner\.png" alt="Banner"/u,
+  );
+  assert.match(html, /<div align="center">/u);
+  assert.doesNotMatch(html, /&lt;div/u);
+});
+
 test("a docs page has the shared stylesheet, nav, table of contents and raw link", () => {
   const page = renderDocPage({
     markdown:

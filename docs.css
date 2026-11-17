@@ -290,6 +290,20 @@ a:hover {
   white-space: pre;
 }
 
+.article img.doc-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 6px 0 22px;
+  border-radius: var(--radius);
+}
+
+.article img.doc-image[src*="shields.io"] {
+  display: inline-block;
+  margin: 0 5px 6px 0;
+  border-radius: 4px;
+}
+
 .article blockquote {
   margin: 0 0 22px;
   padding: 14px 20px;

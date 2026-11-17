@@ -30,6 +30,10 @@ function inline(text, rewriteMdLinks = false) {
     return `\u0000c${code.length - 1}\u0000`;
   });
   out = escapeHtml(out);
+  out = out.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/gu, (_, alt, rawUrl) => {
+    const url = rawUrl.replace(/&amp;/gu, "&");
+    return `<img class="doc-image" src="${escapeHtml(url)}" alt="${escapeHtml(alt)}" loading="lazy">`;
+  });
   out = out.replace(/\[([^\]]+)\]\(([^)\s]+)\)/gu, (_, label, rawUrl) => {
     let url = rawUrl.replace(/&amp;/gu, "&");
     const external = /^https?:\/\//u.test(url);
@@ -80,6 +84,17 @@ export function renderMarkdown(markdown, { rewriteMdLinks = false } = {}) {
     const line = lines[index];
 
     if (line.trim() === "") {
+      index += 1;
+      continue;
+    }
+
+    // Standalone HTML tags in hand-written docs (badges, `<div>` wrappers,
+    // `<details>` blocks) pass through instead of being escaped as text.
+    if (
+      /^\s*<\/?[a-z][^>]*>\s*$/iu.test(line) ||
+      /^\s*<summary>.*<\/summary>\s*$/iu.test(line)
+    ) {
+      out.push(line.trim());
       index += 1;
       continue;
     }
@@ -233,8 +248,10 @@ function toc(headings) {
 
 /** Wrap rendered Markdown in the shared docs page shell. */
 export function renderDocPage({ markdown, title, name, docs, rawPath }) {
-  // The shell already renders the document title as the page h1.
-  const body = String(markdown).replace(/^\s*#\s+.+(?:\n|$)/u, "");
+  // The shell already renders the document title as the page h1. The README
+  // has its banner and badge block before the title, so find the first h1
+  // anywhere near the top rather than assuming it is the first line.
+  const body = String(markdown).replace(/^#\s+.+$/mu, "");
   const { html, headings } = renderMarkdown(body, { rewriteMdLinks: true });
   const nav = docs
     .map(

@@ -16,6 +16,7 @@ await mkdir(resolve(output, "landing"), { recursive: true });
 await cp(resolve(root, "index.html"), resolve(output, "index.html"));
 await cp(resolve(root, "landing.css"), resolve(output, "landing.css"));
 await cp(resolve(root, "docs.css"), resolve(output, "docs.css"));
+await cp(resolve(root, "LICENSE"), resolve(output, "LICENSE"));
 await mkdir(resolve(output, "docs"), { recursive: true });
 await cp(resolve(root, "docs.css"), resolve(output, "docs", "docs.css"));
 // Crawler files: the landing page is the only indexable page. The wallet and
@@ -206,7 +207,7 @@ await writeFile(
     markdown: rootReadme,
     title: "AI Auth",
     name: "",
-    docs: navDocs,
+    docs: [],
     rawPath: "https://github.com/EnzoVezzaro/ai-auth/blob/main/README.md",
   }),
 );
