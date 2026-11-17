@@ -1,0 +1,28 @@
+# Docs index
+
+Start with the [quickstart](quickstart.md) or the [site integration guide](site-integration.md). The [root README](../README.md) is a short product page.
+
+## Site builders
+
+- [Connect a site in ten minutes](quickstart.md)
+- [Site integration: connect, resume, presence, cursors, WebMCP tools](site-integration.md)
+
+## Agent builders
+
+- [Agent adapters: Claude Code, Codex, OpenCode](AGENT_ADAPTERS.md)
+- [Headless agent runtime notes](AGENT_RUNTIME.md)
+- [Agent package readme](../packages/agent/README.md) · [MCP command readme](../packages/mcp/README.md) · [Runtime package readme](../packages/runtime/README.md)
+
+## Protocol and security
+
+- [Architecture](ARCHITECTURE.md) · [Connection lifecycle](CONNECTION_LIFECYCLE.md)
+- [Protocol](PROTOCOL.md) · [Wire format](WIRE_FORMAT.md)
+- [Security boundaries](SECURITY.md) · [Export and trust boundaries](BOUNDARIES.md)
+- [Site discovery](DISCOVERY.md) · [Explanation index](explanation/index.md)
+
+## Operations
+
+- [Hosting policy](HOSTING.md) · [Wallet recovery](RECOVERY.md)
+- [End-to-end tests](E2E.md) · [Generic integration review](GENERIC_INTEGRATION_REVIEW.md)
+- [Traceability](TRACEABILITY.md) · [Verification evidence](evidence.md)
+- [Changelog](../CHANGELOG.md) · [Dated snapshots](archive/)
