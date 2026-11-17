@@ -63,6 +63,48 @@ const TOOL_EVENT_KINDS = new Set([
   "tool-cancel",
   "tool-response",
 ]);
+// Replay memory is bounded per issuer as well as globally. Without the per-
+// issuer bound, one room member could fill the global cache and blackhole
+// inbound traffic from everyone else.
+export const MAX_REPLAY_PER_ISSUER = 128;
+const MAX_REPLAY_TOTAL = 4_096;
+
+export function createReplayCache() {
+  const entries = new Map();
+  const counts = new Map();
+  const drop = (key) => {
+    const entry = entries.get(key);
+    if (!entry) return;
+    entries.delete(key);
+    const left = (counts.get(entry.issuer) ?? 1) - 1;
+    if (left > 0) counts.set(entry.issuer, left);
+    else counts.delete(entry.issuer);
+  };
+  return {
+    has: (key) => entries.has(key),
+    note(key, issuer, expiresAt) {
+      const now = Date.now();
+      for (const [entryKey, entry] of entries)
+        if (entry.expiresAt <= now) drop(entryKey);
+      let held = counts.get(issuer) ?? 0;
+      if (held >= MAX_REPLAY_PER_ISSUER) {
+        for (const [entryKey, entry] of entries)
+          if (entry.issuer === issuer) {
+            drop(entryKey);
+            held -= 1;
+            break;
+          }
+      }
+      if (entries.size >= MAX_REPLAY_TOTAL) drop(entries.keys().next().value);
+      entries.set(key, { issuer, expiresAt });
+      counts.set(issuer, held + 1);
+    },
+    get size() {
+      return entries.size;
+    },
+  };
+}
+
 const debug = (stage, details = "") => {
   if (
     new URLSearchParams(globalThis.location?.search ?? "").get("debug") === "1"
@@ -274,7 +316,7 @@ export async function connectAIAuthModal({
   }
 
   const consentGuard = new NonceGuard();
-  const seen = new Map();
+  const seen = createReplayCache();
   const listeners = new Set();
   const disconnectListeners = new Set();
   const transferListeners = new Set();
@@ -863,14 +905,12 @@ export async function connectAIAuthModal({
     }
     const expectedIssuer = announcement ? envelope.body.issuer : boundIssuer;
     const replayKey = `${envelope.body.issuer}:${payload.session}:${payload.nonce}`;
-    for (const [key, expiresAt] of seen)
-      if (expiresAt <= Date.now()) seen.delete(key);
-    if (seen.has(replayKey) || seen.size >= 4096) return;
+    if (seen.has(replayKey)) return;
     if (!(await verifyEnvelope(envelope, { expectedIssuer }))) {
       debug("sdk-rejected-signature", envelope?.body?.type);
       return;
     }
-    seen.set(replayKey, payload.expiresAt);
+    seen.note(replayKey, envelope.body.issuer, payload.expiresAt);
     if (announcement) bindSession(envelope.body.issuer, payload.session);
     if (envelope.body.type === "peer/goodbye")
       unbindSession(envelope.body.issuer, payload.session);
