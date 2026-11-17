@@ -1119,10 +1119,21 @@ async function expireExternalSession(reason = "expired") {
   state.externalPendingEvents.length = 0;
   state.transfers?.close();
   state.transfers = null;
-  void state.rtc?.close();
-  void state.room?.close();
+  // Capture and clear the references first so a re-entrant expiry cannot close
+  // twice. room.close() awaits the signed goodbye, so it must finish before the
+  // rtc connection is torn down or the goodbye has no channel to leave on.
+  const room = state.room;
+  const rtc = state.rtc;
   state.rtc = null;
   state.room = null;
+  if (room) {
+    try {
+      await room.close();
+    } catch {
+      /* best effort disconnect notice */
+    }
+  }
+  if (rtc) await rtc.close();
   render();
 }
 
