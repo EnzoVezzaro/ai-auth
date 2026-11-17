@@ -1160,6 +1160,11 @@ export const connectAIAuthPopup = connectAIAuthModal;
 export async function resumeAIAuthSession(options = {}) {
   // Match connectAIAuthModal's default so a site can pass the same options.
   const origin = options.origin ?? globalThis.location?.origin;
+  // A caller-supplied record is trusted only for this site. Without this check
+  // a foreign or tampered record would start a handshake and disclose consent
+  // before the wallet has a chance to reject it.
+  if (options.record && options.record.audience !== origin)
+    throw new TypeError("The supplied session record belongs to another origin");
   const store =
     options.sessionStore ??
     (globalThis.sessionStorage
