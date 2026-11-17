@@ -44,8 +44,7 @@ export function createHub({ goodbyeOnly = false } = {}) {
             if (goodbyeOnly && envelope?.body?.type === "peer/goodbye") {
               hub.goodbyes += 1;
               members.delete(me);
-              for (const other of members)
-                emit(other.leave, { peerId: me.id });
+              for (const other of members) emit(other.leave, { peerId: me.id });
             }
             const target = options?.target;
             const targets =

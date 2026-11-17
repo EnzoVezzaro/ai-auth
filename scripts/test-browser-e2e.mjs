@@ -987,10 +987,7 @@ try {
   // Wait for the real lifecycle transition, then watch the event count over a
   // window: a single delayed sleep cannot tell "no event" from "late event".
   await waitFor(
-    () =>
-      siteA.evaluate(
-        () => window.__lifecycle.at(-1)?.reason === "expired",
-      ),
+    () => siteA.evaluate(() => window.__lifecycle.at(-1)?.reason === "expired"),
     { timeout: 10_000, message: "expired session to disconnect" },
   );
   await expectStable(

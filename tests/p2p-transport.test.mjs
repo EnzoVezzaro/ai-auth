@@ -579,10 +579,10 @@ test("popup connection timeout is cleared after signed consent", async () => {
   assert.equal(disconnects, 1);
   // close() defers teardown by a grace period so the posted session-ended
   // message reaches a live wallet frame first. Wait for the state, not a tick.
-  await until(
-    () => popup.closed && listeners.size === 0,
-    { timeout: 3_000, message: "deferred dialog/iframe teardown after close" },
-  );
+  await until(() => popup.closed && listeners.size === 0, {
+    timeout: 3_000,
+    message: "deferred dialog/iframe teardown after close",
+  });
   assert.equal(popup.closed, true);
   assert.equal(listeners.size, 0);
 });

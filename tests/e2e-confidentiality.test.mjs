@@ -18,9 +18,7 @@ test("a leak is recorded as a KnownBug so report.passed() is false", async () =>
   );
   assert.equal(evidence.uninvitedTargetReceived, true);
   const report = createReport();
-  await report.step(8, "confidentiality", () =>
-    checkUninvitedTarget({}, true),
-  );
+  await report.step(8, "confidentiality", () => checkUninvitedTarget({}, true));
   assert.equal(report.rows[0].status, "KNOWN-BUG");
   assert.equal(report.passed(), false);
 });

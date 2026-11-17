@@ -82,7 +82,10 @@ test("DTC-05: TOOL_ERROR_CODES is declared and exported", async () => {
   const dts = await read("packages/p2p/index.d.ts");
   assert.match(dts, /export const TOOL_ERROR_CODES/u);
   const runtime = await import("../packages/p2p/index.js");
-  assert.ok(runtime.TOOL_ERROR_CODES, "runtime does not export TOOL_ERROR_CODES");
+  assert.ok(
+    runtime.TOOL_ERROR_CODES,
+    "runtime does not export TOOL_ERROR_CODES",
+  );
 });
 
 test("DTC-06: BOUNDARIES export list matches the live runtime exports", async () => {
@@ -134,7 +137,10 @@ test("DTC-08: trust limits describe bounded catch-up and epoch propagation", asy
 test("DTC-09: embed targeting is documented as feature-detected", async () => {
   const security = await read("docs/SECURITY.md");
   assert.doesNotMatch(security, /does not carry targets or message ids/u);
-  assert.doesNotMatch(security, /cannot target a recipient or confirm receipts/u);
+  assert.doesNotMatch(
+    security,
+    /cannot target a recipient or confirm receipts/u,
+  );
   assert.match(
     security,
     /validates, bounds and forwards `target` and `messageId` when the wallet reports support/u,

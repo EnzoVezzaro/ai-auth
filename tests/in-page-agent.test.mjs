@@ -191,10 +191,10 @@ test("lifecycle fires an expired disconnect when the signed consent expires", as
   const realNow = Date.now;
   try {
     Date.now = () => expiresAt + 1;
-    await until(
-      () => events.at(-1)?.reason === "expired",
-      { timeout: 3_000, message: "expired disconnect event" },
-    );
+    await until(() => events.at(-1)?.reason === "expired", {
+      timeout: 3_000,
+      message: "expired disconnect event",
+    });
     assert.equal(events.at(-1)?.type, "disconnected");
     assert.equal(events.at(-1)?.reason, "expired");
   } finally {

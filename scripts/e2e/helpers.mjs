@@ -129,7 +129,11 @@ export async function expectStable(
   const deadline = Date.now() + window;
   while (Date.now() < deadline) {
     await delay(interval);
-    assert.deepEqual(await read(), initial, `${message} changed during the wait`);
+    assert.deepEqual(
+      await read(),
+      initial,
+      `${message} changed during the wait`,
+    );
   }
   return initial;
 }

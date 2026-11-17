@@ -21,9 +21,7 @@ const participant = (events) => ({
 });
 
 test("gotText ignores an earlier message from the same issuer", async () => {
-  const p = participant([
-    { type: "message/text", issuer, text: "a1 to a2" },
-  ]);
+  const p = participant([{ type: "message/text", issuer, text: "a1 to a2" }]);
   const result = await gotText(p, issuer, "the new reply");
   assert.equal(result, false, "stale text must not satisfy the check");
 });
@@ -40,9 +38,7 @@ test("gotText matches the issuer and the exact text", async () => {
 });
 
 test("hasTextMessage does the same content comparison", async () => {
-  const p = participant([
-    { type: "message/text", issuer, text: "a2 to a1" },
-  ]);
+  const p = participant([{ type: "message/text", issuer, text: "a2 to a1" }]);
   assert.equal(await hasTextMessage(p, issuer, "a2 to a1"), true);
   assert.equal(await hasTextMessage(p, issuer, "a1 to a2"), false);
 });
