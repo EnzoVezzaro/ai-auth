@@ -623,9 +623,13 @@ class Wheel {
         "Submitted to the peer transport. Waiting for a signed receipt.",
       );
       if (staged.url) this.releaseUrl(staged.url);
-      this.ui
-        .action(staged.kind === "element" ? "element" : "screenshot")
-        .focus();
+      const next =
+        staged.kind === "element"
+          ? "element"
+          : staged.kind === "recording"
+            ? "record"
+            : "screenshot";
+      this.ui.action(next).focus();
     } catch (error) {
       // Keep the draft: a transport failure must not destroy the capture.
       // A fresh message id lets the same staged item be sent again; the failed

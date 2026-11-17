@@ -44,6 +44,74 @@ function mount(sendText) {
   return { shadow: host.shadowRoot, dispose };
 }
 
+test("confirming a recording returns focus to the record button", async () => {
+  const { doc, win } = createStubDom();
+  win.navigator.mediaDevices = {
+    getDisplayMedia: async () => ({
+      getTracks: () => [{ stop() {} }],
+      getVideoTracks: () => [{ addEventListener() {} }],
+    }),
+  };
+  win.URL = {
+    createObjectURL: () => "blob:recording",
+    revokeObjectURL() {},
+  };
+  win.Blob = Blob;
+  win.MediaRecorder = class {
+    constructor() {
+      this.state = "recording";
+      this.mimeType = "video/webm";
+    }
+    start() {}
+    stop() {
+      this.state = "inactive";
+      this.onstop?.();
+    }
+    addEventListener() {}
+  };
+  const connection = {
+    supportsTargets: true,
+    subscribe: () => () => {},
+    sendText() {},
+    sendElement() {},
+    sendAttachment: async () => ({ body: {} }),
+  };
+  const dispose = mountCollaborationWheel(connection, {
+    target: doc.body,
+    network: {
+      connectionState: {
+        status: "direct-peer-connected",
+        directPeerCount: 1,
+        peers: [],
+      },
+    },
+  });
+  const host = doc.body.children.find(
+    (node) => node.dataset.aiAuthCollaborationWheel === "true",
+  );
+  const shadow = host.shadowRoot;
+  try {
+    const record = shadow.querySelector('[data-action="record"]');
+    record.dispatch("click");
+    await until(() => record.textContent === "Stop recording");
+    record.dispatch("click");
+    await until(() => !shadow.querySelector(".preview").hidden);
+    shadow.querySelector('[data-action="confirm"]').dispatch("click");
+    await until(() => doc.activeElement === record);
+    assert.equal(
+      doc.activeElement,
+      record,
+      "focus follows the recording just confirmed",
+    );
+    assert.notEqual(
+      doc.activeElement,
+      shadow.querySelector('[data-action="screenshot"]'),
+    );
+  } finally {
+    dispose();
+  }
+});
+
 test("a double submit sends a chat message only once", async () => {
   let release;
   const gate = new Promise((resolve) => (release = resolve));
