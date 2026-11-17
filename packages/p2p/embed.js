@@ -12,6 +12,7 @@ import {
   renewalKeptText,
 } from "./copy.js";
 import { verifyEnvelope } from "./index.js";
+import { envelopeFingerprint } from "./resume-verification.js";
 import {
   createSessionStore,
   listResumableSessions,
@@ -458,9 +459,15 @@ export async function connectAIAuthModal({
     if (!record || !payload || data.sessionId !== record.sessionId)
       return false;
     if (data.wallet?.id && data.wallet.id !== record.walletId) return false;
-    // A renewed consent carries the renewal nonce but stays bound to the
-    // original session id, which this record keeps as its stable key.
+    // A renewed consent carries its own request nonce but stays bound to the
+    // stable session id the record keeps. After a second renewal it chains to
+    // the first renewal nonce instead, so neither nonce matches. As on the
+    // wallet side, the durable record pins the exact envelope: accept it when
+    // it is the stored one (boundByStore), which verifyStoredConsent rechecks.
+    const boundByStore =
+      envelopeFingerprint(data.consent) === envelopeFingerprint(record.consent);
     if (
+      !boundByStore &&
       payload.requestNonce !== record.sessionId &&
       payload.renewsNonce !== record.sessionId
     )
