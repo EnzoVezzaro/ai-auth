@@ -25,7 +25,7 @@ const tableVersion = (text, pkg) => {
 
 test("DTC-01/DTC-02: install tables track the checked-in manifests", async () => {
   const readme = await read("README.md");
-  const guide = await read("docs/SDK_GUIDE.md");
+  const guide = await read("docs/site-integration.md");
   assert.equal(
     tableVersion(readme, "@enzovezzaro/ai-auth-wallet"),
     versions.wallet,
@@ -39,12 +39,12 @@ test("DTC-01/DTC-02: install tables track the checked-in manifests", async () =>
     assert.equal(
       tableVersion(guide, packages[pkg]),
       version,
-      `SDK_GUIDE version for ${pkg}`,
+      `site-integration version for ${pkg}`,
     );
 });
 
 test("DTC-03: session records are described as localStorage-backed", async () => {
-  const guide = await read("docs/SDK_GUIDE.md");
+  const guide = await read("docs/site-integration.md");
   assert.match(guide, /stores a record in that origin's `localStorage`/u);
   assert.doesNotMatch(
     guide,
@@ -65,13 +65,13 @@ test("DTC-03: session records are described as localStorage-backed", async () =>
 
 test("DTC-04: docs link to existing trackers, not IMPLEMENTATION_PLAN.md", async () => {
   for (const path of [
-    "docs/SDK_GUIDE.md",
+    "docs/site-integration.md",
     "docs/archive/agent-collaboration-handoff.md",
   ]) {
     const text = await read(path);
     assert.doesNotMatch(text, /IMPLEMENTATION_PLAN\.md/u, path);
   }
-  const guide = await read("docs/SDK_GUIDE.md");
+  const guide = await read("docs/site-integration.md");
   assert.match(
     guide,
     /Release status and remaining work are tracked in \[[^\]]+\]\((?:evidence\.md|\.\.\/CHANGELOG\.md)\)/u,
