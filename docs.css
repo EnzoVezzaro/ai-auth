@@ -60,13 +60,6 @@ body::before {
   opacity: 0.28;
 }
 
-@media (pointer: fine) {
-  body,
-  a {
-    cursor: none;
-  }
-}
-
 ::selection {
   background: var(--orange);
   color: #fff;
@@ -103,32 +96,6 @@ a {
   width: 0;
   height: 0;
   overflow: hidden;
-}
-
-.cursor-arrow {
-  position: fixed;
-  z-index: 300;
-  top: 0;
-  left: 0;
-  width: 24px;
-  height: 24px;
-  pointer-events: none;
-  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45));
-  transition: transform 0.18s ease;
-  will-change: transform;
-}
-
-.cursor-arrow svg {
-  width: 100%;
-  height: 100%;
-  fill: var(--ink);
-  stroke: #0b0b0d;
-  stroke-width: 1;
-}
-
-.cursor-arrow.active svg {
-  fill: var(--orange);
-  stroke: #fff;
 }
 
 .site-header {
@@ -688,7 +655,6 @@ a {
   .site-header,
   .toc-wrap,
   .doc-footer,
-  .cursor-arrow,
   .cursor-mark {
     display: none;
   }

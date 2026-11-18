@@ -78,10 +78,6 @@
         <path d="M4 2 L4 20 L9 15 L12.5 23 L15.5 21.5 L12 14 L19 14 Z" />
       </symbol>
     </svg>
-    <div class="cursor-arrow" aria-hidden="true">
-      <svg><use href="#cursor-arrow"></use></svg>
-    </div>
-
     <header class="topbar">
       <a class="brand" href="./" aria-label="AI Auth, home">
         <span class="brand-mark" aria-hidden="true"></span>
@@ -345,36 +341,8 @@
     </footer>
 
     <script>
-      // Pointer-follow dot, drifting agent cursors, and scroll reveals.
+      // Scroll reveals and progress. The visitor keeps the native cursor.
       (() => {
-        const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-        const fine = matchMedia("(pointer: fine)").matches;
-        const dot = document.querySelector(".cursor-arrow");
-        if (dot && fine && !reduce) {
-          let x = innerWidth / 2,
-            y = innerHeight / 2,
-            tx = x,
-            ty = y;
-          addEventListener(
-            "pointermove",
-            (e) => {
-              tx = e.clientX;
-              ty = e.clientY;
-            },
-            { passive: true },
-          );
-          const frame = () => {
-            x += (tx - x) * 0.18;
-            y += (ty - y) * 0.18;
-            dot.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-            requestAnimationFrame(frame);
-          };
-          requestAnimationFrame(frame);
-          document.addEventListener("pointerover", (e) => {
-            dot.classList.toggle("active", !!e.target.closest("a, button"));
-          });
-        } else if (dot) dot.remove();
-
         const io = new IntersectionObserver(
           (entries) => {
             for (const entry of entries)

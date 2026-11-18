@@ -272,7 +272,6 @@ export function renderDocPage({ markdown, title, name, docs, rawPath }) {
 <svg class="cursor-sprite" aria-hidden="true" width="0" height="0">
 <symbol id="cursor-arrow" viewBox="0 0 24 24"><path d="M4 2 L4 20 L9 15 L12.5 23 L15.5 21.5 L12 14 L19 14 Z"></path></symbol>
 </svg>
-<div class="cursor-arrow" aria-hidden="true"><svg><use href="#cursor-arrow"></use></svg></div>
 <header class="site-header">
   <a class="brand" href="../index.html"><span class="mark" aria-hidden="true"></span>AI Auth<span class="brand-dim">/ docs</span></a>
   <nav class="primary" aria-label="Documentation">
@@ -297,25 +296,6 @@ ${html}
   </main>
 ${toc(headings)}
 </div>
-<script>
-(() => {
-  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const fine = matchMedia("(pointer: fine)").matches;
-  const dot = document.querySelector(".cursor-arrow");
-  if (!dot || !fine || reduce) { if (dot) dot.remove(); return; }
-  let x = innerWidth / 2, y = innerHeight / 2, tx = x, ty = y;
-  addEventListener("pointermove", (e) => { tx = e.clientX; ty = e.clientY; }, { passive: true });
-  const frame = () => {
-    x += (tx - x) * 0.2; y += (ty - y) * 0.2;
-    dot.style.transform = "translate3d(" + x + "px," + y + "px,0)";
-    requestAnimationFrame(frame);
-  };
-  requestAnimationFrame(frame);
-  document.addEventListener("pointerover", (e) => {
-    dot.classList.toggle("active", !!e.target.closest("a"));
-  });
-})();
-</script>
 </body>
 </html>
 `;
