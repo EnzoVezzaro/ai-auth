@@ -242,7 +242,7 @@ function toc(headings) {
     )
     .join("\n");
   return links
-    ? `<nav class="toc" aria-label="On this page">${links}</nav>`
+    ? `<div class="toc-wrap"><span class="toc-label">On this page</span><nav class="toc" aria-label="On this page">${links}</nav></div>`
     : "";
 }
 
@@ -269,24 +269,62 @@ export function renderDocPage({ markdown, title, name, docs, rawPath }) {
 </head>
 <body>
 <a class="skip-link" href="#content">Skip to content</a>
+<svg class="cursor-sprite" aria-hidden="true" width="0" height="0">
+<symbol id="cursor-arrow" viewBox="0 0 24 24"><path d="M4 2 L4 20 L9 15 L12.5 23 L15.5 21.5 L12 14 L19 14 Z"></path></symbol>
+</svg>
+<div class="agents-stage" aria-hidden="true"><span class="agent green" id="doc-agent"><svg class="ptr"><use href="#cursor-arrow"></use></svg><b>o87xdo83</b><em class="agent-note">verified this page</em></span></div>
 <header class="site-header">
-  <a class="brand" href="../index.html"><span class="mark" aria-hidden="true"></span>AI Auth <span class="brand-dim">/ docs</span></a>
+  <a class="brand" href="../index.html"><span class="mark" aria-hidden="true"></span>AI Auth<span class="brand-dim">/ docs</span></a>
   <nav class="primary" aria-label="Documentation">
 ${nav}
   </nav>
+  <span class="header-status"><span class="live-dot"></span>NO SERVER · SELF-CUSTODIAL</span>
 </header>
 <div class="layout">
   <main id="content" class="article">
-    <p class="eyebrow">Documentation</p>
-    <h1 class="page-title">${escapeHtml(title)}</h1>
+    <div class="doc-hero">
+      <p class="eyebrow"><span class="live-dot"></span>DOCUMENTATION · v0.10.0</p>
+      <h1 class="page-title">${escapeHtml(title)}<span class="caret" aria-hidden="true"></span></h1>
+    </div>
+    <div class="doc-body">
 ${html}
+    </div>
     <footer class="doc-footer">
-      <a href="${escapeHtml(rawPath)}">View raw Markdown</a>
-      <span>AI Auth · self-custodied identity, no server</span>
+      <a href="${escapeHtml(rawPath)}">View raw Markdown ↗</a>
+      <span>AI Auth · an identity your agents take with them</span>
     </footer>
   </main>
 ${toc(headings)}
 </div>
+<script>
+(() => {
+  const stage = document.querySelector(".agents-stage");
+  const agent = document.getElementById("doc-agent");
+  const note = agent.querySelector(".agent-note");
+  const headings = [...document.querySelectorAll(".doc-body h2")];
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const update = () => {
+    if (reduced || innerWidth < 900) return;
+    let current = null;
+    for (const h of headings) {
+      const r = h.getBoundingClientRect();
+      if (r.top < innerHeight * 0.5) current = h;
+    }
+    if (!current) {
+      const hero = document.querySelector(".doc-hero").getBoundingClientRect();
+      agent.style.transform = "translate3d(" + Math.min(hero.right - 40, innerWidth - 150) + "px," + Math.max(90, hero.top + 80) + "px,0)";
+      note.textContent = "verified this page";
+      return;
+    }
+    const r = current.getBoundingClientRect();
+    agent.style.transform = "translate3d(" + Math.min(r.right + 24, innerWidth - 160) + "px," + Math.max(90, Math.min(r.top + 6, innerHeight - 90)) + "px,0)";
+    note.textContent = "verified " + current.textContent.replace(/^\[\d+\]\s*/u, "").replace(/#\s*$/u, "").trim();
+  };
+  addEventListener("scroll", update, { passive: true });
+  addEventListener("resize", update, { passive: true });
+  update();
+})();
+</script>
 </body>
 </html>
 `;

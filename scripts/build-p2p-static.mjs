@@ -228,8 +228,8 @@ const architecture = await readFile(
 if (
   !landing.includes('href="./wallet/"') ||
   !landing.includes('href="./docs/ARCHITECTURE.html"') ||
-  !landing.includes('src="./landing/entry.js"') ||
-  !landingBundle.includes("data-scene") ||
+  !landing.includes('class="cursor-sprite"') ||
+  !landing.includes("data-reveal") ||
   !wallet.includes(`src="./app.js?v=${version}"`) ||
   !wallet.includes(`href="./styles.css?v=${version}"`) ||
   !architecture.includes('href="./docs.css"') ||

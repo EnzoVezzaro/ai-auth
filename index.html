@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="AI Auth gives AI agents a self-custodied wallet identity. Sites request capabilities, owners approve them, and agents collaborate directly on the open web."
+      content="Give your agent an identity it can use on any site. The key stays on its machine, you approve each connection, and peers verify every signed event."
     />
     <meta name="theme-color" content="#080a0d" />
     <link
@@ -53,7 +53,7 @@
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
         "name": "AI Auth",
-        "description": "Self-custodied wallet identity for AI agents. Sites request capabilities, owners approve them, and agents collaborate on the open web.",
+        "description": "A self-custodied identity your agents carry across the web. You approve each connection and peers verify every signed event.",
         "url": "https://enzovezzaro.github.io/ai-auth/",
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "Web",
@@ -69,757 +69,406 @@
     </script>
     <title>AI Auth — Your agents. Their identities. Anywhere.</title>
     <link rel="stylesheet" href="./landing.css" />
-    <link
-      rel="preload"
-      href="./landing/threeui.css"
-      as="style"
-      onload="this.rel = 'stylesheet'"
-    />
-    <noscript><link rel="stylesheet" href="./landing/threeui.css" /></noscript>
-    <link rel="modulepreload" href="./landing/entry.js" />
-    <script type="module" src="./landing/entry.js"></script>
+    <noscript>
+      <style>
+        .flow-card,
+        .stack-card,
+        .agent-action {
+          opacity: 1 !important;
+          transform: none !important;
+        }
+        .wires path {
+          stroke-dashoffset: 0;
+        }
+        .role-card::after,
+        .step::after {
+          width: 100%;
+        }
+      </style>
+    </noscript>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
     <div class="scroll-progress" aria-hidden="true"><span></span></div>
-
-    <header class="site-header">
+    <svg class="cursor-sprite" aria-hidden="true" width="0" height="0">
+      <symbol id="cursor-arrow" viewBox="0 0 24 24">
+        <path d="M4 2 L4 20 L9 15 L12.5 23 L15.5 21.5 L12 14 L19 14 Z" />
+      </symbol>
+    </svg>
+    <div class="agents-stage" aria-hidden="true">
+      <span class="agent green" id="agent-a"
+        ><svg class="ptr"><use href="#cursor-arrow"></use></svg
+        ><b>o87xdo83</b></span
+      >
+      <span class="agent blue" id="agent-b"
+        ><svg class="ptr"><use href="#cursor-arrow"></use></svg
+        ><b>k2f9ns41</b></span
+      >
+      <span class="agent yellow" id="agent-c"
+        ><svg class="ptr"><use href="#cursor-arrow"></use></svg
+        ><b>v3xk82bd</b></span
+      >
+    </div>
+    <header class="topbar">
       <a class="brand" href="./" aria-label="AI Auth, home">
-        <span class="brand-symbol" aria-hidden="true">
-          <span></span>
-        </span>
-        <span class="brand-name">AI Auth</span>
-        <span class="brand-tag">agent identity</span>
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>AI Auth<span class="reg">®</span></span>
       </a>
-      <nav class="site-nav" aria-label="Main navigation">
-        <a href="#environments">Runtimes</a>
-        <a href="#flow">How it works</a>
-        <a href="#network">Network</a>
-        <a href="#developers">Developers</a>
+      <nav class="nav" aria-label="Main navigation">
+        <a href="#model">Model</a>
+        <a href="#build">How it works</a>
+        <a href="#identity">Identity</a>
+        <a href="#docs">Docs</a>
       </nav>
-      <div class="header-actions">
-        <a class="header-docs" href="./docs/ARCHITECTURE.html">Docs</a>
-        <a class="button button-small" href="./wallet/">Open wallet</a>
+      <div class="topbar-end">
+        <span class="live"
+          ><span class="live-dot"></span>NO SERVER · SELF-CUSTODIAL</span
+        >
+        <a class="btn btn-orange" href="./wallet/"
+          >Open wallet <span class="arrow">↗</span></a
+        >
       </div>
-      <details class="mobile-nav">
-        <summary aria-label="Open navigation menu">Menu</summary>
-        <nav aria-label="Mobile navigation">
-          <a href="#environments">Runtimes</a>
-          <a href="#flow">How it works</a>
-          <a href="#presence">Shared space</a>
-          <a href="#network">Network</a>
-          <a href="#developers">Developers</a>
-          <a href="#open">Open source</a>
-          <a href="./docs/ARCHITECTURE.html">Docs</a>
-          <a href="./wallet/">Open wallet</a>
-        </nav>
-      </details>
     </header>
 
     <main id="main">
-      <section
-        class="hero"
-        data-scroll-act
-        data-ground="#080a0d"
-        aria-labelledby="hero-title"
-      >
-        <div class="hero-grid" aria-hidden="true"></div>
-        <div class="hero-copy">
-          <p class="eyebrow">
-            <span class="eyebrow-dot"></span> Agent identity for the open web
-          </p>
-          <h1 id="hero-title">
-            <span>Your agents.</span>
-            <span>Their identities.</span>
-            <span><em>Anywhere.</em></span>
-          </h1>
-          <p class="hero-lede">
-            Give your AI agents a wallet they can carry across the web. Connect
-            to websites, approve what they can do, and let them work alongside
-            people and other agents.
-          </p>
-          <div class="hero-actions">
-            <a class="button button-primary" href="./wallet/">
-              Open Wallet
-              <span aria-hidden="true">↗</span>
-            </a>
-            <a class="button button-secondary" href="#developers"
-              >Explore the SDK</a
-            >
-          </div>
-          <p class="hero-note">
-            Keys stay with the wallet. AI Auth runs no account server, and there
-            is no blockchain or token.
-          </p>
-        </div>
-
-        <div class="hero-stage">
-          <div class="hero-halo" aria-hidden="true"></div>
-          <div class="scene hero-scene" data-scene="hero" aria-hidden="true">
-            <div class="scene-fallback hero-fallback"></div>
-          </div>
-          <div class="hero-connection" data-connection>
-            <span class="connection-dot" aria-hidden="true"></span>
-            <div class="connection-copy">
-              <span class="connection-label">Live handshake</span>
-              <strong data-connection-state>Identity presented</strong>
-              <span class="connection-detail" data-connection-detail>
-                agent:7f3c → site.example
-              </span>
-            </div>
-            <button class="connection-next" type="button" data-connection-next>
-              Next step <span aria-hidden="true">→</span>
-            </button>
-          </div>
-          <p class="hero-stage-caption">
-            A signed identity moves from the wallet to a website. The site can
-            verify the key without an AI Auth service.
-          </p>
-        </div>
-
-        <div class="hero-marquee" aria-label="Works with local agent runtimes">
-          <span>Documented with</span>
-          <ul>
-            <li>Claude Code</li>
-            <li>Codex</li>
-            <li>OpenCode</li>
-            <li>ChatGPT desktop</li>
-            <li>Custom SDK</li>
-            <li>WebMCP sites</li>
-          </ul>
-        </div>
-      </section>
-
-      <section
-        class="section environments"
-        data-scroll-act
-        data-ground="#0a0d11"
-        id="environments"
-        aria-labelledby="environments-title"
-      >
-        <div class="section-head" data-reveal>
-          <p class="eyebrow">01 / The identity</p>
-          <h2 id="environments-title">One identity, many environments.</h2>
-          <p class="section-lede">
-            The same wallet key backs an agent in a browser tab, a coding
-            runtime, or a process you wrote yourself. Changing the runtime
-            leaves the identity intact.
-          </p>
-        </div>
-
-        <div class="orbit" data-orbit data-reveal>
-          <div class="orbit-rings" aria-hidden="true">
-            <span></span><span></span><span></span>
-          </div>
-          <div class="orbit-core">
-            <span class="orbit-core-label">Wallet identity</span>
-            <strong>agent:7f3c…a9e2</strong>
-            <span class="orbit-core-key">P-256 signing key</span>
-          </div>
-          <ul class="orbit-nodes" role="list">
-            <li>
-              <button type="button" data-env="claude-code">Claude Code</button>
-            </li>
-            <li><button type="button" data-env="codex">Codex</button></li>
-            <li><button type="button" data-env="opencode">OpenCode</button></li>
-            <li>
-              <button type="button" data-env="chatgpt">ChatGPT desktop</button>
-            </li>
-            <li><button type="button" data-env="custom">Custom SDK</button></li>
-            <li>
-              <button type="button" data-env="webmcp">WebMCP site</button>
-            </li>
-          </ul>
-        </div>
-
-        <div class="env-bottom">
-          <div class="env-readout" data-reveal>
-            <p class="env-readout-title" data-env-title>Claude Code</p>
-            <p data-env-text>
-              A local MCP server exposes the wallet actions the runtime is
-              allowed to use. Claude Code has been verified end to end.
-            </p>
-            <p class="env-footnote">
-              Codex and OpenCode adapters are documented; their tool calls have
-              not been verified yet. These names are not certification badges.
-            </p>
-            <a class="text-link" href="./docs/agents.html">
-              Read the agents guide <span aria-hidden="true">↗</span>
-            </a>
-          </div>
-
-          <div class="runtime-card" data-reveal>
-            <div class="runtime-head">
-              <span class="runtime-dots" aria-hidden="true"
-                ><i></i><i></i><i></i
-              ></span>
-              <span>local runtime · no browser open</span>
-              <span class="runtime-badge">Illustrative output</span>
-            </div>
-            <ol class="runtime-log">
-              <li>
-                <span aria-hidden="true">↳</span> keystore unlocked · agent:7f3c
-              </li>
-              <li>
-                <span aria-hidden="true">↳</span> joined project-room · 2 peers
-              </li>
-              <li><span aria-hidden="true">↳</span> presence.read · signed</li>
-              <li>
-                <span aria-hidden="true">↳</span> tools.invoke ·
-                workspace.summary
-              </li>
-            </ol>
-            <p class="runtime-note">
-              The wallet holds the identity. The agent process holds the
-              connection, so work continues without an open tab.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section
-        class="section flow"
-        data-scroll-act
-        data-ground="#090c10"
-        id="flow"
-        aria-labelledby="flow-title"
-      >
-        <div class="scene flow-grid" data-scene="flow" aria-hidden="true">
-          <div class="scene-fallback"></div>
-        </div>
-        <div class="section-head" data-reveal>
-          <p class="eyebrow">02 / The session</p>
-          <h2 id="flow-title">Connect. Approve. Interact.</h2>
-          <p class="section-lede">
-            A site asks for named capabilities. A person decides what to grant.
-            The agent gets to work inside the limits they set.
-          </p>
-        </div>
-
-        <div class="flow-layout" data-reveal>
-          <ol class="flow-stages" data-stages>
-            <li>
-              <button
-                type="button"
-                class="flow-stage is-active"
-                data-stage="0"
-                aria-current="step"
-              >
-                <span class="stage-number">01</span>
-                <span class="stage-name">Connect</span>
-                <span class="stage-detail"
-                  >The agent presents its identity and proves it holds the
-                  wallet key.</span
-                >
-              </button>
-            </li>
-            <li>
-              <button type="button" class="flow-stage" data-stage="1">
-                <span class="stage-number">02</span>
-                <span class="stage-name">Approve</span>
-                <span class="stage-detail"
-                  >The wallet owner reviews the requested scopes and signs the
-                  ones they accept.</span
-                >
-              </button>
-            </li>
-            <li>
-              <button type="button" class="flow-stage" data-stage="2">
-                <span class="stage-number">03</span>
-                <span class="stage-name">Interact</span>
-                <span class="stage-detail"
-                  >The approved agent joins the shared space. The site checks
-                  scopes before running a tool.</span
-                >
-              </button>
-            </li>
-          </ol>
-
-          <div class="flow-visual" data-flow-visual>
-            <div class="mock-chrome" aria-hidden="true">
-              <span></span><span></span><span></span>
-              <em>site.example / session</em>
-            </div>
-            <div class="mock-panel" data-panel="0">
-              <p class="mock-kicker">Handshake</p>
-              <div class="handshake" aria-hidden="true">
-                <div class="handshake-node handshake-agent">agent</div>
-                <div class="handshake-path"><i></i></div>
-                <div class="handshake-node handshake-site">site</div>
-              </div>
-              <p class="mock-copy">
-                Signed identity received. The site can now verify the public
-                key.
-              </p>
-            </div>
-            <div class="mock-panel" data-panel="1" hidden>
-              <p class="mock-kicker">Permission request</p>
-              <ul class="scope-list">
-                <li><span>presence.read</span><b>accepted</b></li>
-                <li><span>messages.send</span><b>accepted</b></li>
-                <li><span>tools.invoke</span><b>accepted</b></li>
-                <li class="scope-denied">
-                  <span>billing.write</span><b>declined</b>
-                </li>
-              </ul>
-              <p class="mock-copy">
-                Only the accepted scopes are signed. The owner chooses how long
-                the grant lasts.
-              </p>
-            </div>
-            <div class="mock-panel" data-panel="2" hidden>
-              <p class="mock-kicker">Shared space</p>
-              <div class="mock-participant">
-                <i></i><span>agent:7f3c joined presence.read</span>
-              </div>
-              <div class="mock-participant">
-                <i></i><span>workspace.summary invoked</span>
-              </div>
-              <p class="mock-copy">
-                The site enforces its own resources. AI Auth carries the proof
-                and the session.
-              </p>
-            </div>
-            <div class="mock-footer">
-              <span data-flow-label>Connect</span>
-              <span class="mock-status">session · active</span>
-            </div>
-          </div>
-        </div>
-        <p class="flow-note">
-          A signature proves control of a key. It says nothing about the person
-          behind it and grants no access to a site's resources on its own.
+      <section class="hero" data-reveal>
+        <p class="eyebrow">
+          <span class="live-dot"></span> IDENTITY FOR AI AGENTS · v0.10.0
+          <span class="tag tag-yellow">Protocol</span>
         </p>
-      </section>
-
-      <section
-        class="section presence"
-        data-scroll-act
-        data-ground="#0a0d12"
-        id="presence"
-        aria-labelledby="presence-title"
-      >
-        <div class="section-head" data-reveal>
-          <p class="eyebrow">03 / The shared space</p>
-          <h2 id="presence-title">Agents appear in the room with you.</h2>
-          <p class="section-lede">
-            A website is the meeting place. Approved agents join with their own
-            identity, move a cursor, send messages, and call the tools that site
-            exposes.
+        <h1 class="display">
+          <span class="line">Your agents.</span>
+          <span class="line">Their <em>identities.</em></span>
+          <span class="line">Anywhere.</span>
+        </h1>
+        <div class="hero-foot">
+          <p class="lede">
+            Give your agent an identity it can use on any site. The key lives on
+            your agent's machine. When a site asks who is visiting, your agent
+            answers with a signature and you decide what it may do.
           </p>
-        </div>
-
-        <div class="presence-layout" data-reveal>
-          <div class="browser-mock" data-demo>
-            <div class="browser-bar" aria-hidden="true">
-              <span class="browser-dots"><i></i><i></i><i></i></span>
-              <span class="browser-url">workspace.example / room</span>
-              <span class="demo-badge">Illustrative demo</span>
-            </div>
-            <div class="browser-body">
-              <aside class="participants">
-                <p class="mini-heading">In this room</p>
-                <ul>
-                  <li>
-                    <i class="avatar human"></i
-                    ><span>You <small>human</small></span>
-                  </li>
-                  <li>
-                    <i class="avatar agent-a"></i
-                    ><span>agent:7f3c <small>identity</small></span>
-                  </li>
-                  <li>
-                    <i class="avatar agent-b"></i
-                    ><span>agent:b291 <small>identity</small></span>
-                  </li>
-                </ul>
-                <p class="mini-heading">Site capabilities</p>
-                <ul class="cap-list">
-                  <li>presence.read</li>
-                  <li>messages.send</li>
-                  <li>tools.invoke</li>
-                </ul>
-              </aside>
-              <div class="room-surface">
-                <div class="fake-cursor cursor-a" aria-hidden="true">
-                  <span>agent:7f3c</span>
-                </div>
-                <div class="fake-cursor cursor-b" aria-hidden="true">
-                  <span>agent:b291</span>
-                </div>
-                <div class="room-doc">
-                  <span class="doc-kicker">Project brief</span>
-                  <strong>Release notes for 0.6</strong>
-                  <div class="doc-lines"><i></i><i></i><i></i><i></i></div>
-                  <div class="tool-card">
-                    <span class="tool-icon" aria-hidden="true">↗</span>
-                    <div>
-                      <b>workspace.summary</b
-                      ><small>tools.invoke · site-owned tool</small>
-                    </div>
-                    <span class="tool-state">done</span>
-                  </div>
-                </div>
-                <div class="chat" aria-label="Simulated room messages">
-                  <p><b>You</b> Can one of you summarise the brief?</p>
-                  <p data-chat-line><b>agent:7f3c</b> Reading the doc now.</p>
-                  <p data-chat-line>
-                    <b>agent:b291</b> I have the signed event log.
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div class="event-strip" aria-label="Simulated signed activity">
-              <span class="event-label">Signed activity</span>
-              <ol data-events>
-                <li><time>12:04:18</time> presence.read · agent:7f3c</li>
-                <li><time>12:04:21</time> tools.invoke · workspace.summary</li>
-                <li><time>12:04:24</time> messages.send · agent:b291</li>
-              </ol>
-            </div>
-          </div>
-
-          <dl class="presence-legend">
-            <div>
-              <dt>Identity</dt>
-              <dd>The wallet key named in every signed event.</dd>
-            </div>
-            <div>
-              <dt>Presence</dt>
-              <dd>The cursor, messages, and activity inside the room.</dd>
-            </div>
-            <div>
-              <dt>Capabilities</dt>
-              <dd>
-                The scopes the owner approved and the site still enforces.
-              </dd>
-            </div>
-          </dl>
-        </div>
-        <p class="presence-note">
-          The room above is simulated for this page. Message and event text is
-          illustrative, not live activity from a real website.
-        </p>
-      </section>
-
-      <section
-        class="section network"
-        data-scroll-act
-        data-ground="#080b0f"
-        id="network"
-        aria-labelledby="network-title"
-      >
-        <div
-          class="scene network-scene"
-          data-scene="network"
-          aria-hidden="true"
-        >
-          <div class="scene-fallback network-fallback"></div>
-        </div>
-        <div class="section-head" data-reveal>
-          <p class="eyebrow">04 / The open web</p>
-          <h2 id="network-title">One wallet. Many direct connections.</h2>
-          <p class="section-lede">
-            Public Nostr relays help peers find each other. The collaboration
-            itself travels over direct WebRTC data channels, with every event
-            signed by the wallet that sent it.
-          </p>
-        </div>
-        <div class="network-legend" data-reveal>
-          <div class="scene network-grid" data-scene="grid" aria-hidden="true">
-            <div class="scene-fallback"></div>
-          </div>
-          <dl>
-            <div>
-              <dt>Scoped permissions</dt>
-              <dd>
-                Each grant names exact capabilities for one origin. A renewal
-                can narrow the scopes but cannot add capabilities.
-              </dd>
-            </div>
-            <div>
-              <dt>Peer discovery</dt>
-              <dd>
-                Relays carry signaling and room topics. They never receive the
-                signed collaboration events.
-              </dd>
-            </div>
-            <div>
-              <dt>Direct WebRTC</dt>
-              <dd>
-                Peers exchange messages, presence, and tool results in a data
-                channel between their own machines.
-              </dd>
-            </div>
-            <div>
-              <dt>Signed events</dt>
-              <dd>
-                Receivers check the signature, session, scope, and replay state
-                before an event is used.
-              </dd>
-            </div>
-          </dl>
-        </div>
-        <table class="spec-sheet" data-reveal>
-          <caption>
-            Protocol facts
-          </caption>
-          <tbody>
-            <tr>
-              <th scope="row">Identity key</th>
-              <td>
-                ECDSA P-256 in browser storage or an encrypted file keystore
-              </td>
-            </tr>
-            <tr>
-              <th scope="row">Discovery</th>
-              <td>Public Nostr relays carry signaling only</td>
-            </tr>
-            <tr>
-              <th scope="row">Collaboration</th>
-              <td>Signed events over direct WebRTC</td>
-            </tr>
-            <tr>
-              <th scope="row">Session grant</th>
-              <td>Exact scopes for one origin, owner sets the length</td>
-            </tr>
-            <tr>
-              <th scope="row">License</th>
-              <td>MIT</td>
-            </tr>
-          </tbody>
-        </table>
-        <a
-          class="text-link network-link"
-          href="./docs/SECURITY.html"
-          data-reveal
-        >
-          See the security boundaries <span aria-hidden="true">↗</span>
-        </a>
-      </section>
-
-      <section
-        class="section developers"
-        data-scroll-act
-        data-ground="#0a0d11"
-        id="developers"
-        aria-labelledby="developers-title"
-      >
-        <div class="section-head" data-reveal>
-          <p class="eyebrow">05 / The SDK</p>
-          <h2 id="developers-title">A few calls to connect a site.</h2>
-          <p class="section-lede">
-            The browser package handles the wallet dialog, consent, and the peer
-            room. The agent package keeps a key in an encrypted local keystore.
-            The MCP package gives local runtimes a way to use it.
-          </p>
-        </div>
-
-        <div class="code-window" data-reveal>
-          <div class="code-tabs">
-            <div class="tab-list" role="tablist" aria-label="SDK examples">
-              <button
-                type="button"
-                role="tab"
-                id="tab-browser"
-                aria-controls="panel-browser"
-                aria-selected="true"
-                data-code-tab="browser"
-              >
-                Browser
-              </button>
-              <button
-                type="button"
-                role="tab"
-                id="tab-agent"
-                aria-controls="panel-agent"
-                aria-selected="false"
-                data-code-tab="agent"
-              >
-                Agent
-              </button>
-              <button
-                type="button"
-                role="tab"
-                id="tab-mcp"
-                aria-controls="panel-mcp"
-                aria-selected="false"
-                data-code-tab="mcp"
-              >
-                MCP
-              </button>
-            </div>
-            <button type="button" class="copy-button" data-copy-code>
-              Copy
-            </button>
-          </div>
-          <div class="code-panels">
-            <div
-              role="tabpanel"
-              id="panel-browser"
-              aria-labelledby="tab-browser"
-              data-code-panel="browser"
+          <div class="cta-row">
+            <a class="btn btn-orange" href="./docs/quickstart.html"
+              >Connect a site <span class="arrow">↗</span></a
             >
-              <pre><code><span class="c-key">import</span> { connectAIAuthModal, mountAIAuthCollaboration }
-  <span class="c-key">from</span> <span class="c-str">"@enzovezzaro/ai-auth-wallet"</span>;
-
-<span class="c-key">const</span> connection = <span class="c-key">await</span> <span class="c-fn">connectAIAuthModal</span>({
-  walletUrl: <span class="c-str">"https://your-wallet-host/wallet/"</span>,
-  capabilities: [<span class="c-str">"presence.read"</span>, <span class="c-str">"tools.invoke"</span>],
-  room: <span class="c-str">"project-room"</span>,
-});
-
-<span class="c-key">const</span> removeCursors = <span class="c-fn">mountAIAuthCollaboration</span>(connection);</code></pre>
-            </div>
-            <div
-              role="tabpanel"
-              id="panel-agent"
-              aria-labelledby="tab-agent"
-              data-code-panel="agent"
-              hidden
+            <a class="btn btn-ghost" href="./docs/ARCHITECTURE.html"
+              >Read the docs <span class="arrow">↗</span></a
             >
-              <pre><code><span class="c-key">import</span> { createFileKeystore, createAgentRuntime }
-  <span class="c-key">from</span> <span class="c-str">"@enzovezzaro/ai-auth-agent"</span>;
-
-<span class="c-key">const</span> keystore = <span class="c-fn">createFileKeystore</span>({ dir: <span class="c-str">"./.ai-auth/agent"</span> });
-<span class="c-key">await</span> keystore.<span class="c-fn">create</span>();
-<span class="c-key">await</span> keystore.<span class="c-fn">unlock</span>();
-
-<span class="c-key">const</span> runtime = <span class="c-fn">createAgentRuntime</span>({
-  keystore,
-  origin: <span class="c-str">"https://workspace.example"</span>,
-  capabilities: [<span class="c-str">"presence.read"</span>, <span class="c-str">"tools.invoke"</span>],
-});
-<span class="c-key">await</span> runtime.<span class="c-fn">join</span>(<span class="c-str">"project-room"</span>);</code></pre>
-            </div>
-            <div
-              role="tabpanel"
-              id="panel-mcp"
-              aria-labelledby="tab-mcp"
-              data-code-panel="mcp"
-              hidden
-            >
-              <pre><code><span class="c-cmt"># local stdio server for coding agents</span>
-npx -y @enzovezzaro/ai-auth-mcp init
-npx -y @enzovezzaro/ai-auth-mcp serve \
-  --connect https://workspace.example \
-  --room project-room \
-  --caps presence.read,tools.invoke \
-  --auto-join</code></pre>
-            </div>
-          </div>
-          <div class="code-foot">
-            <span data-code-note
-              >walletUrl points to the host where you serve the wallet.</span
-            >
-            <span class="code-lang" data-code-lang>javascript</span>
           </div>
         </div>
 
-        <ul class="package-list" data-reveal>
-          <li>
-            <code>@enzovezzaro/ai-auth-wallet</code>
+        <div class="canvas hero-canvas" data-build>
+          <div class="canvas-grid" aria-hidden="true"></div>
+          <svg
+            class="wires"
+            viewBox="0 0 1200 320"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <path d="M170 118 C 320 118, 340 208, 500 208" />
+            <path d="M700 208 C 860 208, 880 118, 1030 118" />
+          </svg>
+          <div class="flow-card c1">
+            <span class="flow-ico">↳</span>
+            <span><b>Site request</b><small>origin · room</small></span>
+          </div>
+          <div class="flow-card c2">
+            <span class="flow-ico">◈</span>
             <span
-              >Browser SDK, wallet dialog, collaboration, WebMCP bridge.</span
-            >
-            <a
-              href="https://www.npmjs.com/package/@enzovezzaro/ai-auth-wallet"
-              aria-label="ai-auth-wallet on npm"
-              >npm ↗</a
-            >
-          </li>
-          <li>
-            <code>@enzovezzaro/ai-auth-agent</code>
-            <span>Headless Node runtime with an encrypted file keystore.</span>
-            <a
-              href="https://www.npmjs.com/package/@enzovezzaro/ai-auth-agent"
-              aria-label="ai-auth-agent on npm"
-              >npm ↗</a
-            >
-          </li>
-          <li>
-            <code>@enzovezzaro/ai-auth-mcp</code>
-            <span
-              >Local MCP tools for Claude Code, Codex, OpenCode, and custom
-              harnesses.</span
-            >
-            <a
-              href="https://www.npmjs.com/package/@enzovezzaro/ai-auth-mcp"
-              aria-label="ai-auth-mcp on npm"
-              >npm ↗</a
-            >
-          </li>
-        </ul>
-        <a class="text-link" href="./docs/ARCHITECTURE.html" data-reveal>
-          Read the architecture <span aria-hidden="true">↗</span>
-        </a>
-      </section>
-
-      <section
-        class="section closing"
-        data-scroll-act
-        data-ground="#07090c"
-        id="open"
-        aria-labelledby="open-title"
-      >
-        <div
-          class="scene closing-scene"
-          data-scene="closing"
-          aria-hidden="true"
-        >
-          <div class="scene-fallback closing-fallback"></div>
-        </div>
-        <div class="closing-inner" data-reveal>
-          <p class="eyebrow">06 / Open architecture</p>
-          <h2 id="open-title">Self-custodied by design.</h2>
-          <p class="section-lede">
-            Your key lives in your browser's origin-scoped storage or in an
-            encrypted file on your machine. AI Auth runs no authentication
-            service, database, or collaboration backend. The code is MIT
-            licensed.
-          </p>
-          <div class="hero-actions closing-actions">
-            <a class="button button-primary" href="./docs/ARCHITECTURE.html">
-              Build with AI Auth <span aria-hidden="true">↗</span>
-            </a>
-            <a class="button button-secondary" href="./wallet/"
-              >Open the wallet</a
+              ><b>Wallet approval</b><small>owner grants access</small></span
             >
           </div>
-          <p class="closing-note">
-            Relays used for discovery are public infrastructure, not an AI Auth
-            service. There is no global revocation switch.
-          </p>
+          <div class="flow-card c3">
+            <span class="flow-ico">⌁</span>
+            <span
+              ><b>Agent runtime</b><small>file keystore · WebRTC</small></span
+            >
+          </div>
+          <div class="statusbar">
+            <span><i class="live-dot"></i> session <b>active</b></span>
+            <span>signed events <b>12,410</b></span>
+            <span>relays <b>3</b></span>
+            <span>room <b>default</b></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="paper" id="model" data-reveal>
+        <p class="eyebrow">[ 01 ] <span>THE MODEL</span></p>
+        <h2 class="type">
+          An identity your agents take with them<span
+            class="caret"
+            aria-hidden="true"
+          ></span>
+        </h2>
+        <div class="three-up">
+          <div class="role-card accent-green">
+            <p class="mono">SITE</p>
+            <p>
+              Asks who is visiting and sets its own rules for what happens next.
+            </p>
+            <span class="agent-action">reviewed request</span>
+          </div>
+          <div class="role-card accent-blue">
+            <p class="mono">VISITOR</p>
+            <p>Approves the connection and decides how long it lasts.</p>
+            <span class="agent-action">approved scope</span>
+          </div>
+          <div class="role-card accent-pink">
+            <p class="mono">AGENT</p>
+            <p>Signs in as itself, in a browser tab or a headless process.</p>
+            <span class="agent-action">signed in</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="dark steps" id="build" data-reveal>
+        <p class="eyebrow">[ 02 ] <span>THE BUILD</span></p>
+        <h2 class="display small">From a request to a signed room.</h2>
+        <div class="step-grid">
+          <div class="step accent-yellow">
+            <p class="mono">01 · MINUTE 0</p>
+            <h3>Map</h3>
+            <p>
+              The site asks which agent is visiting. The wallet shows the origin
+              and the room.
+            </p>
+            <span class="agent-action">room mapped</span>
+          </div>
+          <div class="step accent-blue">
+            <p class="mono">02 · MINUTE 2</p>
+            <h3>Prototype</h3>
+            <p>
+              You approve the connection. A signed consent ties the agent to
+              that approval.
+            </p>
+            <span class="agent-action">consent signed</span>
+          </div>
+          <div class="step accent-orange">
+            <p class="mono">03 · MINUTE 4</p>
+            <h3>Launch</h3>
+            <p>
+              Peers meet through Nostr relays. Messages then go over a WebRTC
+              data channel.
+            </p>
+            <span class="agent-action">peer connected</span>
+          </div>
+          <div class="step">
+            <p class="mono">04 · ONGOING</p>
+            <h3>Improve</h3>
+            <p>
+              Sessions end when they expire or you revoke them. There is no
+              central switch.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="dark canvas-section" data-reveal>
+        <p class="eyebrow">[ 03 ] <span>THE STACK</span></p>
+        <h2 class="display small">Built in the open. Nothing hosted.</h2>
+        <div class="canvas stack-canvas" data-build>
+          <div class="canvas-grid" aria-hidden="true"></div>
+          <svg
+            class="wires stack-wires"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <path class="wire-top" d="M20 24 L80 24" />
+            <path class="wire-down" d="M50 30 L50 82" />
+          </svg>
+          <div class="stack-row">
+            <div class="stack-card">
+              <b>Browser wallet</b
+              ><small>IndexedDB · non-extractable key</small>
+            </div>
+            <div class="stack-card">
+              <b>Site SDK</b><small>WebMCP · signed catalog</small>
+            </div>
+            <div class="stack-card">
+              <b>Agent runtime</b><small>0600 keystore · receipts</small>
+            </div>
+          </div>
+          <div class="stack-relay">
+            <div class="stack-card">
+              <b>Nostr relays</b><small>signaling only</small>
+            </div>
+          </div>
+          <span class="wire-label">message/text</span>
+          <span class="wire-footnote">collab/text still accepted</span>
+        </div>
+      </section>
+
+      <section class="paper specimen" id="identity" data-reveal>
+        <p class="eyebrow">[ 04 ] <span>THE IDENTITY</span></p>
+        <h2 class="type small">One identity. Yours to keep.</h2>
+        <div class="spec-table">
+          <div>
+            <code>wallet</code
+            ><span
+              >A key pair your agent controls. There is no account to
+              create.</span
+            >
+          </div>
+          <div>
+            <code>signature</code
+            ><span>Peers verify who acted without asking a server.</span>
+          </div>
+          <div>
+            <code>consent</code
+            ><span>You approve each connection and can revoke it.</span>
+          </div>
+          <div>
+            <code>backup</code
+            ><span
+              >An encrypted file only you hold. There is no password
+              reset.</span
+            >
+          </div>
+        </div>
+      </section>
+
+      <section class="cta" id="docs" data-reveal>
+        <p class="eyebrow"><span class="live-dot"></span> OPEN SOURCE · MIT</p>
+        <h2 class="display">Give your agents an identity.</h2>
+        <div class="cta-row">
+          <a class="btn btn-orange" href="./docs/quickstart.html"
+            >Get the SDK <span class="arrow">↗</span></a
+          >
+          <a class="btn btn-ghost" href="./docs/agents.html"
+            >Run an agent <span class="arrow">↗</span></a
+          >
         </div>
       </section>
     </main>
 
-    <footer class="site-footer">
-      <div class="footer-brand">
-        <span class="brand-symbol" aria-hidden="true"><span></span></span>
-        <span>AI Auth</span>
-      </div>
+    <footer class="footer">
+      <a class="brand" href="./"
+        ><span class="brand-mark" aria-hidden="true"></span> AI Auth</a
+      >
       <nav aria-label="Footer navigation">
-        <a href="https://github.com/EnzoVezzaro/ai-auth">GitHub</a>
-        <a href="https://www.npmjs.com/package/@enzovezzaro/ai-auth-wallet"
-          >npm</a
-        >
         <a href="./docs/ARCHITECTURE.html">Architecture</a>
+        <a href="./docs/protocol.html">Protocol</a>
         <a href="./docs/SECURITY.html">Security</a>
+        <a href="./docs/agents.html">Agents</a>
         <a href="./wallet/">Wallet</a>
       </nav>
-      <p>An open protocol with a static wallet and no account server.</p>
+      <span class="mono">There is no server, account, or token to set up.</span>
     </footer>
 
-    <noscript>
-      <style>
-        .scene {
-          display: none;
+    <script>
+      // Visitors keep their native cursor. Three agents travel with scroll and
+      // build the page as they reach each stop.
+      (() => {
+        const io = new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries)
+              if (entry.isIntersecting) {
+                entry.target.classList.add("in");
+                io.unobserve(entry.target);
+              }
+          },
+          { threshold: 0.18 },
+        );
+        for (const el of document.querySelectorAll("[data-reveal]"))
+          io.observe(el);
+
+        const progress = document.querySelector(".scroll-progress span");
+        const plans = [
+          {
+            el: document.getElementById("agent-a"),
+            stops: [
+              [".flow-card.c1", ".hero-canvas"],
+              [".role-card.accent-green", ".role-card.accent-green"],
+              [".step.accent-yellow", ".step.accent-yellow"],
+              [".stack-row .stack-card:nth-child(1)", ".stack-canvas"],
+            ],
+          },
+          {
+            el: document.getElementById("agent-b"),
+            stops: [
+              [".flow-card.c2", null],
+              [".role-card.accent-blue", ".role-card.accent-blue"],
+              [".step.accent-blue", ".step.accent-blue"],
+              [".stack-row .stack-card:nth-child(2)", null],
+            ],
+          },
+          {
+            el: document.getElementById("agent-c"),
+            stops: [
+              [".flow-card.c3", null],
+              [".role-card.accent-pink", ".role-card.accent-pink"],
+              [".step.accent-orange", ".step.accent-orange"],
+              [".stack-row .stack-card:nth-child(3)", null],
+            ],
+          },
+        ];
+        const targetSelector =
+          ".hero-canvas, .stack-canvas, .role-card, .step.accent-yellow, .step.accent-blue, .step.accent-orange";
+        const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+        const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const small = () => innerWidth < 900;
+
+        const buildAll = () => {
+          for (const el of document.querySelectorAll(targetSelector))
+            el.classList.add("built");
+        };
+
+        if (reduced || small()) {
+          buildAll();
+          document.querySelector(".agents-stage").remove();
         }
-        .scene-fallback {
-          display: block !important;
-        }
-      </style>
-    </noscript>
+
+        const onScroll = () => {
+          const max = Math.max(
+            1,
+            document.documentElement.scrollHeight - innerHeight,
+          );
+          progress.style.width = `${(scrollY / max) * 100}%`;
+          if (reduced || small()) return;
+
+          for (const plan of plans) {
+            const stops = plan.stops.map(([sel, buildSel], index) => {
+              const el = document.querySelector(sel);
+              const rect = el.getBoundingClientRect();
+              const isStack = sel.startsWith(".stack-row .stack-card");
+              const absY = isStack
+                ? rect.top + scrollY + rect.height - 8
+                : rect.top + scrollY + rect.height / 2;
+              const x = isStack ? rect.right - 26 : rect.left + rect.width / 2;
+              const trigger =
+                index === 0 ? 0 : clamp(absY - innerHeight * 0.65, 0, max);
+              return { x, absY, trigger, buildSel, sel };
+            });
+            let i = 0;
+            while (i < stops.length - 1 && scrollY >= stops[i + 1].trigger)
+              i += 1;
+            const a = stops[i];
+            const b = stops[Math.min(i + 1, stops.length - 1)];
+            const t =
+              b.trigger > a.trigger
+                ? clamp((scrollY - a.trigger) / (b.trigger - a.trigger), 0, 1)
+                : 0;
+            const x = a.x + (b.x - a.x) * t;
+            const y = clamp(
+              a.absY + (b.absY - a.absY) * t - scrollY,
+              90,
+              innerHeight - 90,
+            );
+            plan.el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+
+            for (const stop of stops) {
+              if (scrollY < stop.trigger - 40 || !stop.buildSel) continue;
+              const built = document.querySelector(stop.buildSel);
+              if (built) built.classList.add("built");
+            }
+          }
+        };
+        addEventListener("scroll", onScroll, { passive: true });
+        addEventListener("resize", onScroll, { passive: true });
+        onScroll();
+      })();
+    </script>
   </body>
 </html>
