@@ -73,7 +73,14 @@
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
     <div class="scroll-progress" aria-hidden="true"><span></span></div>
-    <div class="cursor-dot" aria-hidden="true"></div>
+    <svg class="cursor-sprite" aria-hidden="true" width="0" height="0">
+      <symbol id="cursor-arrow" viewBox="0 0 24 24">
+        <path d="M4 2 L4 20 L9 15 L12.5 23 L15.5 21.5 L12 14 L19 14 Z" />
+      </symbol>
+    </svg>
+    <div class="cursor-arrow" aria-hidden="true">
+      <svg><use href="#cursor-arrow"></use></svg>
+    </div>
 
     <header class="topbar">
       <a class="brand" href="./" aria-label="AI Auth, home">
@@ -169,10 +176,20 @@
         </h2>
         <div class="role-marks" aria-hidden="true">
           <span class="cursor-mark green" style="--x: 14%; --y: 26%"
+            ><svg class="ptr" aria-hidden="true">
+              <use href="#cursor-arrow"></use></svg
             >Writer</span
           >
-          <span class="cursor-mark blue" style="--x: 52%; --y: 62%">Dev</span>
-          <span class="cursor-mark pink" style="--x: 78%; --y: 34%">Ops</span>
+          <span class="cursor-mark blue" style="--x: 52%; --y: 62%"
+            ><svg class="ptr" aria-hidden="true">
+              <use href="#cursor-arrow"></use></svg
+            >Dev</span
+          >
+          <span class="cursor-mark pink" style="--x: 78%; --y: 34%"
+            ><svg class="ptr" aria-hidden="true">
+              <use href="#cursor-arrow"></use></svg
+            >Ops</span
+          >
         </div>
         <div class="three-up">
           <div>
@@ -229,17 +246,20 @@
             </p>
           </div>
         </div>
-        <div class="selection" aria-hidden="true">
-          <span class="handle tl"></span><span class="handle tr"></span>
-          <span class="handle bl"></span><span class="handle br"></span>
-          <span class="dimension">1 × KEYPAIR</span>
-        </div>
         <div class="role-marks" aria-hidden="true">
           <span class="cursor-mark yellow" style="--x: 8%; --y: 18%"
+            ><svg class="ptr" aria-hidden="true">
+              <use href="#cursor-arrow"></use></svg
             >Agent 01</span
           >
-          <span class="cursor-mark blue" style="--x: 46%; --y: 72%">Dev</span>
+          <span class="cursor-mark blue" style="--x: 46%; --y: 72%"
+            ><svg class="ptr" aria-hidden="true">
+              <use href="#cursor-arrow"></use></svg
+            >Dev</span
+          >
           <span class="cursor-mark orange" style="--x: 72%; --y: 28%"
+            ><svg class="ptr" aria-hidden="true">
+              <use href="#cursor-arrow"></use></svg
             >Data</span
           >
         </div>
@@ -329,7 +349,7 @@
       (() => {
         const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
         const fine = matchMedia("(pointer: fine)").matches;
-        const dot = document.querySelector(".cursor-dot");
+        const dot = document.querySelector(".cursor-arrow");
         if (dot && fine && !reduce) {
           let x = innerWidth / 2,
             y = innerHeight / 2,

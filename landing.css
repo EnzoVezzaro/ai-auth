@@ -92,32 +92,37 @@ a {
   background: var(--orange);
 }
 
-.cursor-dot {
-  position: fixed;
-  z-index: 300;
-  top: -5px;
-  left: -5px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--orange);
-  pointer-events: none;
-  mix-blend-mode: screen;
-  transition:
-    width 0.2s,
-    height 0.2s,
-    top 0.2s,
-    left 0.2s,
-    background 0.2s;
+.cursor-sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
 }
 
-.cursor-dot.active {
-  width: 26px;
-  height: 26px;
-  top: -13px;
-  left: -13px;
-  background: rgba(255, 90, 31, 0.35);
-  border: 1px solid var(--orange);
+.cursor-arrow {
+  position: fixed;
+  z-index: 300;
+  top: 0;
+  left: 0;
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45));
+  transition: transform 0.18s ease;
+  will-change: transform;
+}
+
+.cursor-arrow svg {
+  width: 100%;
+  height: 100%;
+  fill: var(--ink);
+  stroke: #0b0b0d;
+  stroke-width: 1;
+}
+
+.cursor-arrow.active svg {
+  fill: var(--orange);
+  stroke: #fff;
 }
 
 .topbar {
@@ -492,6 +497,7 @@ a {
 }
 
 .paper {
+  position: relative;
   padding: 130px clamp(20px, 6vw, 96px) 120px;
   background: var(--ink);
   color: var(--bg);
@@ -620,61 +626,6 @@ a {
   max-width: 260px;
 }
 
-.selection {
-  position: absolute;
-  left: 18%;
-  top: 38%;
-  width: 260px;
-  height: 150px;
-  border: 1px solid var(--green);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.6s 0.6s ease;
-}
-
-.in .selection {
-  opacity: 1;
-}
-
-.handle {
-  position: absolute;
-  width: 7px;
-  height: 7px;
-  background: var(--bg);
-  border: 1px solid var(--green);
-}
-
-.handle.tl {
-  top: -4px;
-  left: -4px;
-}
-.handle.tr {
-  top: -4px;
-  right: -4px;
-}
-.handle.bl {
-  bottom: -4px;
-  left: -4px;
-}
-.handle.br {
-  bottom: -4px;
-  right: -4px;
-}
-
-.dimension {
-  position: absolute;
-  left: 50%;
-  bottom: -30px;
-  transform: translateX(-50%);
-  padding: 3px 8px;
-  border-radius: 5px;
-  background: var(--green);
-  color: #05210f;
-  font-family: var(--mono);
-  font-size: 10px;
-  white-space: nowrap;
-}
-
 .role-marks {
   position: absolute;
   inset: 0;
@@ -687,43 +638,50 @@ a {
   top: var(--y);
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  margin: 12px 0 0 8px;
+  padding: 4px 9px;
+  border-radius: 5px;
   font-family: var(--mono);
   font-size: 10px;
   color: #0b0b0d;
-  padding: 4px 8px;
-  border-radius: 5px;
-  animation: drift 9s ease-in-out infinite alternate;
+  animation: drift 10s ease-in-out infinite alternate;
 }
 
-.cursor-mark::before {
-  content: "";
-  width: 0;
-  height: 0;
-  border-left: 11px solid currentColor;
-  border-top: 6px solid transparent;
-  transform: rotate(28deg);
-  filter: drop-shadow(0 0 1px #000);
+.cursor-mark .ptr {
+  position: absolute;
+  left: -6px;
+  top: -16px;
+  width: 22px;
+  height: 22px;
+  fill: var(--cc);
+  stroke: #0b0b0d;
+  stroke-width: 1.2;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5));
 }
 
 .cursor-mark.green {
+  --cc: var(--green);
   background: var(--green);
 }
 .cursor-mark.blue {
+  --cc: var(--blue);
   background: var(--blue);
   color: #fff;
   animation-delay: -2s;
 }
 .cursor-mark.pink {
+  --cc: var(--pink);
   background: var(--pink);
   color: #fff;
   animation-delay: -4s;
 }
 .cursor-mark.yellow {
+  --cc: var(--yellow);
   background: var(--yellow);
   animation-delay: -1s;
 }
 .cursor-mark.orange {
+  --cc: var(--orange);
   background: var(--orange);
   color: #fff;
   animation-delay: -3s;
@@ -908,8 +866,7 @@ a {
     grid-template-columns: 1fr;
     gap: 8px;
   }
-  .cursor-mark,
-  .selection {
+  .cursor-mark {
     display: none;
   }
 }
@@ -927,8 +884,7 @@ a {
   [data-reveal] > *,
   [data-build] .flow-card,
   [data-build] .stack-card,
-  .type,
-  .selection {
+  .type {
     opacity: 1 !important;
     transform: none !important;
     clip-path: none !important;

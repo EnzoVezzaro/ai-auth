@@ -269,7 +269,10 @@ export function renderDocPage({ markdown, title, name, docs, rawPath }) {
 </head>
 <body>
 <a class="skip-link" href="#content">Skip to content</a>
-<div class="cursor-dot" aria-hidden="true"></div>
+<svg class="cursor-sprite" aria-hidden="true" width="0" height="0">
+<symbol id="cursor-arrow" viewBox="0 0 24 24"><path d="M4 2 L4 20 L9 15 L12.5 23 L15.5 21.5 L12 14 L19 14 Z"></path></symbol>
+</svg>
+<div class="cursor-arrow" aria-hidden="true"><svg><use href="#cursor-arrow"></use></svg></div>
 <header class="site-header">
   <a class="brand" href="../index.html"><span class="mark" aria-hidden="true"></span>AI Auth<span class="brand-dim">/ docs</span></a>
   <nav class="primary" aria-label="Documentation">
@@ -282,8 +285,7 @@ ${nav}
     <div class="doc-hero">
       <p class="eyebrow"><span class="live-dot"></span>DOCUMENTATION · v0.10.0</p>
       <h1 class="page-title">${escapeHtml(title)}<span class="caret" aria-hidden="true"></span></h1>
-      <div class="selection" aria-hidden="true"><span class="handle tl"></span><span class="handle tr"></span><span class="handle bl"></span><span class="handle br"></span><span class="dimension">OPEN · SIGNED</span></div>
-      <span class="cursor-mark green" aria-hidden="true">Dev</span>
+      <span class="cursor-mark green" aria-hidden="true"><svg class="ptr"><use href="#cursor-arrow"></use></svg>Dev</span>
     </div>
     <div class="doc-body">
 ${html}
@@ -299,7 +301,7 @@ ${toc(headings)}
 (() => {
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const fine = matchMedia("(pointer: fine)").matches;
-  const dot = document.querySelector(".cursor-dot");
+  const dot = document.querySelector(".cursor-arrow");
   if (!dot || !fine || reduce) { if (dot) dot.remove(); return; }
   let x = innerWidth / 2, y = innerHeight / 2, tx = x, ty = y;
   addEventListener("pointermove", (e) => { tx = e.clientX; ty = e.clientY; }, { passive: true });
