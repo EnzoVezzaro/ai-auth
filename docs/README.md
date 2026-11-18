@@ -19,6 +19,7 @@ Start with the [quickstart](quickstart.md) or the [site integration guide](site-
 - [Wire protocol](protocol.md) · [Limits and not yet available](limits.md)
 - [Security boundaries](SECURITY.md) · [Export and trust boundaries](BOUNDARIES.md)
 - [Site discovery](DISCOVERY.md)
+- [DID alias](DID.md) · [Identity standards review](IDENTITY_STANDARDS_REVIEW.md) · [DID verification evidence](evidence/did-key-verification.md)
 
 ## Operations
 

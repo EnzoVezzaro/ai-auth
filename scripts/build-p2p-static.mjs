@@ -186,6 +186,12 @@ const DOC_PAGES = [
   { file: "TRACEABILITY.md", label: "Traceability" },
   { file: "evidence.md", label: "Evidence" },
   { file: "AGENT_E2E_PLAN.md", label: "Agent E2E plan" },
+  { file: "DID.md", label: "DID alias" },
+  { file: "IDENTITY_STANDARDS_REVIEW.md", label: "Identity standards review" },
+  {
+    file: "evidence/did-key-verification.md",
+    label: "DID verification evidence",
+  },
 ];
 const navDocs = DOC_PAGES.filter((doc) => doc.nav);
 await mkdir(resolve(output, "docs", "raw"), { recursive: true });
@@ -202,6 +208,10 @@ for (const doc of DOC_PAGES) {
   // A clean HTML alias plus a directory at the .md URL. The directory makes
   // /docs/<name>.md redirect to /docs/<name>.md/ and serve this page as HTML.
   // Its links need one extra ../ because the page is one level deeper.
+  await mkdir(dirname(resolve(output, "docs", doc.file)), { recursive: true });
+  await mkdir(dirname(resolve(output, "docs", "raw", doc.file)), {
+    recursive: true,
+  });
   await writeFile(
     resolve(output, "docs", doc.file.replace(/\.md$/u, ".html")),
     page,

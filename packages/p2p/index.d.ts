@@ -987,3 +987,10 @@ export {
   validateDiscovery,
 } from "./discovery.js";
 export type { DiscoveryDocument, DiscoveryResult } from "./discovery.js";
+export {
+  didKeyForPublicJwk,
+  resolveDidKey,
+  publicJwkFromDid,
+  didKeyMatchesJwk,
+} from "./did.js";
+export type { DidKey, DidP256PublicJwk } from "./did.js";

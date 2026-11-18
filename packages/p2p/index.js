@@ -612,3 +612,9 @@ export {
   fetchDiscovery,
   validateDiscovery,
 } from "./discovery.js";
+export {
+  didKeyForPublicJwk,
+  resolveDidKey,
+  publicJwkFromDid,
+  didKeyMatchesJwk,
+} from "./did.js";
