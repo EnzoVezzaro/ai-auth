@@ -140,6 +140,44 @@ a {
   background: var(--yellow);
 }
 
+.agent .agent-action {
+  position: absolute;
+  top: 24px;
+  right: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--panel-2);
+  color: var(--cc);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-style: normal;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.agent .agent-action:not(:empty) {
+  opacity: 1;
+}
+
+.agent-hover,
+.agent-active {
+  outline: 1px dashed var(--agent-color, var(--orange));
+  outline-offset: 5px;
+  transition:
+    outline-color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.agent-active {
+  outline-style: solid;
+  background: color-mix(
+    in srgb,
+    var(--agent-color, var(--orange)) 12%,
+    transparent
+  );
+}
+
 .topbar {
   position: fixed;
   z-index: 100;

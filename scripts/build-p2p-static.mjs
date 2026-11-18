@@ -101,6 +101,18 @@ await build({
   sourcemap: false,
   define: { "process.env.NODE_ENV": '"production"' },
 });
+// Independent agent-cursor choreography. Kept separate from the React island
+// so the agents can be changed without rebuilding the 3D scenes.
+await build({
+  entryPoints: [resolve(root, "src/landing/agents.js")],
+  outfile: resolve(output, "landing/agents.js"),
+  bundle: true,
+  format: "esm",
+  platform: "browser",
+  target: ["es2022"],
+  minify: true,
+  sourcemap: false,
+});
 // Version the wallet assets by release, so a new deploy is never served from a
 // browser cache that still holds the previous stylesheet or script.
 const walletEntry = (
@@ -269,6 +281,10 @@ const landingBundle = await readFile(
   resolve(output, "landing/entry.js"),
   "utf8",
 );
+const agentsBundle = await readFile(
+  resolve(output, "landing/agents.js"),
+  "utf8",
+);
 const architecture = await readFile(
   resolve(output, "docs", "ARCHITECTURE.html"),
   "utf8",
@@ -277,7 +293,9 @@ if (
   !landing.includes('href="./wallet/"') ||
   !landing.includes('href="./docs/ARCHITECTURE.html"') ||
   !landing.includes('class="cursor-sprite"') ||
-  !landing.includes("data-reveal") ||
+  !landing.includes('src="./landing/agents.js"') ||
+  !landingBundle.includes("data-scene") ||
+  !agentsBundle.includes("agent-hover") ||
   !wallet.includes(`src="./app.js?v=${version}"`) ||
   !wallet.includes(`href="./styles.css?v=${version}"`) ||
   !architecture.includes('href="./docs.css"') ||
