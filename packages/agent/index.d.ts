@@ -48,6 +48,16 @@ export declare function createFileKeystore(
   options: FileKeystoreOptions,
 ): FileKeystore;
 
+/** Authorization/lease source. Mirrors the wallet's signed consent state. */
+export interface AgentAuthorization {
+  /** "active" (or true), "expired" (or "idle"), "revoked". */
+  check(): boolean | "active" | "expired" | "idle" | "revoked";
+  /** Called on authorized activity to refresh an idle timeout. */
+  touch?(): boolean;
+  /** Called when this agent's grant is revoked. */
+  revoke?(): void;
+}
+
 export interface AgentRuntimeOptions {
   keystore: FileKeystore;
   origin: string;
@@ -65,6 +75,7 @@ export interface AgentRuntimeOptions {
   now?: () => number;
   delay?: (ms: number) => Promise<void>;
   random?: () => number;
+  authorization?: AgentAuthorization;
 }
 
 export interface AgentPeer {
@@ -118,6 +129,8 @@ export interface AgentRuntime {
     options?: { to?: string },
   ): Promise<unknown>;
   checkLeases(): Promise<void>;
+  /** Ends the live session immediately after a wallet-side revocation. */
+  revoke(): Promise<void>;
   leave(): Promise<void>;
   close(): Promise<void>;
 }

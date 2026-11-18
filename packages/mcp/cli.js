@@ -10,7 +10,16 @@ import { createAIAuthMcpServer, connectAIAuthMcpStdio } from "./index.js";
 import { serveAIAuthMcpHttp } from "./http.js";
 import { parseArgs, USAGE } from "./cli-args.js";
 import { parseConnectInput, fetchSiteManifest } from "./connect-input.js";
-import { resolveApproval, renderPreview, askOnTty } from "./approval.js";
+import {
+  resolveApproval,
+  renderPreview,
+  askOnTty,
+  createApprovalLease,
+  lifetimeFromEnv,
+  readSavedGrant,
+  writeSavedGrant,
+  grantPath,
+} from "./approval.js";
 import {
   createAgentBridge,
   buildAgentActions,
@@ -83,18 +92,41 @@ async function serve(args) {
       }),
       approveCapabilities: async (asked) => {
         if (runtime) return [...runtime.capabilities];
-        const approved = await resolveApproval({
-          requested: asked,
-          approve: args.approve,
-          interactive: interactive(),
-          ask: askOnTty(),
-        });
+        const requested = [...asked].sort();
+        // A saved non-secret grant replaces approval on restart for the same
+        // origin, room and requested scopes. An explicit --approve wins and
+        // rewrites the snapshot when the request really changed.
+        const saved =
+          args.approve === null
+            ? await readSavedGrant({
+                dir: args.keystoreDir,
+                origin: site.origin,
+                room: site.room,
+                requested,
+              })
+            : null;
+        const lifetime = saved
+          ? {
+              sessionTtlMs: saved.sessionTtlMs,
+              idleTimeoutMs: saved.idleTimeoutMs,
+              approvedAt: saved.approvedAt,
+            }
+          : lifetimeFromEnv(process.env);
+        const approved = saved
+          ? [...saved.scopes]
+          : await resolveApproval({
+              requested: asked,
+              approve: args.approve,
+              interactive: interactive(),
+              ask: askOnTty(),
+            });
         runtime = createAgentRuntime({
           keystore,
           origin: site.origin,
           room: site.room,
           capabilities: approved,
           descriptor: { name: args.name ?? "ai-auth-mcp" },
+          authorization: createApprovalLease(lifetime),
         });
         const wantsRoomTools = (args.provide ?? []).includes("room");
         if (wantsRoomTools && !approved.includes("tools.invoke"))
@@ -107,6 +139,14 @@ async function serve(args) {
         bridge = createAgentBridge({
           runtime,
           providedTools: provider ? [...provider.tools] : [],
+        });
+        await writeSavedGrant({
+          dir: args.keystoreDir,
+          origin: site.origin,
+          room: site.room,
+          requested,
+          granted: approved,
+          ...lifetime,
         });
         return approved;
       },
@@ -173,6 +213,7 @@ async function unlink(args) {
     );
   await createFileKeystore({ dir: args.keystoreDir }).delete();
   await rm(path.join(args.keystoreDir, "runtime.json"), { force: true });
+  await rm(grantPath(args.keystoreDir), { force: true });
   await rm(path.join(args.keystoreDir, "http-secret"), { force: true });
   err(
     "Keystore removed. Remove the server from your harness config to stop it; revoke grants in the site's wallet UI.",

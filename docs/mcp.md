@@ -42,7 +42,9 @@ The passphrase comes from `AI_AUTH_PASSPHRASE` or a terminal prompt. `init` crea
 
 ### Choosing a site
 
-`--connect` takes a copied connect instruction, a JSON descriptor, or a site URL. For a bare URL the CLI tries `https://<origin>/.well-known/ai-auth.json`. The manifest is public discovery data with a provisional shape of `{ "origin", "room"?, "capabilities": [...], "walletUrl"? }`. It is bound to the exact origin, follows no redirects and is capped at 16 KB. A URL or manifest grants nothing on its own. Use `--origin`, `--room` and `--caps` to skip discovery.
+`--connect` takes a copied connect instruction, a JSON descriptor, or a site URL. For a bare URL the CLI fetches `<origin>/.well-known/ai-auth.json` with the shared `fetchDiscovery()` helper and validates the strict v1 shape from [site discovery](DISCOVERY.md): `type: "ai-auth-discovery"`, `v: 1`, an exact `origin`, bounded `capabilities`, `rooms`, `issuers` and `webmcp`. The agent gets its room from the first entry in `rooms` (or `default`) and its capabilities from the document, with no guessing. The fetch is bound to the exact origin, follows no redirects and is capped at 16 KiB.
+
+An older typeless `{ "origin", "room"?, "capabilities": [...], "walletUrl"? }` manifest is still accepted for compatibility, but its result is marked `source: "manifest-provisional"` and `provisional: true` rather than presented as a validated v1 document. A typed document that fails validation is never relabelled as provisional. A URL or manifest grants nothing on its own. Use `--origin`, `--room` and `--caps` to skip discovery.
 
 ## Tools
 

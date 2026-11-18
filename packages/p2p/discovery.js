@@ -191,35 +191,65 @@ export async function fetchDiscovery(
     fetch: fetchImpl = globalThis.fetch,
     maxBytes = MAX_DISCOVERY_BYTES,
     timeoutMs = DISCOVERY_TIMEOUT_MS,
+    baseUrl,
   } = {},
 ) {
   const expected = normalizeOrigin(origin);
   if (!expected) return fail("bad-origin");
   if (typeof fetchImpl !== "function") return fail("no-fetch");
+  const urls = [`${expected}${DISCOVERY_PATH}`];
+  // Static hosts may serve a site under a path prefix (for example GitHub
+  // Pages at /ai-auth/). Try that prefix only after the origin-root URL.
+  try {
+    const segments = new URL(baseUrl ?? origin).pathname
+      .split("/")
+      .filter(Boolean);
+    // A static site lives at the first path segment (GitHub Pages project
+    // sites). Deeper page paths are not site roots.
+    const prefix = segments.length ? `/${segments[0]}` : "";
+    if (prefix) urls.push(`${expected}${prefix}${DISCOVERY_PATH}`);
+  } catch {
+    // A bad base URL simply leaves the origin-root candidate in place.
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetchImpl(`${expected}${DISCOVERY_PATH}`, {
-      redirect: "error",
-      credentials: "omit",
-      cache: "no-store",
-      referrerPolicy: "no-referrer",
-      headers: { accept: "application/json" },
-      signal: controller.signal,
-    });
-    if (!response.ok) return fail("http-error");
-    const type = response.headers?.get?.("content-type") ?? "";
-    if (!/^application\/(?:[a-z0-9.+-]+\+)?json\b/iu.test(type))
-      return fail("bad-content-type");
-    const text = await readCapped(response, maxBytes);
-    if (text === null) return fail("too-large");
-    let doc;
-    try {
-      doc = JSON.parse(text);
-    } catch {
-      return fail("bad-json");
+    let last = fail("http-error");
+    for (const url of urls) {
+      const response = await fetchImpl(url, {
+        redirect: "error",
+        credentials: "omit",
+        cache: "no-store",
+        referrerPolicy: "no-referrer",
+        headers: { accept: "application/json" },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        last = fail("http-error");
+        continue;
+      }
+      const type = response.headers?.get?.("content-type") ?? "";
+      if (!/^application\/(?:[a-z0-9.+-]+\+)?json\b/iu.test(type)) {
+        last = fail("bad-content-type");
+        continue;
+      }
+      const text = await readCapped(response, maxBytes);
+      if (text === null) {
+        last = fail("too-large");
+        continue;
+      }
+      let doc;
+      try {
+        doc = JSON.parse(text);
+      } catch {
+        last = fail("bad-json");
+        continue;
+      }
+      const result = validateDiscovery(doc, { origin: expected });
+      if (result.ok) return result;
+      last = result;
     }
-    return validateDiscovery(doc, { origin: expected });
+    return last;
   } catch {
     return fail("fetch-failed");
   } finally {

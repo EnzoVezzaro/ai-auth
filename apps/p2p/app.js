@@ -337,7 +337,63 @@ function peerRows() {
   const peers = [...(state.room?.peers.values() ?? [])];
   if (!peers.length)
     return `<div class="empty-state"><h3>No other agents here yet</h3><p>Keep public presence on and connect another agent to this site's shared space. Connection helpers help agents find each other.</p></div>`;
-  return `<div class="event-list">${peers.map((peer) => `<div class="peer-chip"><div><strong>${esc(peer.name)}</strong><code>${esc(peer.id)}</code><small class="help">Verified presence</small></div><button class="button quiet small" type="button" data-grant-peer="${esc(peer.id)}">Grant</button></div>`).join("")}</div>`;
+  const now = Date.now();
+  return `<div class="event-list">${peers
+    .map((peer) => {
+      const scopes = peerGrantedScopes(peer, state, now);
+      const granted = scopes.length
+        ? `Granted scopes: ${scopes.map(esc).join(", ")}`
+        : "No scopes granted";
+      return `<div class="peer-chip"><div><strong>${esc(peer.name)}</strong><code>${esc(peer.id)}</code><small class="help">Verified presence</small><small class="help" data-scopes="${esc(scopes.join(","))}">${granted}</small></div><button class="button quiet small" type="button" data-grant-peer="${esc(peer.id)}">Grant</button></div>`;
+    })
+    .join("")}</div>`;
+}
+
+// The roster must never invent scopes. A peer's granted scopes come only from
+// data we can verify locally: an explicit scopes field on the presence record,
+// or this wallet's signed capability grants to that exact recipient that are
+// still open. Unverified, expired or elsewhere-addressed grants add nothing.
+function peerGrantedScopes(peer, state = {}, now = Date.now()) {
+  const inline = peer?.scopes ?? peer?.capabilities;
+  if (
+    Array.isArray(inline) &&
+    inline.every((scope) => typeof scope === "string")
+  )
+    return [...new Set(inline)];
+  const activity = Array.isArray(state.activity) ? state.activity : [];
+  const scopes = new Set();
+  for (const entry of activity) {
+    if (entry?.verified !== true) continue;
+    if (entry.body?.type !== "capability/grant-issued") continue;
+    const payload = entry.body.payload ?? {};
+    if (payload.recipient !== peer?.id || !Array.isArray(payload.capabilities))
+      continue;
+    if (
+      payload.expiresAt !== null &&
+      Number.isFinite(payload.expiresAt) &&
+      payload.expiresAt <= now
+    )
+      continue;
+    for (const scope of payload.capabilities)
+      if (typeof scope === "string") scopes.add(scope);
+  }
+  return [...scopes];
+}
+
+// Activity entries are signed by this wallet. Re-verify them before using them
+// as grant evidence in the roster, with the same rules as the history view.
+async function verifiedActivity() {
+  const stored = await readActivity();
+  if (typeof verifyEnvelope !== "function") return stored;
+  return Promise.all(
+    stored.map(async (entry) => ({
+      ...entry,
+      verified: await verifyEnvelope(entry, {
+        expectedIssuer: state.wallet?.id,
+        maxAgeMs: 20 * 365 * 24 * 60 * 60 * 1000,
+      }),
+    })),
+  );
 }
 
 function connectPeerView() {
@@ -380,18 +436,8 @@ async function render() {
   const root = $("#view");
   if (state.view === "overview" && state.wallet)
     state.activity = await readActivity();
-  if (state.view === "activity" && state.wallet) {
-    const stored = await readActivity();
-    state.activity = await Promise.all(
-      stored.map(async (entry) => ({
-        ...entry,
-        verified: await verifyEnvelope(entry, {
-          expectedIssuer: state.wallet.id,
-          maxAgeMs: 20 * 365 * 24 * 60 * 60 * 1000,
-        }),
-      })),
-    );
-  }
+  if (state.wallet && (state.view === "activity" || state.view === "peer"))
+    state.activity = await verifiedActivity();
   $("#view-label").textContent = state.view.toUpperCase();
   document.querySelectorAll("[data-view]").forEach((button) => {
     const active = button.dataset.view === state.view;

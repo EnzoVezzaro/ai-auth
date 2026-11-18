@@ -9,6 +9,9 @@ import {
   RECEIPT_TYPE,
   buildReceiptPayload,
   isAddressedTo,
+  REVOCATION_TYPE,
+  REVOCATION_GOSSIP_EVENT,
+  verifyRevocation,
 } from "@enzovezzaro/ai-auth-wallet";
 import { signingIdentityFor } from "./keystore.js";
 import { withNodeRtc } from "./rtc.js";
@@ -147,12 +150,16 @@ export function createAgentRuntime(options = {}) {
   const instanceId = crypto.randomUUID();
   const authorization = options.authorization ?? null;
   let authStatus = "active";
+  let locallyRevoked = false;
   const readAuthorization = () => {
+    if (locallyRevoked) return "revoked";
     if (!authorization || typeof authorization.check !== "function")
       return authStatus;
     const value = authorization.check();
     if (value === true || value === "active") return "active";
-    if (value === "expired") return "expired";
+    // Idle end and fixed expiry both close the session in the browser (see
+    // docs/lifecycle.md); the connection state has one status for both.
+    if (value === "expired" || value === "idle") return "expired";
     return "revoked";
   };
   const refreshAuthorization = () => {
@@ -162,6 +169,14 @@ export function createAgentRuntime(options = {}) {
       state.setAuthorization(next);
     }
     return next;
+  };
+  // Authorized activity (a message, transfer or tool call) refreshes the idle
+  // clock. Heartbeats and inbound presence announcements deliberately do not.
+  const touchAuthorization = () => {
+    if (refreshAuthorization() !== "active") return false;
+    if (authorization && typeof authorization.touch === "function")
+      return authorization.touch() !== false;
+    return true;
   };
   const listeners = { event: new Set(), error: new Set(), stale: new Set() };
   const registry = new Map();
@@ -213,6 +228,23 @@ export function createAgentRuntime(options = {}) {
   }
 
   function observe(message) {
+    if (refreshAuthorization() !== "active") return;
+    const eventType = message.envelope?.body?.type;
+    // Signed revocation records are control data, not application events.
+    if (
+      eventType === REVOCATION_GOSSIP_EVENT ||
+      eventType === REVOCATION_TYPE
+    ) {
+      void applySignedRevocation(message.envelope.body).catch(() => {});
+      return;
+    }
+    const liveness =
+      eventType === "peer/hello" ||
+      eventType === "peer/heartbeat" ||
+      eventType === "peer/goodbye";
+    if (message.direction === "in" && message.envelope && !liveness)
+      touchAuthorization();
+    if (refreshAuthorization() !== "active") return;
     acknowledgeAddressedText(message, wallet, (type, payload, options) =>
       api.send(type, payload, options),
     );
@@ -260,6 +292,50 @@ export function createAgentRuntime(options = {}) {
     if (goodbye) await oldCore?.close().catch(() => {});
     else await oldCore?.close({ goodbye: false }).catch(() => {});
     await oldNet?.close().catch(() => {});
+  }
+
+  // A wallet may revoke itself with a signed record that needs no server and no
+  // configured trust list (revocation.js trusts `kind: "wallet"` targeting the
+  // signer's own id). Peers learn it through the room's existing gossip; we
+  // verify it locally and stop this agent without inventing a new server call.
+  async function applySignedRevocation(body) {
+    const records =
+      body?.type === REVOCATION_GOSSIP_EVENT
+        ? [body.payload?.revocation]
+        : body?.type === REVOCATION_TYPE
+          ? [body.payload]
+          : [];
+    for (const record of records) {
+      if (!wallet || record?.kind !== "wallet" || record.target !== wallet.id)
+        continue;
+      let verified;
+      try {
+        verified = await verifyRevocation(record, {
+          expectedOrigin: site,
+          expectedRoom: currentRoom,
+          now,
+        });
+      } catch {
+        continue;
+      }
+      if (!verified.ok) continue;
+      await api.revoke();
+      return;
+    }
+  }
+
+  // Ends the live session: no more publishing, receiving, tool catalogs or
+  // reconnect attempts. Keeps the saved room, like a normal close.
+  async function endAuthorization(status) {
+    clearInterval(timer);
+    timer = null;
+    for (const provider of providers) provider.close();
+    providers.clear();
+    state.setAuthorization(status);
+    if (wallet && liveIdentities.get(wallet.id) === instanceId)
+      liveIdentities.delete(wallet.id);
+    await teardown({ goodbye: true });
+    noPeerSince = null;
   }
 
   async function startOnce(room) {
@@ -397,14 +473,18 @@ export function createAgentRuntime(options = {}) {
     if (final) closed = true;
   }
 
+  // Synchronous first half: callers rely on stale-peer notifications being
+  // emitted before this promise yields.
+  function endExpiredAuthorization() {
+    const status = refreshAuthorization();
+    if (status === "active") return false;
+    void endAuthorization(status).catch(() => {});
+    return true;
+  }
+
   async function checkLeases() {
     const t = now();
-    if (refreshAuthorization() !== "active") {
-      state.setAuthorization(authStatus);
-      for (const provider of providers) provider.close();
-      providers.clear();
-      return;
-    }
+    if (endExpiredAuthorization()) return;
     for (const [key, peer] of registry) {
       if (t > peer.seenAt + leaseMs && !peer.flagged) {
         peer.flagged = true;
@@ -509,7 +589,7 @@ export function createAgentRuntime(options = {}) {
       );
     },
     async send(type, payload = {}, sendOptions = {}) {
-      if (refreshAuthorization() !== "active")
+      if (!touchAuthorization())
         throw new Error(`Authorization is ${authStatus}; sending refused`);
       if (!core || core.closed) throw new Error("Join a room before sending");
       return core.send(type, payload, sendOptions);
@@ -542,9 +622,23 @@ export function createAgentRuntime(options = {}) {
       });
     },
     checkLeases,
+    /** Wallet-side revocation: end the session now, not on the next lease tick. */
+    async revoke() {
+      locallyRevoked = true;
+      authStatus = "revoked";
+      if (authorization && typeof authorization.revoke === "function")
+        authorization.revoke();
+      await endAuthorization("revoked");
+    },
     leave: () => stop({ forget: true, final: false }),
     close: () =>
       closed ? Promise.resolve() : stop({ forget: false, final: true }),
   };
+  // A granted lease has its own clock: expiry and idle end the session even if
+  // the harness never joined a room. The join interval reuses this timer.
+  if (authorization) {
+    timer ??= setInterval(endExpiredAuthorization, 1_000);
+    timer.unref?.();
+  }
   return Object.freeze(api);
 }

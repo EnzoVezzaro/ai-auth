@@ -39,6 +39,14 @@
 
 Unknown fields are rejected, so the schema can only grow with a version bump.
 
+## The published site hint
+
+`npm run build` writes a strict v1 document to `dist-p2p/.well-known/ai-auth.json`. It names the deployed origin (`https://enzovezzaro.github.io`), the site wallet, the docs page, the `default` room, the four default capabilities and `webmcp: true`. The build validates the generated file with `validateDiscovery` before writing it, then reads it back and re-validates it; a malformed hint breaks the build. Set `AI_AUTH_SITE_ORIGIN` to the exact origin of a preview host when building for one.
+
+The MCP CLI's `fetchSiteManifest()` uses the same `fetchDiscovery()`/`validateDiscovery()` helpers, so a URL-only `--connect` gets the real `room` (the first entry in `rooms`) and capability list from this document. Sites that still publish the older typeless `{ "origin", "room"?, "capabilities": [], "walletUrl"? }` shape keep working, but the result is marked `source: "manifest-provisional"` and `provisional: true`; it is not treated as a validated v1 discovery document.
+
+> Hosting caveat: GitHub Pages serves this project under `/ai-auth/`, so the file is reachable at `/ai-auth/.well-known/ai-auth.json` while the convention fetches the origin root `/.well-known/ai-auth.json`. The document's `origin` is still the true origin. A custom domain or a root-level host is needed for the origin-root fetch to hit it.
+
 ## Fetching safely
 
 `fetchDiscovery(origin)` requests `<origin>/.well-known/ai-auth.json` with `redirect: "error"`, no credentials, no referrer, and a timeout. It requires a JSON content type, caps the body at 16 KiB, and requires the document's `origin` to equal the requested origin. The requested origin must be `https`, or `http` for `localhost`, `127.0.0.1` and `[::1]`. Any failure returns `{ ok: false, reason }`; nothing is guessed or partially accepted.

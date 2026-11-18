@@ -88,6 +88,12 @@ npx -y @enzovezzaro/ai-auth-mcp serve \
   --caps presence.read,tools.invoke
 ```
 
+## Connect from a chat app
+
+To let a person ask an agent in plain language, install the portable [ai-auth-connect skill](https://github.com/EnzoVezzaro/ai-auth/blob/main/.agents/skills/ai-auth-connect/SKILL.md). The one-sentence instruction it handles is: "connect to this site using ai auth". It covers discovering the site's connect instruction or `/.well-known/ai-auth.json`, getting the owner's approval, starting the local MCP server, verifying with `ai_auth_status`, using site tools with approval, and reconnecting with `--resume`.
+
+In a desktop chat app this is a manual flow: the user must bring the app window forward and approve in the wallet prompt. An offscreen or minimized app may not surface that prompt on its own.
+
 ## Next
 
 Read the [site integration guide](site-integration.md) for the full option list, cursors, presence, and WebMCP tools. See [agents and MCP](agents.md) for connecting specific coding tools.

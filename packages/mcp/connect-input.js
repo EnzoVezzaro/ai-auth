@@ -1,8 +1,11 @@
+import { fetchDiscovery, validateDiscovery } from "@enzovezzaro/ai-auth-wallet";
+
 const MAX_INPUT_CHARS = 16_000;
 const MAX_MANIFEST_BYTES = 16_384;
+const DISCOVERY_PATH = "/.well-known/ai-auth.json";
 const ROOM_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,99}$/u;
 const CAPABILITY_PATTERN = /^[a-z][a-z0-9]*(?:[.:/_-][a-z0-9]+)*$/u;
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 function exactOrigin(value) {
   let url;
@@ -44,17 +47,23 @@ function descriptor({
   source,
   discoveryOnly,
   walletUrl,
+  allowEmptyCapabilities = false,
 }) {
   const exact = exactOrigin(origin);
   if (exact !== origin)
     throw new TypeError("origin must be an exact origin without a path");
   if (typeof room !== "string" || !ROOM_PATTERN.test(room))
     throw new TypeError("room must be 1–100 safe characters");
+  // A copied instruction must name explicit scopes; discovery may omit them.
+  const caps =
+    allowEmptyCapabilities && (!capabilities || capabilities.length === 0)
+      ? Object.freeze([])
+      : capabilityList(capabilities);
   return Object.freeze({
     origin,
     room,
     walletUrl: typeof walletUrl === "string" ? walletUrl : null,
-    capabilities: capabilityList(capabilities),
+    capabilities: caps,
     source,
     discoveryOnly,
   });
@@ -118,24 +127,25 @@ export function parseConnectInput(input) {
 }
 
 /**
- * Fetch `/.well-known/ai-auth.json` for an origin. The manifest is public,
- * nonsecret discovery data (requested room and capabilities). It is bound to
- * the exact origin it was served from and never grants anything by itself.
- * Provisional shape: { origin, room?, capabilities[], walletUrl? }.
+ * Fetch the legacy provisional hint for sites that have not moved to v1.
+ * Shape: { origin, room?, capabilities[], walletUrl? }. It is kept only as a
+ * clearly marked fallback and still goes through the strict validator (on the
+ * overlapping fields) so secrets and malformed scopes are not accepted.
  */
-export async function fetchSiteManifest(
+async function fetchProvisionalManifest(
   origin,
-  { fetch: fetchImpl = globalThis.fetch, timeoutMs = 5_000 } = {},
+  { fetch: fetchImpl, timeoutMs },
 ) {
   const exact = exactOrigin(origin);
-  const response = await fetchImpl(`${exact}/.well-known/ai-auth.json`, {
+  const response = await fetchImpl(`${exact}${DISCOVERY_PATH}`, {
     redirect: "error",
+    credentials: "omit",
     headers: { accept: "application/json" },
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok)
     throw new Error(
-      `The site publishes no AI Auth manifest (HTTP ${response.status})`,
+      `The site publishes no AI Auth discovery document (HTTP ${response.status})`,
     );
   const body = await response.text();
   if (body.length > MAX_MANIFEST_BYTES)
@@ -146,14 +156,79 @@ export async function fetchSiteManifest(
   } catch {
     throw new Error("The site manifest is not valid JSON");
   }
-  if (manifest?.origin !== exact)
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest))
+    throw new Error("The site manifest is not an object");
+  if (manifest.origin !== exact)
     throw new Error(
       "The site manifest does not match the origin it was served from",
     );
-  return descriptor({
-    ...manifest,
-    room: manifest.room ?? "default",
-    source: "manifest",
+  // A strict document that failed for another reason must not be relabelled as
+  // legacy; only the old, typeless shape is eligible for this fallback.
+  if (manifest.type !== undefined || manifest.v !== undefined)
+    throw new Error("The site publishes an invalid AI Auth discovery document");
+  const upgraded = {
+    type: "ai-auth-discovery",
+    v: 1,
+    origin: manifest.origin,
+    ...(manifest.capabilities !== undefined && {
+      capabilities: manifest.capabilities,
+    }),
+    ...(manifest.walletUrl !== undefined && { walletUrl: manifest.walletUrl }),
+  };
+  const check = validateDiscovery(upgraded, { origin: exact });
+  if (!check.ok)
+    throw new Error(`The legacy site manifest is invalid: ${check.reason}`);
+  return manifest;
+}
+
+/**
+ * Fetch `/.well-known/ai-auth.json` for an origin and turn the strict v1
+ * discovery document into a real room and capability list. Validation and the
+ * safe fetch are shared with packages/p2p/discovery.js, so a URL-only chat
+ * instruction gets the same guarantees as a direct fetchDiscovery() call.
+ * Discovery data is public and unsigned; it never grants anything by itself.
+ * Old typeless manifests still work, marked `provisional: true`.
+ */
+export async function fetchSiteManifest(
+  origin,
+  { fetch: fetchImpl = globalThis.fetch, timeoutMs = 5_000 } = {},
+) {
+  const exact = exactOrigin(origin);
+  const strict = await fetchDiscovery(exact, {
+    fetch: fetchImpl,
+    timeoutMs,
+    baseUrl: origin,
+  });
+  if (strict.ok) {
+    const doc = strict.discovery;
+    const base = descriptor({
+      origin: doc.origin,
+      room: doc.rooms?.[0]?.name ?? "default",
+      walletUrl: doc.walletUrl,
+      capabilities: doc.capabilities ?? [],
+      source: "manifest",
+      discoveryOnly: true,
+      allowEmptyCapabilities: true,
+    });
+    return Object.freeze({ ...base, provisional: false });
+  }
+
+  const legacy = await fetchProvisionalManifest(exact, {
+    fetch: fetchImpl,
+    timeoutMs,
+  });
+  const base = descriptor({
+    origin: legacy.origin,
+    room: legacy.room ?? "default",
+    walletUrl: legacy.walletUrl,
+    capabilities: legacy.capabilities ?? [],
+    source: "manifest-provisional",
     discoveryOnly: true,
+    allowEmptyCapabilities: true,
+  });
+  return Object.freeze({
+    ...base,
+    provisional: true,
+    strictReason: strict.reason,
   });
 }

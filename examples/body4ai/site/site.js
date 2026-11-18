@@ -475,6 +475,28 @@ async function mountTools() {
   state.cleanups.push(() => state.tools.close());
 }
 
+// The roster may only show scopes backed by signed membership data the SDK has
+// already verified locally. An open room, a revoked peer or a peer without a
+// verified membership has no grant to show; nothing is inferred from a name.
+function grantedScopesFor(walletId) {
+  if (typeof walletId !== "string" || !walletId) return [];
+  let info;
+  try {
+    info = state.policy?.inspect?.(walletId);
+  } catch {
+    return [];
+  }
+  if (
+    !info ||
+    info.walletRevoked ||
+    info.membershipRevoked ||
+    !info.member ||
+    !Array.isArray(info.member.scopes)
+  )
+    return [];
+  return [...new Set(info.member.scopes.filter((s) => typeof s === "string"))];
+}
+
 function snapshot() {
   const room = state.room;
   const net = state.transport?.connectionState;
@@ -489,7 +511,12 @@ function snapshot() {
     peers: [...peers.keys()],
     peerList: [...(room?.peers.values() ?? [])]
       .filter((peer) => peer.id !== state.wallet.id)
-      .map((peer) => ({ id: peer.id, session: peer.session, name: peer.name })),
+      .map((peer) => ({
+        id: peer.id,
+        session: peer.session,
+        name: peer.name,
+        scopes: grantedScopesFor(peer.id),
+      })),
     session: room?.session ?? null,
     sessionStatus: state.session?.lease.status() ?? "none",
     capabilities: state.session?.consent.body.payload.capabilities ?? [],

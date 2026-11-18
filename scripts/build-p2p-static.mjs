@@ -1,6 +1,14 @@
 import { build } from "esbuild";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import {
+  DISCOVERY_CAPABILITIES,
+  DISCOVERY_PATH,
+  DISCOVERY_TYPE,
+  DISCOVERY_VERSION,
+  MAX_DISCOVERY_BYTES,
+  validateDiscovery,
+} from "../packages/p2p/discovery.js";
 import { renderDocPage } from "./render-docs.mjs";
 
 const root = resolve(import.meta.dirname, "..");
@@ -25,6 +33,36 @@ await cp(resolve(root, "robots.txt"), resolve(output, "robots.txt"));
 await cp(resolve(root, "sitemap.xml"), resolve(output, "sitemap.xml"));
 // llms.txt: a plain-markdown summary for language models, served at the root.
 await cp(resolve(root, "llms.txt"), resolve(output, "llms.txt"));
+
+// Site discovery hint: a public, unsigned strict v1 document that lets a URL-
+// only connect instruction yield a real room and capabilities. validateDiscovery
+// is the single source of truth for the schema, so build fails on a bad hint.
+// The default origin is the deployed Pages origin; override for a preview host.
+const SITE_ORIGIN = new URL(
+  process.env.AI_AUTH_SITE_ORIGIN ?? "https://enzovezzaro.github.io",
+).origin;
+const discovery = {
+  type: DISCOVERY_TYPE,
+  v: DISCOVERY_VERSION,
+  origin: SITE_ORIGIN,
+  name: "AI Auth",
+  walletUrl: `${SITE_ORIGIN}/ai-auth/wallet/`,
+  docsUrl: `${SITE_ORIGIN}/ai-auth/docs/agents.md`,
+  capabilities: [...DISCOVERY_CAPABILITIES],
+  rooms: [{ name: "default", mode: "open" }],
+  webmcp: true,
+};
+const generated = validateDiscovery(discovery, { origin: SITE_ORIGIN });
+if (!generated.ok)
+  throw new Error(
+    `Generated AI Auth discovery is invalid: ${generated.reason}`,
+  );
+const discoveryText = `${JSON.stringify(generated.discovery, null, 2)}\n`;
+if (Buffer.byteLength(discoveryText) > MAX_DISCOVERY_BYTES)
+  throw new Error("AI Auth discovery hint exceeds the 16 KiB fetch cap");
+await mkdir(resolve(output, ".well-known"), { recursive: true });
+await writeFile(resolve(output, DISCOVERY_PATH.slice(1)), discoveryText);
+
 const NOINDEX = '<meta name="robots" content="noindex, nofollow" />';
 const withNoindex = (page) => {
   if (!page.includes("<head>"))
@@ -126,6 +164,7 @@ const DOC_PAGES = [
   { file: "GENERIC_INTEGRATION_REVIEW.md", label: "Integration review" },
   { file: "TRACEABILITY.md", label: "Traceability" },
   { file: "evidence.md", label: "Evidence" },
+  { file: "AGENT_E2E_PLAN.md", label: "Agent E2E plan" },
 ];
 const navDocs = DOC_PAGES.filter((doc) => doc.nav);
 await mkdir(resolve(output, "docs", "raw"), { recursive: true });
@@ -238,13 +277,31 @@ if (
 ) {
   throw new Error("Static landing or docs page has a broken asset reference");
 }
+// Assert the published hint is still a strict v1 document after serialization.
+const publishedDiscovery = JSON.parse(
+  await readFile(resolve(output, DISCOVERY_PATH.slice(1)), "utf8"),
+);
+const published = validateDiscovery(publishedDiscovery, {
+  origin: SITE_ORIGIN,
+});
+if (
+  !published.ok ||
+  publishedDiscovery.type !== DISCOVERY_TYPE ||
+  publishedDiscovery.v !== DISCOVERY_VERSION ||
+  publishedDiscovery.origin !== SITE_ORIGIN ||
+  !Array.isArray(publishedDiscovery.capabilities) ||
+  publishedDiscovery.capabilities.length === 0 ||
+  !publishedDiscovery.rooms?.length ||
+  publishedDiscovery.webmcp !== true
+)
+  throw new Error("Published AI Auth discovery hint is invalid");
 await writeFile(
   resolve(output, "BUILD_INFO.json"),
   JSON.stringify(
     {
       app: "AI Auth",
       version,
-      routes: ["/", "/wallet/", "/docs/"],
+      routes: ["/", "/wallet/", "/docs/", DISCOVERY_PATH],
       serverFunctions: 0,
     },
     null,

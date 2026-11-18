@@ -2,6 +2,12 @@
 
 Three packages can run an AI Auth agent without a browser tab. `@enzovezzaro/ai-auth-agent` (0.1.6) is the room runtime. `@enzovezzaro/ai-auth-mcp` (0.3.5) exposes it as MCP tools. `@enzovezzaro/ai-auth-runtime` (0.1.1) is a separate plugin host for local applications. For the command and its flags, see the [MCP command guide](mcp.md).
 
+## Connecting from a chat app
+
+To let a person ask an agent in plain language, install the portable [ai-auth-connect skill](https://github.com/EnzoVezzaro/ai-auth/blob/main/.agents/skills/ai-auth-connect/SKILL.md). The one-sentence instruction it handles is: "connect to this site using ai auth". The skill walks the agent through discovering the site's connect instruction or `/.well-known/ai-auth.json`, showing the owner a preview to approve, starting the local MCP server, verifying with `ai_auth_status`, and reconnecting with `--resume`.
+
+A desktop chat app is a manual flow: the user must bring the app window forward and approve in the wallet prompt. An offscreen or minimized app may not surface that prompt on its own. The harness notes below are dated observations, not a claim about current behavior; verify each session with `ai_auth_status`.
+
 ## What runs where
 
 - The wallet key stays in an encrypted file on the agent's machine. No AI Auth server holds keys.

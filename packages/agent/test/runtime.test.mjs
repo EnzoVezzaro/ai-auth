@@ -11,7 +11,14 @@ import path from "node:path";
 import { createFileKeystore } from "../keystore.js";
 import { createAgentRuntime } from "../runtime.js";
 import { createHub } from "./fake-transport.mjs";
-import { verifyEnvelope } from "../../p2p/index.js";
+import {
+  verifyEnvelope,
+  signEnvelope,
+  randomNonce,
+  createRevocation,
+  createSharedRoomTopic,
+  REVOCATION_GOSSIP_EVENT,
+} from "../../p2p/index.js";
 
 const PASS = "correct horse battery staple";
 const ORIGIN = "https://site.example";
@@ -408,4 +415,198 @@ test("agentRoom drives the SDK agent client and follows the live session", async
   await runtime.leave();
   await runtime.join();
   assert.notEqual(runtime.agentRoom.session, first);
+});
+
+test("an expiring authorization lease ends the session and stops tool traffic", async (t) => {
+  const hub = createHub();
+  let clock = 1_000_000;
+  let touches = 0;
+  const authorization = {
+    check: () => (clock >= 1_006_000 ? "expired" : "active"),
+    touch: () => {
+      touches += 1;
+      return true;
+    },
+  };
+  const a = await setup(t, hub, { now: () => clock, authorization });
+  const b = await setup(t, hub);
+  const seen = [];
+  b.runtime.onEvent((m) => m.direction === "in" && seen.push(m));
+  await a.runtime.join();
+  await b.runtime.join();
+  await until(() => b.runtime.peers().length === 1);
+  await a.runtime.send("message/text", { text: "before" });
+  await until(() => seen.length >= 1);
+  assert.ok(touches > 0, "authorized sends refresh the idle clock");
+  clock += 6_000;
+  await a.runtime.checkLeases();
+  assert.equal(a.runtime.connectionState.status, "revoked");
+  assert.equal(a.runtime.connectionState.authorization, "expired");
+  assert.equal(a.runtime.connectionState.connected, false);
+  assert.deepEqual(a.runtime.peers(), []);
+  await until(() => b.runtime.peers().length === 0);
+  await assert.rejects(
+    a.runtime.send("message/text", { text: "after" }),
+    /Authorization is expired/u,
+  );
+  await assert.rejects(a.runtime.join(), /Authorization is expired/u);
+  const count = seen.length;
+  await b.runtime.send("message/text", { text: "ignored" });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(seen.length, count, "an ended agent receives no events");
+});
+
+test("an idle authorization is reported as expiry and a revoke call ends it now", async (t) => {
+  const hub = createHub();
+  let idle = false;
+  let revoked = 0;
+  const authorization = {
+    check: () => (idle ? "idle" : "active"),
+    revoke: () => {
+      revoked += 1;
+    },
+  };
+  const a = await setup(t, hub, { authorization });
+  const b = await setup(t, hub);
+  await a.runtime.join();
+  await b.runtime.join();
+  await until(() => b.runtime.peers().length === 1);
+  idle = true;
+  await a.runtime.checkLeases();
+  assert.equal(a.runtime.connectionState.authorization, "expired");
+  assert.equal(a.runtime.connectionState.status, "revoked");
+  await assert.rejects(
+    a.runtime.send("message/text", { text: "x" }),
+    /Authorization is expired/u,
+  );
+  await a.runtime.revoke();
+  assert.equal(revoked, 1, "the lease source is told about revocation");
+  assert.equal(a.runtime.connectionState.authorization, "revoked");
+  assert.equal(a.runtime.connectionState.connected, false);
+});
+
+// Recover the signing key from the encrypted test keystore to issue the same
+// kind of self-revocation a wallet produces. The runtime never sees key bytes;
+// this only builds a signed record to feed the room's existing gossip path.
+async function keystoreSigner(dir, id, passphrase) {
+  const doc = JSON.parse(
+    await readFile(path.join(dir, "identity.json"), "utf8"),
+  );
+  const bytes = (s) => new Uint8Array(Buffer.from(s, "base64url"));
+  const enc = new TextEncoder();
+  const material = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(passphrase),
+    "PBKDF2",
+    false,
+    ["deriveKey"],
+  );
+  const key = await crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      hash: "SHA-256",
+      salt: bytes(doc.kdf.salt),
+      iterations: doc.kdf.iterations,
+    },
+    material,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["decrypt"],
+  );
+  const plain = await crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: bytes(doc.cipher.iv),
+      additionalData: enc.encode(`ai-auth-agent-keystore|1|${doc.instanceId}`),
+    },
+    key,
+    bytes(doc.cipher.ciphertext),
+  );
+  const payload = JSON.parse(new TextDecoder().decode(plain));
+  const signer = {
+    id,
+    publicKey: payload.metadata.publicKey,
+    privateKey: await crypto.subtle.importKey(
+      "jwk",
+      payload.privateJwk,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"],
+    ),
+  };
+  return { ...signer, sign: (type, body) => signEnvelope(signer, type, body) };
+}
+
+test("a verified signed wallet revocation over the room stops the agent", async (t) => {
+  const hub = createHub();
+  const a = await setup(t, hub);
+  await a.runtime.join();
+  const signer = await keystoreSigner(a.dir, a.runtime.identity.id, PASS);
+  const record = await createRevocation(signer, {
+    kind: "wallet",
+    target: a.runtime.identity.id,
+    origin: ORIGIN,
+    room: "lobby",
+    now: Date.now(),
+  });
+  const peer = hub.joinRoom({}, await createSharedRoomTopic(ORIGIN, "lobby"));
+  peer.makeAction().send(
+    await signEnvelope(signer, REVOCATION_GOSSIP_EVENT, {
+      room: "lobby",
+      origin: ORIGIN,
+      session: "revocation-sender-session",
+      nonce: randomNonce(),
+      expiresAt: Date.now() + 60_000,
+      revocation: record,
+    }),
+  );
+  await until(() => a.runtime.connectionState.status === "revoked");
+  assert.equal(a.runtime.connectionState.authorization, "revoked");
+  assert.equal(a.runtime.connectionState.connected, false);
+  await assert.rejects(
+    a.runtime.send("message/text", { text: "x" }),
+    /Authorization is revoked/u,
+  );
+});
+
+test("an unsigned or foreign revocation never ends the session", async (t) => {
+  const hub = createHub();
+  const a = await setup(t, hub);
+  await a.runtime.join();
+  const keys = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  );
+  const rogue = {
+    id: "agent:rogue-revoker-0000000000",
+    publicKey: await crypto.subtle.exportKey("jwk", keys.publicKey),
+    privateKey: keys.privateKey,
+  };
+  const record = await createRevocation(rogue, {
+    kind: "wallet",
+    target: a.runtime.identity.id,
+    origin: ORIGIN,
+    room: "lobby",
+    now: Date.now(),
+  });
+  const peer = hub.joinRoom({}, await createSharedRoomTopic(ORIGIN, "lobby"));
+  peer.makeAction().send(
+    await signEnvelope(
+      { ...rogue, sign: (type, body) => signEnvelope(rogue, type, body) },
+      REVOCATION_GOSSIP_EVENT,
+      {
+        room: "lobby",
+        origin: ORIGIN,
+        session: "rogue-revocation-session",
+        nonce: randomNonce(),
+        expiresAt: Date.now() + 60_000,
+        revocation: record,
+      },
+    ),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.notEqual(a.runtime.connectionState.status, "revoked");
+  assert.equal(a.runtime.connectionState.authorization, "active");
+  await a.runtime.send("message/text", { text: "still active" });
 });
