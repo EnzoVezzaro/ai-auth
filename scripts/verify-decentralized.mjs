@@ -328,28 +328,37 @@ async function liveChecks() {
       const context = await browser.newContext({ acceptDownloads: true });
       contexts.push(context);
       await context.addInitScript(dataChannelObserver);
+      const captures = [];
+      context.on("page", (p) => captures.push(attachNetworkCapture(p)));
       const page = await context.newPage();
-      const capture = attachNetworkCapture(page);
+      captures.push(attachNetworkCapture(page));
       await page.goto(`${server.siteUrl}body4ai/index.html`);
-      await page.waitForFunction(() => Boolean(window.__b4a), undefined, {
-        timeout: 30_000,
+      await page.waitForTimeout(900);
+      if (await page.locator("button:has-text('Create my wallet')").count()) {
+        await page
+          .locator("input[type='password']")
+          .first()
+          .fill(`probe passphrase for ${label}`);
+        await page.locator("button:has-text('Create my wallet')").click();
+      }
+      await page.getByRole("button", { name: "Connect agent" }).click();
+      await page.waitForTimeout(1200);
+      const allow = page.getByRole("button", {
+        name: "Allow selected permissions",
       });
-      await page.evaluate((config) => window.__b4a.init(config), {
-        origin: server.origin,
-        room,
-        restricted: false,
-      });
-      await page.evaluate(
-        (name) =>
-          window.__b4a.identity({
-            label: name,
-            passphrase: `probe passphrase for ${name}`,
-          }),
-        label,
+      if (await allow.count()) await allow.click({ timeout: 30_000 });
+      else
+        record(
+          "INFO",
+          "no permission dialog in live probe",
+          (await page.locator("body").innerText()).slice(-600),
+        );
+      await page.waitForFunction(
+        () => document.body.innerText.includes("Connected with a live partner"),
+        undefined,
+        { timeout: 30_000 },
       );
-      await page.evaluate(() => window.__b4a.connect());
-      await page.evaluate(() => window.__b4a.join());
-      participants.push({ label, page, capture });
+      participants.push({ label, page, capture: captures.at(-1) });
     }
 
     let connected = true;
@@ -486,7 +495,10 @@ async function liveChecks() {
     );
 
     const allRequests = captures.flatMap((c) => c.requests);
-    const { unexpected, browser } = classifyHttp(allRequests, server.origin);
+    const { unexpected, browser: browserBackground } = classifyHttp(
+      allRequests,
+      server.origin,
+    );
     check(
       "no unexpected HTTP(S) application-server endpoint contacted",
       unexpected.length === 0,
@@ -494,11 +506,11 @@ async function liveChecks() {
         ? unexpected.join("\n          ")
         : `${allRequests.length} HTTP request(s), all to the static site, package CDN, or browser background`,
     );
-    if (browser.length)
+    if (browserBackground.length)
       record(
         "INFO",
         "browser background requests ignored",
-        [...new Set(browser)].join(", "),
+        [...new Set(browserBackground)].join(", "),
       );
 
     const turn = (

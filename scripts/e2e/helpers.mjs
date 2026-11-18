@@ -242,7 +242,14 @@ export function fakeScreenCaptureScript() {
  */
 export async function approveWallet(
   context,
-  { siteUrl, name, passphrase, approve, withIceDiagnostics = true },
+  {
+    siteUrl,
+    name,
+    passphrase,
+    approve,
+    withIceDiagnostics = true,
+    connectSelector = "#connect",
+  },
 ) {
   if (withIceDiagnostics) await context.addInitScript(iceDiagnosticsScript);
   const site = await context.newPage();
@@ -255,7 +262,7 @@ export async function approveWallet(
   });
   site.on("pageerror", (error) => popupErrors.push(error.message));
   await site.goto(siteUrl);
-  await site.locator("#connect").click();
+  await site.locator(connectSelector).click();
   await site.locator('dialog iframe[title="AI Auth wallet"]').waitFor();
   const popup = await (
     await site.locator('dialog iframe[title="AI Auth wallet"]').elementHandle()
