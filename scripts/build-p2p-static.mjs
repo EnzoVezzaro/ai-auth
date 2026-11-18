@@ -66,6 +66,11 @@ if (Buffer.byteLength(discoveryText) > MAX_DISCOVERY_BYTES)
   throw new Error("AI Auth discovery hint exceeds the 16 KiB fetch cap");
 await mkdir(resolve(output, ".well-known"), { recursive: true });
 await writeFile(resolve(output, DISCOVERY_PATH.slice(1)), discoveryText);
+// GitHub Pages drops hidden files from its upload artifact. Publish the same
+// hint at a visible path as a fallback; fetchDiscovery tries it after the
+// standard URL.
+await mkdir(resolve(output, "well-known"), { recursive: true });
+await writeFile(resolve(output, "well-known", "ai-auth.json"), discoveryText);
 
 const NOINDEX = '<meta name="robots" content="noindex, nofollow" />';
 const withNoindex = (page) => {

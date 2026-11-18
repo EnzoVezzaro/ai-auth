@@ -200,17 +200,22 @@ export async function fetchDiscovery(
   const urls = [`${expected}${DISCOVERY_PATH}`];
   // Static hosts may serve a site under a path prefix (for example GitHub
   // Pages at /ai-auth/). Try that prefix only after the origin-root URL.
+  let prefix = "";
   try {
     const segments = new URL(baseUrl ?? origin).pathname
       .split("/")
       .filter(Boolean);
     // A static site lives at the first path segment (GitHub Pages project
     // sites). Deeper page paths are not site roots.
-    const prefix = segments.length ? `/${segments[0]}` : "";
+    prefix = segments.length ? `/${segments[0]}` : "";
     if (prefix) urls.push(`${expected}${prefix}${DISCOVERY_PATH}`);
   } catch {
     // A bad base URL simply leaves the origin-root candidate in place.
   }
+  // GitHub Pages drops hidden files from its upload artifact, so the standard
+  // URL can be absent even when a visible mirror was published.
+  urls.push(`${expected}/well-known/ai-auth.json`);
+  if (prefix) urls.push(`${expected}${prefix}/well-known/ai-auth.json`);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {

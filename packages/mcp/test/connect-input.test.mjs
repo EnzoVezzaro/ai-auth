@@ -158,7 +158,7 @@ test("discovery falls back to a site path prefix on static hosts", async () => {
       },
     },
   );
-  assert.deepEqual(seen, [
+  assert.deepEqual(seen.slice(0, 2), [
     "https://site.example/.well-known/ai-auth.json",
     "https://site.example/ai-auth/.well-known/ai-auth.json",
   ]);
