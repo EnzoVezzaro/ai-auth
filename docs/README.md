@@ -19,6 +19,7 @@ Start with the [quickstart](quickstart.md) or the [site integration guide](site-
 - [Wire protocol](protocol.md) · [Limits and not yet available](limits.md)
 - [Security boundaries](SECURITY.md) · [Export and trust boundaries](BOUNDARIES.md)
 - [Site discovery](DISCOVERY.md)
+- [RFC: Standards-based identity and authorization (agent implementation handoff)](IDENTITY_STANDARDS_RFC.md)
 
 ## Operations
 
