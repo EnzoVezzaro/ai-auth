@@ -284,7 +284,8 @@ ${nav}
     <div class="doc-hero">
       <p class="eyebrow"><span class="live-dot"></span>DOCUMENTATION · v0.10.0</p>
       <h1 class="page-title">${escapeHtml(title)}<span class="caret" aria-hidden="true"></span></h1>
-      <span class="cursor-mark green" aria-hidden="true"><svg class="ptr"><use href="#cursor-arrow"></use></svg>Dev</span>
+      <span class="cursor-mark green" aria-hidden="true"><svg class="ptr"><use href="#cursor-arrow"></use></svg>o87xdo83</span>
+      <span class="agent-action">verified this page</span>
     </div>
     <div class="doc-body">
 ${html}

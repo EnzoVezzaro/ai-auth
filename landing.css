@@ -523,6 +523,111 @@ a {
   max-width: 1000px;
 }
 
+.role-card,
+.step {
+  position: relative;
+}
+
+.role-card {
+  padding-bottom: 34px;
+}
+
+.role-card::after,
+.step::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 0;
+  height: 2px;
+  background: var(--accent-color, var(--orange));
+  transition: width 0.8s ease 0.3s;
+}
+
+.in .role-card::after,
+.in .step::after {
+  width: 100%;
+}
+
+.accent-green {
+  --accent-color: var(--green);
+}
+.accent-blue {
+  --accent-color: var(--blue);
+}
+.accent-pink {
+  --accent-color: var(--pink);
+}
+.accent-yellow {
+  --accent-color: var(--yellow);
+}
+.accent-orange {
+  --accent-color: var(--orange);
+}
+
+.agent-action {
+  position: absolute;
+  right: 4px;
+  bottom: -28px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: var(--accent-color, var(--orange));
+  color: #0b0b0d;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity 0.5s ease 0.7s,
+    transform 0.5s ease 0.7s;
+}
+
+.accent-blue .agent-action,
+.accent-pink .agent-action,
+.accent-orange .agent-action {
+  color: #fff;
+}
+
+.in .agent-action {
+  opacity: 1;
+  transform: none;
+}
+
+.role-card .cursor-mark,
+.step .cursor-mark {
+  left: auto;
+  right: 6px;
+  top: auto;
+  bottom: -2px;
+  margin: 0;
+  animation: work 5s ease-in-out infinite alternate;
+}
+
+.role-card .cursor-mark.green,
+.role-card .cursor-mark.blue,
+.role-card .cursor-mark.pink {
+  animation-delay: -1s;
+}
+
+.step .cursor-mark.yellow {
+  animation-delay: -2s;
+}
+
+.step .cursor-mark.orange {
+  animation-delay: -4s;
+}
+
+@keyframes work {
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(-10px, -6px);
+  }
+}
+
 .three-up .mono {
   font-family: var(--mono);
   font-size: 11px;

@@ -170,37 +170,35 @@
             aria-hidden="true"
           ></span>
         </h2>
-        <div class="role-marks" aria-hidden="true">
-          <span class="cursor-mark green" style="--x: 14%; --y: 26%"
-            ><svg class="ptr" aria-hidden="true">
-              <use href="#cursor-arrow"></use></svg
-            >Writer</span
-          >
-          <span class="cursor-mark blue" style="--x: 52%; --y: 62%"
-            ><svg class="ptr" aria-hidden="true">
-              <use href="#cursor-arrow"></use></svg
-            >Dev</span
-          >
-          <span class="cursor-mark pink" style="--x: 78%; --y: 34%"
-            ><svg class="ptr" aria-hidden="true">
-              <use href="#cursor-arrow"></use></svg
-            >Ops</span
-          >
-        </div>
         <div class="three-up">
-          <div>
+          <div class="role-card accent-green">
             <p class="mono">SITE</p>
             <p>
               Asks who is visiting and sets its own rules for what happens next.
             </p>
+            <span class="cursor-mark green" aria-hidden="true"
+              ><svg class="ptr"><use href="#cursor-arrow"></use></svg
+              >o87xdo83</span
+            >
+            <span class="agent-action">reviewed request</span>
           </div>
-          <div>
+          <div class="role-card accent-blue">
             <p class="mono">VISITOR</p>
             <p>Approves the connection and decides how long it lasts.</p>
+            <span class="cursor-mark blue" aria-hidden="true"
+              ><svg class="ptr"><use href="#cursor-arrow"></use></svg
+              >k2f9ns41</span
+            >
+            <span class="agent-action">approved scope</span>
           </div>
-          <div>
+          <div class="role-card accent-pink">
             <p class="mono">AGENT</p>
             <p>Signs in as itself, in a browser tab or a headless process.</p>
+            <span class="cursor-mark pink" aria-hidden="true"
+              ><svg class="ptr"><use href="#cursor-arrow"></use></svg
+              >p7qa0m15</span
+            >
+            <span class="agent-action">signed in</span>
           </div>
         </div>
       </section>
@@ -209,29 +207,44 @@
         <p class="eyebrow">[ 02 ] <span>THE BUILD</span></p>
         <h2 class="display small">From a request to a signed room.</h2>
         <div class="step-grid">
-          <div class="step">
+          <div class="step accent-yellow">
             <p class="mono">01 · MINUTE 0</p>
             <h3>Map</h3>
             <p>
               The site asks which agent is visiting. The wallet shows the origin
               and the room.
             </p>
+            <span class="cursor-mark yellow" aria-hidden="true"
+              ><svg class="ptr"><use href="#cursor-arrow"></use></svg
+              >v3xk82bd</span
+            >
+            <span class="agent-action">room mapped</span>
           </div>
-          <div class="step">
+          <div class="step accent-blue">
             <p class="mono">02 · MINUTE 2</p>
             <h3>Prototype</h3>
             <p>
               You approve the connection. A signed consent ties the agent to
               that approval.
             </p>
+            <span class="cursor-mark blue" aria-hidden="true"
+              ><svg class="ptr"><use href="#cursor-arrow"></use></svg
+              >m91r0c67</span
+            >
+            <span class="agent-action">consent signed</span>
           </div>
-          <div class="step">
+          <div class="step accent-orange">
             <p class="mono">03 · MINUTE 4</p>
             <h3>Launch</h3>
             <p>
               Peers meet through Nostr relays. Messages then go over a WebRTC
               data channel.
             </p>
+            <span class="cursor-mark orange" aria-hidden="true"
+              ><svg class="ptr"><use href="#cursor-arrow"></use></svg
+              >t6hj4p02</span
+            >
+            <span class="agent-action">peer connected</span>
           </div>
           <div class="step">
             <p class="mono">04 · ONGOING</p>
@@ -241,23 +254,6 @@
               central switch.
             </p>
           </div>
-        </div>
-        <div class="role-marks" aria-hidden="true">
-          <span class="cursor-mark yellow" style="--x: 8%; --y: 18%"
-            ><svg class="ptr" aria-hidden="true">
-              <use href="#cursor-arrow"></use></svg
-            >Agent 01</span
-          >
-          <span class="cursor-mark blue" style="--x: 46%; --y: 72%"
-            ><svg class="ptr" aria-hidden="true">
-              <use href="#cursor-arrow"></use></svg
-            >Dev</span
-          >
-          <span class="cursor-mark orange" style="--x: 72%; --y: 28%"
-            ><svg class="ptr" aria-hidden="true">
-              <use href="#cursor-arrow"></use></svg
-            >Data</span
-          >
         </div>
       </section>
 
