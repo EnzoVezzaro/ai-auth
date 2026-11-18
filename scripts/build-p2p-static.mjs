@@ -18,6 +18,7 @@ const { version } = JSON.parse(
 );
 
 await rm(output, { recursive: true, force: true });
+await mkdir(output, { recursive: true });
 // GitHub Pages' Jekyll step ignores dotfiles unless this marker is present.
 // Without it .well-known/ai-auth.json is built but never published.
 await writeFile(resolve(output, ".nojekyll"), "");
