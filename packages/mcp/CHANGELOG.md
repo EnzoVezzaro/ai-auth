@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.5 - 2026-11-17
+
+- `ai_auth_send` now emits the canonical `message/text` chat type with a signed `messageId` and optional `target`. `collab/text` is still accepted from older senders and earns the same delivery receipt.
+
 ## 0.3.4 - 2026-11-16
 
 - Publish with semver ranges for the local workspace dependencies, so installing from npm resolves the real packages instead of `file:` paths.

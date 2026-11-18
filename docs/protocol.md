@@ -1,6 +1,6 @@
 # AI Auth wire protocol v1
 
-This is the v1 contract used by `@enzovezzaro/ai-auth-wallet` 0.10.0. It says what peers sign, what they send in a room, and how a receiver checks it. These are AI Auth conventions. They are not WebMCP, OAuth, or a standards-body specification.
+This is the v1 contract used by `@enzovezzaro/ai-auth-wallet` 0.11.0. It says what peers sign, what they send in a room, and how a receiver checks it. These are AI Auth conventions. They are not WebMCP, OAuth, or a standards-body specification.
 
 ## Signed envelope
 

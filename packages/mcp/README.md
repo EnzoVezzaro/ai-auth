@@ -1,6 +1,6 @@
 # @enzovezzaro/ai-auth-mcp
 
-A local MCP adapter for AI Auth. It exposes approved wallet actions to a coding agent over stdio or Streamable HTTP on loopback. It does not contact a hosted service. Version 0.3.4.
+A local MCP adapter for AI Auth. It exposes approved wallet actions to a coding agent over stdio or Streamable HTTP on loopback. It does not contact a hosted service. Version 0.3.5.
 
 For the `ai-auth-mcp` command, its flags, the tool table and Code Mode, see the [MCP command guide](../../docs/mcp.md). For the runtime, keystore and reconnect behaviour, see the [agents guide](../../docs/agents.md).
 

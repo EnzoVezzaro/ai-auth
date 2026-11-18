@@ -16,12 +16,11 @@ const viewports = [
 
 const sections = [
   ["hero", ".hero"],
-  ["environments", "#environments"],
-  ["flow", "#flow"],
-  ["presence", "#presence"],
-  ["network", "#network"],
-  ["developers", "#developers"],
-  ["open", "#open"],
+  ["model", "#model"],
+  ["build", "#build"],
+  ["stack", ".canvas-section"],
+  ["identity", "#identity"],
+  ["docs", "#docs"],
 ];
 
 const report = { base, viewports: [], errors: [] };
@@ -113,19 +112,12 @@ for (const viewport of viewports) {
 
   if (viewport.name === "desktop") {
     await page.evaluate(() => window.scrollTo(0, 0));
-    await page.locator("[data-connection-next]").click();
-    result.connectionState = await page
-      .locator("[data-connection-state]")
-      .textContent();
-    await page.locator('[data-env="webmcp"]').click();
-    result.envTitle = await page.locator("[data-env-title]").textContent();
-    await page.locator('[data-stage="2"]').click();
-    result.flowLabel = await page.locator("[data-flow-label]").textContent();
-    await page.locator('[data-code-tab="agent"]').click();
-    result.codePanel = await page
-      .locator('[data-code-panel="agent"]')
-      .isVisible();
-    await page.locator("#developers").scrollIntoViewIfNeeded();
+    await page.mouse.move(600, 400);
+    await page.waitForTimeout(300);
+    result.agentCount = await page.locator(".agent").count();
+    await page.locator("#build").scrollIntoViewIfNeeded();
+    await page.waitForTimeout(800);
+    result.builtCount = await page.locator(".built").count();
     await page.screenshot({
       path: resolve(output, "desktop-interactions.png"),
     });
@@ -133,8 +125,7 @@ for (const viewport of viewports) {
 
   if (viewport.name === "mobile") {
     await page.evaluate(() => window.scrollTo(0, 0));
-    await page.locator(".mobile-nav summary").click();
-    result.mobileMenu = await page.locator(".mobile-nav nav").isVisible();
+    result.navVisible = await page.locator(".nav").isVisible();
     await page.screenshot({ path: resolve(output, "mobile-navigation.png") });
   }
 
@@ -154,8 +145,8 @@ await reducedPage.goto(base, { waitUntil: "networkidle" });
 await reducedPage.waitForTimeout(600);
 await reducedPage.screenshot({ path: resolve(output, "reduced-motion.png") });
 report.reducedMotion = {
-  canvasCount: await reducedPage.locator("canvas").count(),
-  fallbackVisible: await reducedPage.locator(".hero-fallback").isVisible(),
+  agents: await reducedPage.locator(".agent").count(),
+  built: await reducedPage.locator(".built").count(),
   errors: reducedErrors,
 };
 await reduced.close();
@@ -179,7 +170,7 @@ await fallbackPage.waitForTimeout(700);
 await fallbackPage.screenshot({ path: resolve(output, "webgl-fallback.png") });
 report.webglFallback = {
   canvasCount: await fallbackPage.locator("canvas").count(),
-  fallbackVisible: await fallbackPage.locator(".hero-fallback").isVisible(),
+  fallbackVisible: await fallbackPage.locator(".stack-canvas").isVisible(),
   errors: fallbackErrors,
 };
 await fallback.close();

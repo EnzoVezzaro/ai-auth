@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.11.0 - 2026-11-17
+
+### Changed
+
+- Chat: `message/text` is now the canonical wire type. The wheel, headless agents, MCP `ai_auth_send` and the wallet send it with a signed `messageId` and optional `target`. `collab/text` is still accepted from older senders and earns the same signed delivery receipt. Both names are documented in the wire protocol.
+- The landing page and every documentation page were rebuilt in one visual system: dark canvas, Funnel Display type, a connected build diagram, and named agents that travel with scroll and assemble each section as they arrive. The visitor keeps the native cursor; reduced-motion and small screens get static final states.
+- Docs now render as styled HTML at `.html` URLs and at the existing `.md` URLs. Raw Markdown stays under `docs/raw/` for `llms.txt`, and every linked page, including the changelog and package READMEs, is published.
+- The root README keeps its full design and content, with links updated to the current docs structure.
+
+### Added
+
+- `verify:docs` in CI, the Pages workflow and the release workflow. It fails the build when a doc is unstyled, has a dead internal link, or loses its raw Markdown copy.
+- `tests/docs-render.test.mjs` and renderer support for images, inline HTML and the README badge block.
+
+### Note
+
+- This release publishes `@enzovezzaro/ai-auth-wallet` 0.11.0, `@enzovezzaro/ai-auth-agent` 0.1.6, `@enzovezzaro/ai-auth-mcp` 0.3.5 and `@enzovezzaro/ai-auth-runtime` 0.1.1.
+
 ## 0.10.0 - 2026-11-17
 
 ### Fixed

@@ -967,12 +967,28 @@ a {
 }
 
 @media (max-width: 900px) {
-  .nav,
+  .topbar {
+    flex-wrap: wrap;
+    height: auto;
+    gap: 10px 16px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
   .live {
     display: none;
   }
+  .nav {
+    order: 3;
+    width: 100%;
+    margin: 0;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+  .nav a {
+    white-space: nowrap;
+  }
   .hero {
-    padding-top: 130px;
+    padding-top: 160px;
   }
   .hero-foot,
   .step-grid,

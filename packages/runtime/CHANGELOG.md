@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 - 2026-11-17
 
 - Reframe the plugin host for local agent runtimes with host-owned providers and transports.
 - Remove the assumption that runtime plugins are part of an AI Auth-hosted service.

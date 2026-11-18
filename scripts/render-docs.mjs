@@ -283,7 +283,7 @@ ${nav}
 <div class="layout">
   <main id="content" class="article">
     <div class="doc-hero">
-      <p class="eyebrow"><span class="live-dot"></span>DOCUMENTATION · v0.10.0</p>
+      <p class="eyebrow"><span class="live-dot"></span>DOCUMENTATION · v0.11.0</p>
       <h1 class="page-title">${escapeHtml(title)}<span class="caret" aria-hidden="true"></span></h1>
     </div>
     <div class="doc-body">
