@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="AI Auth gives AI agents a self-custodied wallet identity. Sites request capabilities, owners approve them, and agents collaborate directly on the open web."
+      content="Give your agent an identity it can use on any site. The key stays on its machine, you approve each connection, and peers verify every signed event."
     />
     <meta name="theme-color" content="#080a0d" />
     <link
@@ -53,7 +53,7 @@
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
         "name": "AI Auth",
-        "description": "Self-custodied wallet identity for AI agents. Sites request capabilities, owners approve them, and agents collaborate on the open web.",
+        "description": "A self-custodied identity your agents carry across the web. You approve each connection and peers verify every signed event.",
         "url": "https://enzovezzaro.github.io/ai-auth/",
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "Web",
@@ -83,7 +83,7 @@
       <nav class="nav" aria-label="Main navigation">
         <a href="#model">Model</a>
         <a href="#build">How it works</a>
-        <a href="#caps">Capabilities</a>
+        <a href="#identity">Identity</a>
         <a href="#docs">Docs</a>
       </nav>
       <div class="topbar-end">
@@ -109,9 +109,9 @@
         </h1>
         <div class="hero-foot">
           <p class="lede">
-            A wallet identity your agents carry across the web. Sites ask for
-            named capabilities, owners approve them, and agents work alongside
-            people — peer to peer, with no account in the middle.
+            Give your agent an identity it can use on any site. The key lives on
+            your agent's machine. When a site asks who is visiting, your agent
+            answers with a signature and you decide what it may do.
           </p>
           <div class="cta-row">
             <a class="btn btn-orange" href="./docs/quickstart.html"
@@ -136,11 +136,13 @@
           </svg>
           <div class="flow-card c1">
             <span class="flow-ico">↳</span>
-            <span><b>Site request</b><small>capabilities · room</small></span>
+            <span><b>Site request</b><small>origin · room</small></span>
           </div>
           <div class="flow-card c2">
             <span class="flow-ico">◈</span>
-            <span><b>Wallet approval</b><small>owner signs scopes</small></span>
+            <span
+              ><b>Wallet approval</b><small>owner grants access</small></span
+            >
           </div>
           <div class="flow-card c3">
             <span class="flow-ico">⌁</span>
@@ -160,7 +162,7 @@
       <section class="paper" id="model" data-reveal>
         <p class="eyebrow">[ 01 ] <span>THE MODEL</span></p>
         <h2 class="type">
-          An identity your agents can take with them<span
+          An identity your agents take with them<span
             class="caret"
             aria-hidden="true"
           ></span>
@@ -176,22 +178,16 @@
           <div>
             <p class="mono">SITE</p>
             <p>
-              Asks for named capabilities and enforces its own access rules.
+              Asks who is visiting and sets its own rules for what happens next.
             </p>
           </div>
           <div>
             <p class="mono">VISITOR</p>
-            <p>
-              Approves the permissions they want and chooses how long the
-              session lasts.
-            </p>
+            <p>Approves the connection and decides how long it lasts.</p>
           </div>
           <div>
             <p class="mono">AGENT</p>
-            <p>
-              Uses the wallet identity in a browser tab or headless with the
-              agent packages.
-            </p>
+            <p>Signs in as itself, in a browser tab or a headless process.</p>
           </div>
         </div>
       </section>
@@ -204,39 +200,39 @@
             <p class="mono">01 · MINUTE 0</p>
             <h3>Map</h3>
             <p>
-              The site requests capabilities. The wallet shows the origin, room,
-              and exact scopes.
+              The site asks which agent is visiting. The wallet shows the origin
+              and the room.
             </p>
           </div>
           <div class="step">
             <p class="mono">02 · MINUTE 2</p>
             <h3>Prototype</h3>
             <p>
-              The owner approves. A signed consent binds the identity to the
-              grant.
+              You approve the connection. A signed consent ties the agent to
+              that approval.
             </p>
           </div>
           <div class="step">
             <p class="mono">03 · MINUTE 4</p>
             <h3>Launch</h3>
             <p>
-              Peers meet through Nostr relays, then exchange events over a
-              WebRTC data channel.
+              Peers meet through Nostr relays. Messages then go over a WebRTC
+              data channel.
             </p>
           </div>
           <div class="step">
             <p class="mono">04 · ONGOING</p>
             <h3>Improve</h3>
             <p>
-              Sessions renew, idle out, or are revoked. No central switch
-              exists.
+              Sessions end when they expire or you revoke them. There is no
+              central switch.
             </p>
           </div>
         </div>
         <div class="selection" aria-hidden="true">
           <span class="handle tl"></span><span class="handle tr"></span>
           <span class="handle bl"></span><span class="handle br"></span>
-          <span class="dimension">4 × CAPABILITIES</span>
+          <span class="dimension">1 × KEYPAIR</span>
         </div>
         <div class="role-marks" aria-hidden="true">
           <span class="cursor-mark yellow" style="--x: 8%; --y: 18%"
@@ -271,25 +267,31 @@
         </div>
       </section>
 
-      <section class="paper specimen" id="caps" data-reveal>
-        <p class="eyebrow">[ 04 ] <span>CAPABILITIES</span></p>
-        <h2 class="type small">Named scopes. Nothing more.</h2>
+      <section class="paper specimen" id="identity" data-reveal>
+        <p class="eyebrow">[ 04 ] <span>THE IDENTITY</span></p>
+        <h2 class="type small">One identity. Yours to keep.</h2>
         <div class="spec-table">
           <div>
-            <code>presence.read</code
-            ><span>See who is here and where they work.</span>
+            <code>wallet</code
+            ><span
+              >A key pair your agent controls. There is no account to
+              create.</span
+            >
           </div>
           <div>
-            <code>messages.send</code
-            ><span>Sign and deliver chat in the shared room.</span>
+            <code>signature</code
+            ><span>Peers verify who acted without asking a server.</span>
           </div>
           <div>
-            <code>tools.invoke</code
-            ><span>Call page tools after a human approves.</span>
+            <code>consent</code
+            ><span>You approve each connection and can revoke it.</span>
           </div>
           <div>
-            <code>content.share</code
-            ><span>Send elements and attachments directly.</span>
+            <code>backup</code
+            ><span
+              >An encrypted file only you hold. There is no password
+              reset.</span
+            >
           </div>
         </div>
       </section>
@@ -319,7 +321,7 @@
         <a href="./docs/agents.html">Agents</a>
         <a href="./wallet/">Wallet</a>
       </nav>
-      <span class="mono">NO SERVER. NO ACCOUNT. NO TOKEN.</span>
+      <span class="mono">There is no server, account, or token to set up.</span>
     </footer>
 
     <script>
