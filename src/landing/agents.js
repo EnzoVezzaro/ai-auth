@@ -1,5 +1,7 @@
-// Agent cursors: named workers that roam the page, interact with real elements
-// and assemble each section. The visitor keeps the native cursor.
+// Agent cursors: named workers that make their own decisions about which
+// element to work on next. The visitor keeps the native cursor.
+import { createBrain } from "./brain.js";
+
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const small = () => innerWidth < 900;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -26,47 +28,26 @@ const buildAll = () => {
 };
 
 const plans = [
-  {
-    id: "agent-a",
-    color: "#3ddc84",
-    route: [
-      [".flow-card.c1", ".hero-canvas", "reviewing request"],
-      [
-        ".role-card.accent-green",
-        ".role-card.accent-green",
-        "reviewed request",
-      ],
-      [".step.accent-yellow", ".step.accent-yellow", "room mapped"],
-      [".stack-row .stack-card:nth-child(1)", ".stack-canvas", "wallet placed"],
-    ],
-  },
-  {
-    id: "agent-b",
-    color: "#5b8cff",
-    route: [
-      [".flow-card.c2", null, "checking consent"],
-      [".role-card.accent-blue", ".role-card.accent-blue", "approved scope"],
-      [".step.accent-blue", ".step.accent-blue", "consent signed"],
-      [".stack-row .stack-card:nth-child(2)", null, "sdk wired"],
-    ],
-  },
-  {
-    id: "agent-c",
-    color: "#f5c542",
-    route: [
-      [".flow-card.c3", null, "starting runtime"],
-      [".role-card.accent-pink", ".role-card.accent-pink", "signed in"],
-      [".step.accent-orange", ".step.accent-orange", "peer connected"],
-      [".stack-row .stack-card:nth-child(3)", null, "runtime ready"],
-    ],
-  },
+  { id: "agent-a", color: "#3ddc84", goals: ["review", "build"] },
+  { id: "agent-b", color: "#5b8cff", goals: ["review", "verify"] },
+  { id: "agent-c", color: "#f5c542", goals: ["assemble", "handoff"] },
 ];
+
+const BUILD_TARGETS = new Map([
+  [".flow-card.c1", ".hero-canvas"],
+  [".flow-card.c2", ".hero-canvas"],
+  [".flow-card.c3", ".hero-canvas"],
+  [".stack-row .stack-card:nth-child(1)", ".stack-canvas"],
+  [".stack-row .stack-card:nth-child(2)", ".stack-canvas"],
+  [".stack-row .stack-card:nth-child(3)", ".stack-canvas"],
+]);
 
 const stage = document.querySelector(".agents-stage");
 if (reduced || small() || !stage) {
   buildAll();
   if (stage) stage.remove();
 } else {
+  const brain = createBrain();
   const agents = plans
     .map((plan) => {
       const el = document.getElementById(plan.id);
@@ -79,53 +60,81 @@ if (reduced || small() || !stage) {
         el,
         note,
         x: innerWidth / 2,
-        y: innerHeight / 2,
-        index: 0,
-        actedAt: 0,
-        active: null,
+        y: innerHeight * 0.7,
+        visits: new Map(),
+        last: null,
+        target: null,
+        task: null,
+        waitUntil: 0,
       };
     })
     .filter(Boolean);
 
-  const anchor = (selector, rect) => {
-    if (selector.startsWith(".stack-row .stack-card"))
-      return { x: rect.right - 26, y: rect.top + scrollY + rect.height - 8 };
+  const release = (agent) => {
+    if (!agent.task?.el) return;
+    agent.task.el.classList.remove("agent-hover", "agent-active");
+  };
+
+  const announce = (agent, text) => {
+    agent.note.textContent = text;
+  };
+
+  const pointFor = (el) => {
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
     return {
       x: rect.left + rect.width / 2,
-      y: rect.top + scrollY + rect.height / 2,
+      y: rect.top + rect.height / 2,
     };
   };
 
-  const release = (agent) => {
-    if (!agent.active) return;
-    agent.active.el.classList.remove("agent-hover", "agent-active");
-    agent.active = null;
+  const buildFor = (el) => {
+    for (const [selector, built] of BUILD_TARGETS)
+      if (el.matches(selector)) return document.querySelector(built);
+    if (el.matches(".role-card, .step")) return el;
+    if (el.matches(".stack-card"))
+      return document.querySelector(".stack-canvas");
+    if (el.matches(".flow-card")) return document.querySelector(".hero-canvas");
+    return null;
   };
 
-  const act = (agent, target, stop) => {
-    const [selector, buildSelector, label] = stop;
-    const el = document.querySelector(selector);
+  const startTask = (agent, now) => {
+    const el = agent.target;
     if (!el) return;
-    release(agent);
-    el.style.setProperty("--agent-color", agent.plan.color);
-    el.classList.add("agent-hover");
-    agent.active = { el };
-    agent.note.textContent = label;
-    agent.actedAt = performance.now();
-    if (buildSelector) {
-      const built = document.querySelector(buildSelector);
-      if (built) built.classList.add("built");
+    agent.task = { el, at: now, stage: -1, phrase: brain.phraseFor(agent, el) };
+    agent.last = el;
+    agent.visits.set(el, (agent.visits.get(el) ?? 0) + 1);
+  };
+
+  const advanceTask = (agent, now) => {
+    const task = agent.task;
+    const elapsed = now - task.at;
+    if (elapsed > 2100) {
+      release(agent);
+      announce(agent, "");
+      agent.task = null;
+      agent.target = null;
+      agent.waitUntil = now + 260;
+      return;
     }
-    // Press state reads as a short click on the element.
-    setTimeout(() => {
-      if (agent.active?.el === el) el.classList.add("agent-active");
-    }, 180);
-    setTimeout(() => {
-      if (agent.active?.el === el) {
-        el.classList.remove("agent-active");
-        release(agent);
-      }
-    }, 1100);
+    if (elapsed > 1400 && task.stage < 2) {
+      task.stage = 2;
+      announce(agent, "handing off");
+      return;
+    }
+    if (elapsed > 700 && task.stage < 1) {
+      task.stage = 1;
+      task.el.classList.add("agent-active");
+      announce(agent, task.phrase);
+      const built = buildFor(task.el);
+      if (built) built.classList.add("built");
+      return;
+    }
+    if (task.stage < 0) {
+      task.stage = 0;
+      task.el.classList.add("agent-hover");
+      announce(agent, "inspecting");
+    }
   };
 
   const frame = (now) => {
@@ -136,87 +145,34 @@ if (reduced || small() || !stage) {
     progress.style.width = `${(scrollY / max) * 100}%`;
 
     for (const agent of agents) {
-      const stops = agent.plan.route.map((stop) => {
-        const el = document.querySelector(stop[0]);
-        const rect = el
-          ? el.getBoundingClientRect()
-          : {
-              left: innerWidth / 2,
-              top: scrollY + innerHeight / 2,
-              width: 0,
-              height: 0,
-            };
-        const point = anchor(stop[0], rect);
-        return {
-          ...point,
-          stop,
-          visible: rect.bottom > 0 && rect.top < innerHeight + 160,
-          trigger: clamp(point.y - innerHeight * 0.65, 0, max),
-        };
-      });
+      if (agent.task) advanceTask(agent, now);
 
-      // Scroll can pull an agent to a later section; otherwise it keeps
-      // working through the visible stops on its own clock.
-      let index = agent.index;
-      while (index < stops.length - 1 && scrollY >= stops[index + 1].trigger)
-        index += 1;
-      if (index !== agent.index) {
-        release(agent);
-        agent.index = index;
-        agent.actedAt = 0;
+      if (!agent.task && now >= agent.waitUntil) {
+        agent.target = brain.choose(agent, agents);
       }
-      // When the current stop scrolls out of view, step to the next one that
-      // is visible, one stop at a time, instead of jumping to the route end.
-      if (
-        !stops[agent.index].visible &&
-        agent.index < stops.length - 1 &&
-        stops[agent.index + 1].visible
-      ) {
-        release(agent);
-        agent.index += 1;
-        agent.actedAt = 0;
-      }
-      // Work on the first visible stop at or after the scroll position. If
-      // nothing is visible yet, wait near the viewport instead of jumping to
-      // the end of the route.
-      let targetIndex = stops.findIndex(
-        (stop, i) => i >= agent.index && stop.visible,
-      );
-      if (targetIndex < 0)
-        targetIndex = stops.findIndex((stop) => stop.visible);
-      const target = targetIndex >= 0 ? stops[targetIndex] : null;
-      const desiredX = target ? target.x : agent.x;
-      const desiredY = target
-        ? clamp(target.y - scrollY, 96, innerHeight - 96)
-        : clamp(innerHeight * 0.7, 96, innerHeight - 96);
-      agent.x += (desiredX - agent.x) * 0.055;
-      agent.y += (desiredY - agent.y) * 0.055;
+
+      const point = agent.task
+        ? pointFor(agent.task.el)
+        : pointFor(agent.target);
+      const wander = !point;
+      const desiredX = wander
+        ? clamp(agent.x + Math.sin(now / 900) * 18, 40, innerWidth - 140)
+        : point.x;
+      const desiredY = wander
+        ? clamp(
+            innerHeight * 0.62 + Math.cos(now / 1100) * 24,
+            100,
+            innerHeight - 120,
+          )
+        : clamp(point.y, 96, innerHeight - 96);
+
+      agent.x += (desiredX - agent.x) * 0.08;
+      agent.y += (desiredY - agent.y) * 0.08;
       agent.el.style.transform = `translate3d(${agent.x}px, ${agent.y}px, 0)`;
 
       const near =
-        target && Math.hypot(desiredX - agent.x, desiredY - agent.y) < 26;
-      const settled = now - agent.actedAt > 1500;
-      if (
-        near &&
-        settled &&
-        (!agent.active ||
-          agent.active.el !== document.querySelector(target.stop[0]))
-      )
-        act(agent, document.querySelector(target.stop[0]), target.stop);
-
-      // After working a visible stop, roam to the next one even without a
-      // scroll, so the agents look like they are doing something on their own.
-      if (
-        agent.actedAt &&
-        now - agent.actedAt > 2000 &&
-        targetIndex >= 0 &&
-        targetIndex < stops.length - 1 &&
-        stops[targetIndex + 1].visible
-      ) {
-        release(agent);
-        agent.index = targetIndex + 1;
-        agent.actedAt = 0;
-      }
+        !wander && Math.hypot(desiredX - agent.x, desiredY - agent.y) < 30;
+      if (near && !agent.task && agent.target) startTask(agent, now);
     }
     requestAnimationFrame(frame);
   };
