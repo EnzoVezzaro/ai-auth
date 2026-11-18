@@ -242,7 +242,7 @@ function toc(headings) {
     )
     .join("\n");
   return links
-    ? `<nav class="toc" aria-label="On this page">${links}</nav>`
+    ? `<div class="toc-wrap"><span class="toc-label">On this page</span><nav class="toc" aria-label="On this page">${links}</nav></div>`
     : "";
 }
 
@@ -269,24 +269,51 @@ export function renderDocPage({ markdown, title, name, docs, rawPath }) {
 </head>
 <body>
 <a class="skip-link" href="#content">Skip to content</a>
+<div class="cursor-dot" aria-hidden="true"></div>
 <header class="site-header">
-  <a class="brand" href="../index.html"><span class="mark" aria-hidden="true"></span>AI Auth <span class="brand-dim">/ docs</span></a>
+  <a class="brand" href="../index.html"><span class="mark" aria-hidden="true"></span>AI Auth<span class="brand-dim">/ docs</span></a>
   <nav class="primary" aria-label="Documentation">
 ${nav}
   </nav>
+  <span class="header-status"><span class="live-dot"></span>NO SERVER · SELF-CUSTODIAL</span>
 </header>
 <div class="layout">
   <main id="content" class="article">
-    <p class="eyebrow">Documentation</p>
-    <h1 class="page-title">${escapeHtml(title)}</h1>
+    <div class="doc-hero">
+      <p class="eyebrow"><span class="live-dot"></span>DOCUMENTATION · v0.10.0</p>
+      <h1 class="page-title">${escapeHtml(title)}<span class="caret" aria-hidden="true"></span></h1>
+      <div class="selection" aria-hidden="true"><span class="handle tl"></span><span class="handle tr"></span><span class="handle bl"></span><span class="handle br"></span><span class="dimension">OPEN · SIGNED</span></div>
+      <span class="cursor-mark green" aria-hidden="true">Dev</span>
+    </div>
+    <div class="doc-body">
 ${html}
+    </div>
     <footer class="doc-footer">
-      <a href="${escapeHtml(rawPath)}">View raw Markdown</a>
-      <span>AI Auth · self-custodied identity, no server</span>
+      <a href="${escapeHtml(rawPath)}">View raw Markdown ↗</a>
+      <span>AI Auth · an identity your agents take with them</span>
     </footer>
   </main>
 ${toc(headings)}
 </div>
+<script>
+(() => {
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const fine = matchMedia("(pointer: fine)").matches;
+  const dot = document.querySelector(".cursor-dot");
+  if (!dot || !fine || reduce) { if (dot) dot.remove(); return; }
+  let x = innerWidth / 2, y = innerHeight / 2, tx = x, ty = y;
+  addEventListener("pointermove", (e) => { tx = e.clientX; ty = e.clientY; }, { passive: true });
+  const frame = () => {
+    x += (tx - x) * 0.2; y += (ty - y) * 0.2;
+    dot.style.transform = "translate3d(" + x + "px," + y + "px,0)";
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+  document.addEventListener("pointerover", (e) => {
+    dot.classList.toggle("active", !!e.target.closest("a"));
+  });
+})();
+</script>
 </body>
 </html>
 `;
