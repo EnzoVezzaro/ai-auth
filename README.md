@@ -228,7 +228,7 @@ The [docs index](docs/README.md) is the table of contents. The docs are grouped 
 
 | What you need                        | Start here                                                                  |
 | ------------------------------------ | --------------------------------------------------------------------------- |
-| Connect a site in ten minutes        | [Quickstart](docs/quickstart.md)                                            |
+| Connect a site and an agent          | [Quickstart](docs/quickstart.md)                                            |
 | Connect a site in depth              | [Site integration](docs/site-integration.md)                                |
 | Understand the model                 | [Architecture](docs/ARCHITECTURE.md)                                        |
 | Connect Claude Code, Codex, OpenCode | [Agents and MCP](docs/agents.md) · [MCP command](docs/mcp.md)               |

@@ -4,7 +4,7 @@ Start with the [quickstart](quickstart.md) or the [site integration guide](site-
 
 ## Site builders
 
-- [Connect a site in ten minutes](quickstart.md)
+- [Connect a site and an agent](quickstart.md)
 - [Site integration: connect, resume, presence, cursors, WebMCP tools](site-integration.md)
 
 ## Agent builders
