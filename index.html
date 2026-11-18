@@ -269,20 +269,34 @@
         <h2 class="display small">Built in the open. Nothing hosted.</h2>
         <div class="canvas stack-canvas" data-build>
           <div class="canvas-grid" aria-hidden="true"></div>
-          <div class="stack-card a">
-            <b>Browser wallet</b><small>IndexedDB · non-extractable key</small>
+          <svg
+            class="wires stack-wires"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <path class="wire-top" d="M20 24 L80 24" />
+            <path class="wire-down" d="M50 30 L50 82" />
+          </svg>
+          <div class="stack-row">
+            <div class="stack-card">
+              <b>Browser wallet</b
+              ><small>IndexedDB · non-extractable key</small>
+            </div>
+            <div class="stack-card">
+              <b>Site SDK</b><small>WebMCP · signed catalog</small>
+            </div>
+            <div class="stack-card">
+              <b>Agent runtime</b><small>0600 keystore · receipts</small>
+            </div>
           </div>
-          <div class="stack-card b">
-            <b>Site SDK</b><small>WebMCP · signed catalog</small>
+          <div class="stack-relay">
+            <div class="stack-card">
+              <b>Nostr relays</b><small>signaling only</small>
+            </div>
           </div>
-          <div class="stack-card c">
-            <b>Agent runtime</b><small>0600 keystore · receipts</small>
-          </div>
-          <div class="stack-card d">
-            <b>Nostr relays</b><small>signaling only</small>
-          </div>
-          <span class="tag tag-green wire-tag">message/text</span>
-          <span class="tag tag-orange wire-tag two">collab/text (legacy)</span>
+          <span class="wire-label">message/text</span>
+          <span class="wire-footnote">collab/text still accepted</span>
         </div>
       </section>
 
@@ -368,7 +382,7 @@
               [".flow-card.c1", ".hero-canvas"],
               [".role-card.accent-green", ".role-card.accent-green"],
               [".step.accent-yellow", ".step.accent-yellow"],
-              [".stack-card.a", ".stack-canvas"],
+              [".stack-row .stack-card:nth-child(1)", ".stack-canvas"],
             ],
           },
           {
@@ -377,7 +391,7 @@
               [".flow-card.c2", null],
               [".role-card.accent-blue", ".role-card.accent-blue"],
               [".step.accent-blue", ".step.accent-blue"],
-              [".stack-card.b", null],
+              [".stack-row .stack-card:nth-child(2)", null],
             ],
           },
           {
@@ -386,7 +400,7 @@
               [".flow-card.c3", null],
               [".role-card.accent-pink", ".role-card.accent-pink"],
               [".step.accent-orange", ".step.accent-orange"],
-              [".stack-card.c", null],
+              [".stack-row .stack-card:nth-child(3)", null],
             ],
           },
         ];
@@ -418,8 +432,11 @@
             const stops = plan.stops.map(([sel, buildSel], index) => {
               const el = document.querySelector(sel);
               const rect = el.getBoundingClientRect();
-              const absY = rect.top + scrollY + rect.height / 2;
-              const x = rect.left + rect.width / 2;
+              const isStack = sel.startsWith(".stack-row .stack-card");
+              const absY = isStack
+                ? rect.top + scrollY + rect.height - 8
+                : rect.top + scrollY + rect.height / 2;
+              const x = isStack ? rect.right - 26 : rect.left + rect.width / 2;
               const trigger =
                 index === 0 ? 0 : clamp(absY - innerHeight * 0.65, 0, max);
               return { x, absY, trigger, buildSel, sel };

@@ -818,37 +818,60 @@ a {
 
 .stack-canvas {
   height: 360px;
+  position: relative;
 }
 
-.stack-card.a {
-  left: 5%;
-  top: 18%;
-}
-.stack-card.b {
-  left: 41%;
-  top: 46%;
-}
-.stack-card.c {
-  right: 5%;
-  top: 18%;
-}
-.stack-card.d {
-  left: 26%;
-  bottom: 16%;
+.stack-wires path {
+  vector-effect: non-scaling-stroke;
+  stroke-dasharray: 6 6;
 }
 
-.wire-tag {
+.stack-row {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 40px;
+  padding: 54px 48px 0;
+}
+
+.stack-canvas .stack-card {
+  position: static;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-height: 66px;
+}
+
+.stack-relay {
   position: absolute;
-  top: 14%;
-  right: 18%;
-  transform: rotate(3deg);
+  z-index: 2;
+  left: 50%;
+  bottom: 48px;
+  transform: translateX(-50%);
 }
 
-.wire-tag.two {
-  top: auto;
-  bottom: 14%;
-  right: 12%;
-  transform: rotate(-3deg);
+.wire-label {
+  position: absolute;
+  z-index: 3;
+  top: 18px;
+  left: 70%;
+  transform: translateX(-50%) rotate(-3deg);
+  padding: 4px 9px;
+  border-radius: 5px;
+  background: var(--green);
+  color: #0b0b0d;
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.wire-footnote {
+  position: absolute;
+  right: 36px;
+  bottom: 22px;
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 9px;
 }
 
 .specimen .spec-table {
@@ -965,11 +988,7 @@ a {
   }
   .flow-card.c1,
   .flow-card.c2,
-  .flow-card.c3,
-  .stack-card.a,
-  .stack-card.b,
-  .stack-card.c,
-  .stack-card.d {
+  .flow-card.c3 {
     position: static;
     margin: 8px;
   }
@@ -977,9 +996,24 @@ a {
     padding: 16px;
     min-height: auto;
   }
+  .stack-canvas {
+    height: auto;
+  }
+  .stack-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding: 0;
+  }
+  .stack-relay {
+    position: static;
+    transform: none;
+    margin-top: 12px;
+  }
   .canvas-grid,
   .wires,
-  .statusbar {
+  .statusbar,
+  .wire-label,
+  .wire-footnote {
     display: none;
   }
   .spec-table > div {
