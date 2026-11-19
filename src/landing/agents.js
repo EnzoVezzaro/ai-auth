@@ -28,9 +28,9 @@ const buildAll = () => {
 };
 
 const plans = [
-  { id: "agent-a", color: "#3ddc84", goals: ["review", "build"] },
-  { id: "agent-b", color: "#5b8cff", goals: ["review", "verify"] },
-  { id: "agent-c", color: "#f5c542", goals: ["assemble", "handoff"] },
+  { id: "agent-a", color: "#3ddc84", goals: ["review", "build", "play"] },
+  { id: "agent-b", color: "#5b8cff", goals: ["review", "verify", "play"] },
+  { id: "agent-c", color: "#f5c542", goals: ["assemble", "handoff", "play"] },
 ];
 
 const BUILD_TARGETS = new Map([
@@ -128,6 +128,18 @@ if (reduced || small() || !stage) {
       announce(agent, task.phrase);
       const built = buildFor(task.el);
       if (built) built.classList.add("built");
+      if (task.el.matches(".pile-item")) {
+        task.el.dispatchEvent(
+          new CustomEvent("ai-auth:agent-touch", {
+            bubbles: true,
+            detail: {
+              element: task.el,
+              dx: (Math.random() - 0.5) * 9,
+              dy: -5 - Math.random() * 7,
+            },
+          }),
+        );
+      }
       return;
     }
     if (task.stage < 0) {

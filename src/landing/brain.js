@@ -12,6 +12,7 @@ const SELECTORS = [
   ".stack-card",
   ".spec-table > div",
   ".cta .btn",
+  ".pile-item",
 ];
 
 const PHRASES = {
@@ -20,6 +21,7 @@ const PHRASES = {
   assemble: ["linking relay", "assembling node", "checking route"],
   verify: ["verifying claim", "matching signature", "checking receipt"],
   handoff: ["handing off", "offering action", "opening the door"],
+  play: ["nudging link", "stacking tile", "pushing item"],
 };
 
 export function createBrain({ rand = Math.random } = {}) {
@@ -28,6 +30,7 @@ export function createBrain({ rand = Math.random } = {}) {
     if (el.matches(".step")) return "build";
     if (el.matches(".stack-card")) return "assemble";
     if (el.matches(".spec-table > div")) return "verify";
+    if (el.matches(".pile-item")) return "play";
     return "handoff";
   };
 

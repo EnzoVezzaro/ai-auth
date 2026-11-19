@@ -106,6 +106,17 @@ if (pile) {
       { passive: true },
     );
 
+    // Agent cursors playing with the pile: they dispatch a touch on the item
+    // they are working on, and the physics body gets a matching impulse.
+    pile.addEventListener("ai-auth:agent-touch", (event) => {
+      const target = event.detail?.element;
+      const body = bodies.find((item) => item.el === target && item.live);
+      if (!body) return;
+      body.vx += event.detail.dx ?? 0;
+      body.vy += event.detail.dy ?? -6;
+      body.va += (Math.random() - 0.5) * 0.12;
+    });
+
     const settle = (body) => {
       const floor = height - body.h - 6;
       if (body.y > floor) {
