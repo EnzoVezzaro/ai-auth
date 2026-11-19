@@ -1,96 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" role="img" aria-labelledby="title desc" viewBox="0 0 1600 500" width="1600" height="500">
-  <title id="title">AI Auth — agent identity and peer collaboration</title>
-  <desc id="desc">Midnight blue open-source project banner with violet and cyan network connections surrounding a signed identity lock.</desc>
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#090d27"/>
-      <stop offset="52%" stop-color="#151440"/>
-      <stop offset="100%" stop-color="#071e40"/>
-    </linearGradient>
-    <radialGradient id="glow" cx="0.77" cy="0.56" r="0.64">
-      <stop offset="0%" stop-color="#7e4cfb" stop-opacity=".35"/>
-      <stop offset="50%" stop-color="#346ce5" stop-opacity=".10"/>
-      <stop offset="100%" stop-color="#090d27" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#4e8cf7" stop-opacity=".20"/>
-      <stop offset="48%" stop-color="#7e80ff" stop-opacity=".94"/>
-      <stop offset="100%" stop-color="#45d8f7" stop-opacity=".8"/>
-    </linearGradient>
-    <linearGradient id="icon" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#a28aff"/>
-      <stop offset="60%" stop-color="#5d84fc"/>
-      <stop offset="100%" stop-color="#45e1eb"/>
-    </linearGradient>
-    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#29316e"/>
-      <stop offset="100%" stop-color="#13254f"/>
-    </linearGradient>
-    <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse">
-      <path d="M44 0H0V44" fill="none" stroke="#a6b2ff" stroke-opacity=".075"/>
-    </pattern>
-    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="19"/>
-    </filter>
-    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-      <feDropShadow dx="0" dy="15" stdDeviation="26" flood-color="#02091c" flood-opacity=".64"/>
-    </filter>
-  </defs>
-  <rect width="1600" height="500" rx="30" fill="url(#bg)"/>
-  <rect width="1600" height="500" rx="30" fill="url(#glow)"/>
-  <rect width="1600" height="500" rx="30" fill="url(#grid)"/>
-  <path d="M0 425C245 300 440 520 760 430S1270 290 1600 370V500H0Z" fill="#6851ed" fill-opacity=".12"/>
-  <path d="M0 479C280 350 560 550 915 458S1410 332 1600 418" fill="none" stroke="#b45afb" stroke-width="3" stroke-opacity=".30"/>
-  <ellipse cx="1290" cy="265" rx="255" ry="163" fill="#6956e9" opacity=".11" filter="url(#soft)"/>
-  <g font-family="Inter,Segoe UI,Arial,sans-serif">
-    <g transform="translate(104 66)">
-      <rect width="197" height="34" rx="17" fill="#a3adff" fill-opacity=".13" stroke="#aaaaff" stroke-opacity=".42"/>
-      <circle cx="20" cy="17" r="5" fill="#4ae6d4"/>
-      <text x="34" y="22" fill="#dee7ff" font-weight="700" font-size="15" letter-spacing="2">OPEN SOURCE SDK</text>
-    </g>
-    <text x="101" y="212" fill="#ffffff" font-size="112" letter-spacing="-5" font-weight="800">AI <tspan fill="#a89aff">AUTH</tspan></text>
-    <text x="107" y="272" fill="#e4eaff" font-size="32" font-weight="600">Identity and collaboration for AI agents.</text>
-    <text x="107" y="319" fill="#a7b8de" font-size="22">Self-custodied wallets. Signed consent. Direct peer connections.</text>
-    <g font-size="17" font-weight="600">
-      <rect x="106" y="369" width="194" height="45" rx="22" fill="#9b85ff" fill-opacity=".14" stroke="#8f87ff" stroke-opacity=".58"/>
-      <circle cx="126" cy="391" r="5" fill="#61e7de"/>
-      <text x="142" y="397" fill="#e9e7ff">No hosted backend</text>
-      <rect x="313" y="369" width="170" height="45" rx="22" fill="#658dff" fill-opacity=".14" stroke="#6c9dff" stroke-opacity=".55"/>
-      <circle cx="333" cy="391" r="5" fill="#61e7de"/>
-      <text x="349" y="397" fill="#e9e7ff">WebRTC + Nostr</text>
-      <rect x="496" y="369" width="140" height="45" rx="22" fill="#62adff" fill-opacity=".13" stroke="#72d9f5" stroke-opacity=".40"/>
-      <circle cx="516" cy="391" r="5" fill="#61e7de"/>
-      <text x="532" y="397" fill="#e9e7ff">MCP / WebMCP</text>
-    </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="500" viewBox="0 0 1600 500" role="img" aria-label="AI Auth — identity for AI agents">
+  <title>AI Auth — identity for AI agents</title>
+  <rect width="1600" height="500" fill="#080a0d"/>
+  <g transform="translate(96 100) scale(4.6875)" fill="#fd5317">
+      <path d="M35.36 7.01 L38.70 7.01 L41.42 7.06 L43.54 7.17 L45.05 7.33 L45.95 7.55 L46.84 7.82 L47.72 8.14 L48.59 8.52 L49.45 8.95 L50.27 9.41 L51.04 9.89 L51.77 10.40 L52.45 10.94 L53.10 11.51 L53.72 12.11 L54.31 12.75 L54.86 13.41 L55.35 14.03 L55.77 14.59 L56.13 15.11 L56.41 15.57 L56.72 16.14 L57.04 16.80 L57.38 17.57 L57.74 18.43 L58.05 19.25 L58.30 20.02 L58.50 20.74 L58.64 21.43 L58.76 22.41 L58.85 23.71 L58.91 25.30 L58.95 27.21 L58.95 28.85 L58.91 30.23 L58.84 31.35 L58.73 32.22 L58.58 33.08 L58.38 33.94 L58.14 34.80 L57.85 35.66 L57.54 36.48 L57.20 37.25 L56.83 37.98 L56.43 38.66 L55.95 39.36 L55.39 40.09 L54.74 40.84 L54.00 41.61 L53.33 42.27 L52.73 42.82 L52.20 43.26 L51.73 43.58 L51.15 43.92 L50.47 44.28 L49.68 44.66 L48.79 45.05 L47.92 45.38 L47.10 45.65 L46.31 45.86 L45.55 46.00 L44.40 46.11 L42.86 46.18 L40.92 46.22 L38.59 46.22 L36.66 46.16 L35.13 46.03 L34.01 45.84 L33.29 45.59 L32.68 45.35 L32.18 45.11 L31.78 44.89 L31.50 44.67 L31.21 44.42 L30.91 44.12 L30.61 43.79 L30.30 43.41 L30.02 42.97 L29.76 42.48 L29.52 41.93 L29.31 41.32 L29.15 40.44 L29.04 39.29 L28.98 37.87 L28.98 36.18 L29.01 34.89 L29.05 34.01 L29.12 33.52 L29.21 33.43 L29.77 33.36 L30.80 33.31 L32.31 33.29 L34.28 33.29 L35.85 33.27 L37.02 33.21 L37.78 33.13 L38.14 33.02 L38.50 32.89 L38.86 32.73 L39.22 32.54 L39.58 32.32 L39.92 32.08 L40.25 31.80 L40.57 31.49 L40.88 31.15 L41.15 30.81 L41.39 30.48 L41.60 30.15 L41.78 29.83 L41.95 29.46 L42.09 29.05 L42.21 28.59 L42.32 28.09 L42.39 27.58 L42.40 27.08 L42.38 26.58 L42.30 26.08 L42.20 25.57 L42.05 25.07 L41.87 24.57 L41.66 24.07 L41.44 23.62 L41.23 23.22 L41.01 22.88 L40.80 22.59 L40.51 22.27 L40.16 21.92 L39.75 21.54 L39.26 21.13 L38.74 20.76 L38.17 20.43 L37.57 20.13 L36.92 19.88 L36.05 19.68 L34.95 19.54 L33.63 19.45 L32.09 19.42 L30.90 19.37 L30.07 19.30 L29.59 19.23 L29.46 19.14 L29.37 18.40 L29.30 17.01 L29.27 14.96 L29.27 12.27 L29.34 10.17 L29.47 8.68 L29.68 7.77 L29.94 7.47 L30.98 7.24 L32.79 7.09 Z"/>
+      <path d="M25.38 19.22 L26.56 19.22 L27.49 19.27 L28.16 19.37 L28.58 19.51 L28.74 19.71 L28.86 20.68 L28.94 22.41 L28.98 24.91 L28.98 28.18 L28.97 30.64 L28.94 32.30 L28.90 33.16 L28.85 33.21 L28.52 33.26 L27.92 33.31 L27.05 33.35 L25.90 33.38 L24.95 33.44 L24.22 33.51 L23.69 33.60 L23.37 33.71 L23.01 33.86 L22.61 34.06 L22.18 34.30 L21.71 34.59 L21.27 34.90 L20.85 35.25 L20.45 35.64 L20.07 36.05 L19.73 36.47 L19.41 36.91 L19.13 37.37 L18.88 37.83 L18.66 38.31 L18.48 38.79 L18.34 39.29 L18.23 39.79 L18.16 40.33 L18.12 40.90 L18.12 41.51 L18.16 42.16 L18.27 42.86 L18.45 43.62 L18.70 44.42 L19.02 45.28 L19.36 46.07 L19.72 46.77 L20.10 47.38 L20.49 47.92 L21.22 48.72 L22.27 49.77 L23.64 51.07 L25.35 52.64 L26.68 53.88 L27.63 54.82 L28.20 55.44 L28.40 55.74 L28.51 56.02 L28.53 56.27 L28.45 56.50 L28.29 56.69 L27.53 56.83 L26.18 56.91 L24.23 56.94 L21.68 56.90 L19.59 56.83 L17.95 56.72 L16.78 56.58 L16.06 56.40 L15.30 56.15 L14.49 55.82 L13.63 55.43 L12.74 54.96 L11.89 54.45 L11.09 53.91 L10.34 53.32 L9.64 52.69 L8.99 52.04 L8.39 51.37 L7.84 50.67 L7.33 49.95 L6.89 49.27 L6.52 48.62 L6.20 48.01 L5.95 47.44 L5.73 46.85 L5.53 46.24 L5.36 45.61 L5.22 44.96 L5.12 43.94 L5.06 42.54 L5.05 40.76 L5.09 38.61 L5.18 36.77 L5.32 35.24 L5.52 34.03 L5.77 33.13 L6.04 32.29 L6.33 31.50 L6.63 30.76 L6.96 30.08 L7.32 29.39 L7.74 28.69 L8.20 27.98 L8.70 27.26 L9.23 26.56 L9.80 25.89 L10.39 25.24 L11.02 24.61 L11.65 24.03 L12.27 23.50 L12.88 23.02 L13.49 22.59 L14.16 22.17 L14.87 21.76 L15.65 21.35 L16.47 20.96 L17.24 20.62 L17.96 20.33 L18.63 20.10 L19.24 19.92 L19.91 19.76 L20.65 19.61 L21.44 19.49 L22.31 19.38 L23.25 19.30 L24.27 19.25 Z"/>
   </g>
-  <g fill="none" stroke="url(#line)" stroke-linecap="round">
-    <path d="M1040 143 1176 220 1405 129" stroke-width="3" stroke-dasharray="8 10"/>
-    <path d="M1001 338 1176 283 1456 357" stroke-width="3" stroke-dasharray="8 10"/>
-    <path d="M1405 129 1456 357" stroke-width="2" stroke-opacity=".5"/>
-    <path d="M1040 143 1001 338" stroke-width="2" stroke-opacity=".5"/>
-  </g>
-  <g fill="#142351" stroke="#7e97f7" stroke-width="3" filter="url(#shadow)">
-    <circle cx="1040" cy="143" r="27"/><circle cx="1001" cy="338" r="27"/>
-    <circle cx="1405" cy="129" r="27"/><circle cx="1456" cy="357" r="27"/>
-  </g>
-  <g fill="none" stroke="#c8ddff" stroke-width="4" stroke-linecap="round">
-    <path d="M1031 145l6 6 12-15"/>
-    <path d="M992 338l7 7 11-14"/>
-    <path d="M1396 130l6 6 12-15"/>
-    <path d="M1447 358l6 6 12-15"/>
-  </g>
-  <g filter="url(#shadow)">
-    <rect x="1103" y="122" width="231" height="251" rx="34" fill="url(#panel)" stroke="#8e91ff" stroke-width="2.5"/>
-    <rect x="1124" y="141" width="189" height="212" rx="24" fill="#0f173e" stroke="#8e99ee" stroke-opacity=".4"/>
-    <path d="M1177 242v-40c0-26 19-47 42-47s42 21 42 47v40" fill="none" stroke="url(#icon)" stroke-width="15" stroke-linecap="round"/>
-    <rect x="1154" y="231" width="132" height="100" rx="22" fill="url(#icon)"/>
-    <circle cx="1220" cy="272" r="12" fill="#111b48"/>
-    <path d="M1220 281v21" stroke="#111b48" stroke-width="10" stroke-linecap="round"/>
-    <circle cx="1286" cy="326" r="31" fill="#18385f" stroke="#73ecfb" stroke-width="3"/>
-    <path d="m1271 326 11 11 20-24" fill="none" stroke="#80fff2" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
-  </g>
-  <g fill="#70daec">
-    <circle cx="1078" cy="211" r="3"/><circle cx="1372" cy="253" r="3"/>
-    <circle cx="1082" cy="385" r="4"/><circle cx="1355" cy="400" r="4"/>
-  </g>
+  <text x="452" y="235" font-family="Arial, Helvetica, sans-serif" font-size="124" font-weight="700" fill="#f2f1ec">AI Auth</text>
+  <text x="848" y="171" font-family="Arial, Helvetica, sans-serif" font-size="27" fill="#9aa3ad">®</text>
+  <text x="452" y="300" font-family="Arial, Helvetica, sans-serif" font-size="26" fill="#9aa3ad" letter-spacing="2">IDENTITY FOR AI AGENTS   ·   NO SERVER   ·   SELF-CUSTODIAL</text>
+  <rect x="452" y="380" width="100" height="6" fill="#fd5317"/>
 </svg>

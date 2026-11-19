@@ -203,20 +203,10 @@ a {
 }
 
 .brand-mark {
-  width: 17px;
-  height: 17px;
-  border: 2px solid var(--orange);
-  border-radius: 5px;
-  transform: rotate(45deg);
-  position: relative;
-}
-
-.brand-mark::after {
-  content: "";
-  position: absolute;
-  inset: 3px;
-  border-radius: 2px;
-  background: var(--orange);
+  width: 20px;
+  height: 20px;
+  display: block;
+  flex: none;
 }
 
 .reg {

@@ -106,17 +106,10 @@ a:hover {
   letter-spacing: -0.04em;
 }
 .brand-mark {
-  width: 33px;
-  height: 33px;
-  display: grid;
-  place-items: center;
-  border-radius: 10px 10px 10px 3px;
-  color: #fffefa;
-  background: var(--green-dark);
-  font:
-    800 18px/1 ui-sans-serif,
-    system-ui,
-    sans-serif;
+  width: 30px;
+  height: 30px;
+  display: block;
+  flex: none;
 }
 .workspace-label,
 .eyebrow,

@@ -258,17 +258,21 @@ for (const doc of DOC_PAGES) {
     .split("/")
     .filter((part) => part && part !== ".").length;
   const rebase = (html, extra) =>
-    html.replace(/href="([^"]*)"/gu, (_, href) => {
-      if (href.startsWith("#") || href.startsWith("/") || /^\w+:/u.test(href))
-        return `href="${href}"`;
+    html.replace(/\b(href|src)="([^"]*)"/gu, (_, attribute, value) => {
+      if (
+        value.startsWith("#") ||
+        value.startsWith("/") ||
+        /^\w+:/u.test(value)
+      )
+        return `${attribute}="${value}"`;
       let up = 0;
-      while (href.startsWith("../")) {
+      while (value.startsWith("../")) {
         up += 1;
-        href = href.slice(3);
+        value = value.slice(3);
       }
-      const target = href.startsWith("./") ? href.slice(2) : href;
+      const target = value.startsWith("./") ? value.slice(2) : value;
       const prefix = "../".repeat(depth + extra + up);
-      return `href="${prefix ? `${prefix}${target}` : `./${target}`}"`;
+      return `${attribute}="${prefix ? `${prefix}${target}` : `./${target}`}"`;
     });
   await mkdir(dirname(resolve(output, "docs", doc.file)), { recursive: true });
   await mkdir(dirname(resolve(output, "docs", "raw", doc.file)), {

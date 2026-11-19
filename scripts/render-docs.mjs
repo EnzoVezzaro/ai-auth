@@ -274,7 +274,7 @@ export function renderDocPage({ markdown, title, name, docs, rawPath }) {
 </svg>
 <div class="agents-stage" aria-hidden="true"><span class="agent green" id="doc-agent"><svg class="ptr"><use href="#cursor-arrow"></use></svg><b>o87xdo83</b><em class="agent-note">verified this page</em></span></div>
 <header class="site-header">
-  <a class="brand" href="../index.html"><span class="mark" aria-hidden="true"></span>AI Auth<span class="brand-dim">/ docs</span></a>
+  <a class="brand" href="../index.html"><img class="mark" src="./assets/ai-auth-mark.svg" alt="" />AI Auth<span class="brand-dim">/ docs</span></a>
   <nav class="primary" aria-label="Documentation">
 ${nav}
   </nav>

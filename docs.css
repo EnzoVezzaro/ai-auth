@@ -172,20 +172,11 @@ a {
 }
 
 .mark {
-  width: 16px;
-  height: 16px;
-  border: 2px solid var(--orange);
-  border-radius: 5px;
-  transform: rotate(45deg);
-  position: relative;
-}
-
-.mark::after {
-  content: "";
-  position: absolute;
-  inset: 3px;
-  border-radius: 2px;
-  background: var(--orange);
+  width: 20px;
+  height: 20px;
+  display: block;
+  flex: none;
+  margin-right: 8px;
 }
 
 .primary {
