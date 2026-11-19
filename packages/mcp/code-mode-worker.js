@@ -22,13 +22,29 @@ const decoder = new TextDecoder();
 
 function writeData(text) {
   const bytes = encoder.encode(text);
+  // A request that cannot fit must fail loudly, never be silently truncated
+  // into corrupt JSON that the host cannot parse.
+  if (bytes.length >= DATA.length) return false;
   DATA.fill(0);
-  DATA.set(bytes.subarray(0, DATA.length));
+  DATA.set(bytes);
+  return true;
 }
 
 function readData() {
   const end = DATA.indexOf(0);
-  return decoder.decode(DATA.subarray(0, end === -1 ? DATA.length : end));
+  if (end === -1)
+    throw new Error("aiAuth host reply too large or missing terminator");
+  let text;
+  try {
+    text = decoder.decode(DATA.subarray(0, end));
+  } catch {
+    throw new Error("aiAuth host reply could not be decoded");
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("aiAuth host reply contains corrupt JSON");
+  }
 }
 
 function errorInfo(error) {
@@ -43,7 +59,10 @@ const parse = (json) => JSON.parse(json);
 let syncSeq = 0;
 function syncHost(method, args) {
   const seq = ++syncSeq;
-  writeData(JSON.stringify({ seq, method, args }));
+  if (!writeData(JSON.stringify({ seq, method, args })))
+    throw errorInfo(
+      new Error("aiAuth host call arguments too large for shared buffer"),
+    );
   Atomics.store(HEADER, 1, seq);
   Atomics.store(HEADER, 0, REQUEST);
   Atomics.notify(HEADER, 0);
@@ -54,10 +73,13 @@ function syncHost(method, args) {
     if (Date.now() > deadline)
       throw errorInfo(new Error("Sandbox host call timed out"));
   }
-  const response = parse(readData());
-  Atomics.store(HEADER, 0, IDLE);
-  if (response.error) throw response.error;
-  return parse(response.value);
+  try {
+    const response = readData();
+    if (response.error) throw response.error;
+    return parse(response.value);
+  } finally {
+    Atomics.store(HEADER, 0, IDLE);
+  }
 }
 
 let asyncSeq = 0;
@@ -113,7 +135,11 @@ async function main() {
   });
   const factory = vm.runInContext(workerData.factorySource, context);
   const callbacks = [
-    (text) => parentPort.postMessage({ type: "log", text }),
+    (text) =>
+      parentPort.postMessage({
+        type: "log",
+        text: String(text ?? "").slice(0, 240),
+      }),
     syncBridge("status"),
     syncBridge("listTools"),
     syncBridge("events"),

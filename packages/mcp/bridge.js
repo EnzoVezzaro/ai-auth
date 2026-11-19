@@ -18,6 +18,15 @@ const WALLET_ID = /^agent:[A-Za-z0-9_-]{20,100}$/u;
 // rejected by the tool schema before a join attempt is made.
 const ROOM_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,99}$/u;
 
+// Code Mode per-run accounting. A single script cannot spam unbounded host
+// calls, fan out more than a handful of async calls at once, or flood the log.
+const CODE_CALL_CAP = 64;
+const CODE_OUTSTANDING_CAP = 8;
+const CODE_LOG_CAP = 50;
+const CODE_LOG_CHARS = 240;
+const CODE_OUTCOME_CAP = 50;
+const CODE_TIMEOUT_MS = 2_000;
+
 // Code Mode's guest bridge is built from this source *inside* the vm context.
 // It runs in the guest realm, so every function, Promise, Error and JSON it
 // creates is guest-owned. The host callbacks are captured only in closures the
@@ -85,13 +94,32 @@ const textDecoder = new TextDecoder();
 
 function writeShared(data, text) {
   const bytes = textEncoder.encode(text);
+  // Never silently truncate: a reply that cannot fit is reported to the caller
+  // as an explicit error instead of becoming corrupt JSON in the guest.
+  if (bytes.length >= data.length) return false;
   data.fill(0);
-  data.set(bytes.subarray(0, data.length));
+  data.set(bytes);
+  return true;
 }
 
 function readShared(data) {
   const end = data.indexOf(0);
-  return textDecoder.decode(data.subarray(0, end === -1 ? data.length : end));
+  if (end === -1)
+    return {
+      ok: false,
+      error: "aiAuth shared reply too large or missing terminator",
+    };
+  let text;
+  try {
+    text = textDecoder.decode(data.subarray(0, end));
+  } catch {
+    return { ok: false, error: "aiAuth shared reply could not be decoded" };
+  }
+  try {
+    return { ok: true, value: JSON.parse(text) };
+  } catch {
+    return { ok: false, error: "aiAuth shared reply contains corrupt JSON" };
+  }
 }
 
 function clip(value) {
@@ -260,7 +288,7 @@ export function createAgentBridge({
       provided = [];
       return { connection: runtime.connectionState.status };
     },
-    async send({ text, to } = {}) {
+    async send({ text, to } = {}, { signal } = {}) {
       if (
         typeof text !== "string" ||
         text.length < 1 ||
@@ -277,7 +305,7 @@ export function createAgentBridge({
       const envelope = await runtime.send(
         "message/text",
         { text, messageId, ...(to ? { target: to } : {}) },
-        to ? { to } : {},
+        { ...(to ? { to } : {}), ...(signal ? { signal } : {}) },
       );
       return {
         sent: true,
@@ -399,10 +427,48 @@ export function createAgentBridge({
       if (code.length > 8_000)
         throw new RangeError("code exceeds the 8 KB sandbox limit");
       const logs = [];
+      const outcomes = [];
+      let totalCalls = 0;
+      let outstanding = 0;
+      const record = (entry) => {
+        const normalized = {
+          ...entry,
+          ...(entry.error
+            ? { error: String(entry.error).slice(0, CODE_LOG_CHARS) }
+            : {}),
+        };
+        // Keep the most recent outcomes so a late cap rejection is never
+        // hidden behind a long history of successful calls.
+        if (outcomes.length >= CODE_OUTCOME_CAP) outcomes.shift();
+        outcomes.push(normalized);
+      };
+      // Snapshot for partial failures. Side effects already committed by
+      // completed calls cannot be undone, so this must never imply rollback.
+      const partial = (reason) => ({
+        ok: false,
+        code: "CODE_FAILED",
+        reason,
+        partial: true,
+        rolledBack: false,
+        note: "The script was stopped. Side effects from calls that already completed were NOT rolled back. No retry was attempted.",
+        logs: [...logs],
+        calls: totalCalls,
+        outstandingCalls: outstanding,
+        callOutcomes: [...outcomes],
+      });
       // One controller owns every tool call made by this script. A timeout or
       // caller abort stops them even if the guest never awaits the promises.
       const controller = new AbortController();
-      const abortCaller = () => controller.abort(signal?.reason);
+      const abortError = () =>
+        Object.assign(new Error("aiAuth call aborted"), {
+          code: "CODE_FAILED",
+          name: "AbortError",
+        });
+      let onAbort = null;
+      const abortCaller = () => {
+        controller.abort(signal?.reason);
+        if (onAbort) onAbort();
+      };
       if (signal?.aborted) abortCaller();
       else signal?.addEventListener("abort", abortCaller, { once: true });
       const shared = new SharedArrayBuffer(SHARED_BYTES);
@@ -414,19 +480,98 @@ export function createAgentBridge({
           workerData: { code, factorySource: CODE_FACTORY, shared },
         },
       );
+      const limitError = (message) =>
+        Object.assign(new Error(message), { code: "CODE_FAILED" });
+      const guardSync =
+        (method, fn) =>
+        (...args) => {
+          if (++totalCalls > CODE_CALL_CAP) {
+            const error = limitError("Code Mode host call limit exceeded");
+            record({ method, kind: "sync", ok: false, error: error.message });
+            throw error;
+          }
+          try {
+            const value = fn(...args);
+            record({ method, kind: "sync", ok: true });
+            return value;
+          } catch (error) {
+            record({
+              method,
+              kind: "sync",
+              ok: false,
+              error: errorInfo(error).message,
+            });
+            throw error;
+          }
+        };
+      const guardAsync =
+        (method, fn) =>
+        (...args) => {
+          if (++totalCalls > CODE_CALL_CAP) {
+            const error = limitError("Code Mode host call limit exceeded");
+            record({ method, kind: "async", ok: false, error: error.message });
+            return Promise.reject(error);
+          }
+          if (outstanding >= CODE_OUTSTANDING_CAP) {
+            const error = limitError(
+              "Code Mode too many concurrent host calls",
+            );
+            record({ method, kind: "async", ok: false, error: error.message });
+            return Promise.reject(error);
+          }
+          outstanding += 1;
+          let base;
+          try {
+            base = Promise.resolve(fn(...args));
+          } catch (error) {
+            base = Promise.reject(error);
+          }
+          // The shared controller also guards calls whose implementation (like
+          // send) cannot be cancelled at the transport: abort settles the guest
+          // promise promptly even if the underlying operation runs to completion.
+          const aborted = new Promise((_, reject) => {
+            if (controller.signal.aborted) reject(abortError());
+            else
+              controller.signal.addEventListener(
+                "abort",
+                () => reject(abortError()),
+                { once: true },
+              );
+          });
+          return Promise.race([base, aborted]).then(
+            (value) => {
+              outstanding -= 1;
+              record({ method, kind: "async", ok: true });
+              return value;
+            },
+            (error) => {
+              outstanding -= 1;
+              record({
+                method,
+                kind: "async",
+                ok: false,
+                error: errorInfo(error).message,
+              });
+              throw error;
+            },
+          );
+        };
       const syncHandlers = {
-        status: () => api.status(),
-        listTools: () => api.listTools(),
-        events: (options) => api.events(options),
-        move: (options) => api.move(options),
+        status: guardSync("status", () => api.status()),
+        listTools: guardSync("listTools", () => api.listTools()),
+        events: guardSync("events", (options) => api.events(options)),
+        move: guardSync("move", (options) => api.move(options)),
       };
       const asyncHandlers = {
-        send: (input) => api.send(input),
-        invoke: (name, input, wallet, session) =>
+        send: guardAsync("send", (input) =>
+          api.send(input, { signal: controller.signal }),
+        ),
+        invoke: guardAsync("invoke", (name, input, wallet, session) =>
           api.invoke(
             { name, input: input ?? {}, wallet, session },
             { signal: controller.signal },
           ),
+        ),
       };
       return new Promise((resolve) => {
         let settled = false;
@@ -441,34 +586,40 @@ export function createAgentBridge({
           resolve(outcome);
         };
         timer = setTimeout(
-          () =>
-            finish({
-              ok: false,
-              code: "CODE_FAILED",
-              reason: "Code Mode timed out",
-              logs,
-            }),
-          2_000,
+          () => finish(partial("Code Mode timed out")),
+          CODE_TIMEOUT_MS,
         );
+        onAbort = () => finish(partial("Code Mode aborted by caller"));
+        if (controller.signal.aborted) onAbort();
         worker.on("message", (message) => {
           if (!message || settled) return;
           if (message.type === "log") {
-            if (logs.length < 50) logs.push(message.text);
+            if (logs.length < CODE_LOG_CAP)
+              logs.push(String(message.text ?? "").slice(0, CODE_LOG_CHARS));
             return;
           }
           if (message.type === "sync") {
             let response;
             try {
-              const request = JSON.parse(readShared(data));
-              const handler = syncHandlers[request.method];
+              const request = readShared(data);
+              if (!request.ok) throw new Error(request.error);
+              const handler = syncHandlers[request.value.method];
               if (!handler) throw new TypeError("Unknown aiAuth call");
               response = {
-                value: JSON.stringify(handler(...request.args) ?? null),
+                value: JSON.stringify(handler(...request.value.args) ?? null),
               };
+              if (!writeShared(data, JSON.stringify(response))) {
+                response = {
+                  error: errorInfo(
+                    new Error("aiAuth host reply too large for shared buffer"),
+                  ),
+                };
+                writeShared(data, JSON.stringify(response));
+              }
             } catch (error) {
               response = { error: errorInfo(error) };
+              writeShared(data, JSON.stringify(response));
             }
-            writeShared(data, JSON.stringify(response));
             Atomics.store(header, 0, 2);
             Atomics.notify(header, 0);
             return;
@@ -504,6 +655,8 @@ export function createAgentBridge({
               ok: true,
               value: clip(JSON.parse(message.value)),
               logs,
+              calls: totalCalls,
+              callOutcomes: [...outcomes],
             });
             return;
           }
@@ -513,6 +666,8 @@ export function createAgentBridge({
               code: message.code ?? "CODE_FAILED",
               reason: String(message.message ?? "Code failed").slice(0, 240),
               logs,
+              calls: totalCalls,
+              callOutcomes: [...outcomes],
             });
           }
         });

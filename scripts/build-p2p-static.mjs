@@ -203,6 +203,41 @@ const DOC_PAGES = [
     file: "evidence/did-key-verification.md",
     label: "DID verification evidence",
   },
+  {
+    file: "architecture/COUNCIL_REPORT.md",
+    label: "Architecture council report",
+  },
+  {
+    file: "architecture/REFERENCE_ARCHITECTURE.md",
+    label: "Reference architecture",
+  },
+  { file: "architecture/STANDARDS_MATRIX.md", label: "Standards matrix" },
+  { file: "architecture/TOOL_PROTOCOLS.md", label: "Tool protocols" },
+  {
+    file: "architecture/AGENT_INTEROPERABILITY.md",
+    label: "Agent interoperability",
+  },
+  { file: "architecture/COMMERCE_PAYMENTS.md", label: "Commerce and payments" },
+  { file: "architecture/THREAT_MODEL.md", label: "Threat model" },
+  { file: "architecture/IMPLEMENTATION_PLAN.md", label: "Implementation plan" },
+  { file: "architecture/CONFORMANCE_PLAN.md", label: "Conformance plan" },
+  { file: "architecture/DECISIONS.md", label: "Architecture decisions" },
+  {
+    file: "INTEROPERABILITY_CODE_MODE_RFC.md",
+    label: "Interoperability and Code Mode RFC",
+  },
+  {
+    file: "CODE_MODE_COMPARISON.md",
+    label: "Code Mode comparison",
+  },
+  {
+    file: "IDENTITY_STANDARDS_RFC.md",
+    label: "Identity standards RFC",
+  },
+  {
+    file: "CONNECT_AGENT_E2E_ACCEPTANCE.md",
+    label: "Connect Agent E2E acceptance",
+  },
 ];
 const navDocs = DOC_PAGES.filter((doc) => doc.nav);
 await mkdir(resolve(output, "docs", "raw"), { recursive: true });
@@ -216,28 +251,38 @@ for (const doc of DOC_PAGES) {
     docs: navDocs,
     rawPath: `./raw/${doc.file}`,
   });
-  // A clean HTML alias plus a directory at the .md URL. The directory makes
-  // /docs/<name>.md redirect to /docs/<name>.md/ and serve this page as HTML.
-  // Its links need one extra ../ because the page is one level deeper.
+  // renderDocPage emits links relative to docs/. Nested docs such as
+  // architecture/REFERENCE_ARCHITECTURE.md need one extra ../ for their
+  // directory depth, and the /<name>.md/ directory variant needs one more.
+  const depth = dirname(doc.file)
+    .split("/")
+    .filter((part) => part && part !== ".").length;
+  const rebase = (html, extra) =>
+    html.replace(/href="([^"]*)"/gu, (_, href) => {
+      if (href.startsWith("#") || href.startsWith("/") || /^\w+:/u.test(href))
+        return `href="${href}"`;
+      let up = 0;
+      while (href.startsWith("../")) {
+        up += 1;
+        href = href.slice(3);
+      }
+      const target = href.startsWith("./") ? href.slice(2) : href;
+      const prefix = "../".repeat(depth + extra + up);
+      return `href="${prefix ? `${prefix}${target}` : `./${target}`}"`;
+    });
   await mkdir(dirname(resolve(output, "docs", doc.file)), { recursive: true });
   await mkdir(dirname(resolve(output, "docs", "raw", doc.file)), {
     recursive: true,
   });
   await writeFile(
     resolve(output, "docs", doc.file.replace(/\.md$/u, ".html")),
-    page,
+    rebase(page, 0),
   );
-  // At /docs/<name>.md/ every relative link needs one more level. Anchors and
-  // absolute URLs stay as they are; ./x becomes ../x and ../x becomes ../../x.
-  const mdPage = page.replace(/href="([^"]*)"/gu, (_, href) => {
-    if (href.startsWith("#") || href.startsWith("/") || /^\w+:/u.test(href))
-      return `href="${href}"`;
-    if (href.startsWith("../")) return `href="../../${href.slice(3)}"`;
-    if (href.startsWith("./")) return `href="../${href.slice(2)}"`;
-    return `href="../${href}"`;
-  });
   await mkdir(resolve(output, "docs", doc.file), { recursive: true });
-  await writeFile(resolve(output, "docs", doc.file, "index.html"), mdPage);
+  await writeFile(
+    resolve(output, "docs", doc.file, "index.html"),
+    rebase(page, 1),
+  );
   await writeFile(resolve(output, "docs", "raw", doc.file), markdown);
 }
 // A few docs link outside docs/: publish those targets too so no page has a

@@ -25,6 +25,13 @@ const PACKAGES = [
     imports: [
       "@enzovezzaro/ai-auth-wallet",
       "@enzovezzaro/ai-auth-wallet/agent-connect",
+      "@enzovezzaro/ai-auth-wallet/tool-descriptor",
+      "@enzovezzaro/ai-auth-wallet/tool-registry",
+      "@enzovezzaro/ai-auth-wallet/unified-tools",
+      "@enzovezzaro/ai-auth-wallet/provider-adapters",
+      "@enzovezzaro/ai-auth-wallet/utcp-adapter",
+      "@enzovezzaro/ai-auth-wallet/agent-interop",
+      "@enzovezzaro/ai-auth-wallet/commerce-boundary",
     ],
   },
   { dir: "packages/runtime", imports: ["@enzovezzaro/ai-auth-runtime"] },

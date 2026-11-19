@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `@enzovezzaro/ai-auth-wallet/tool-descriptor`, `/tool-registry`, `/provider-adapters`, `/utcp-adapter` and `/unified-tools` subpaths. Together they provide one API for listing and invoking tools from MCP, WebMCP and UTCP without changing existing root exports or wire behavior.
+- Protocol-neutral descriptors with namespaced IDs, preserved native definitions, source tracking and a default-deny registry with bounded, privacy-preserving audit (`tests/tool-registry.test.mjs`).
+- An optional UTCP adapter that reuses the official SDK when installed, enforces destination and credential policy above it, and fails closed when native cancellation is unavailable (`tests/utcp-adapter.test.mjs`).
+- Catalog converters for existing WebMCP, MCP and agent tool catalogs, plus the unified invocation facade (`tests/provider-adapters.test.mjs`, `tests/unified-tools.test.mjs`).
+- Additive A2A/ACP interoperability and UCP/AP2 payment-isolation boundaries (`/agent-interop` and `/commerce-boundary` subpaths). They classify protocols, treat Agent Cards and peer data as untrusted, and deny all payment authority from generic tool grants. No protocol state machine, mandate minting or real payment operation is included.
+- The interoperability and Code Mode RFC, the Cloudflare/Pi comparison, and a reusable multi-specialist council prompt. The architecture decisions live under `docs/architecture/`.
+- The standards-based identity RFC and the user-first Connect Agent end-to-end acceptance plan from the open documentation PRs. The identity RFC cross-links the existing Phase 0 review, which holds the independently verified findings. Both are registered in the docs renderer so `verify:docs` passes.
+
+### Changed
+
+- Optional Code Mode now bounds total and concurrent host calls, caps individual log lines, rejects corrupt shared-buffer replies, forwards abort to sends, and reports truthful partial status after a timeout. Direct tools and the `--code-mode` default are unchanged (`packages/mcp/test/code-mode-hardening.test.mjs`).
+
+### Note
+
+- No npm version was bumped by this entry. UTCP is an opt-in subpath; `@utcp/sdk` is only loaded when a caller supplies it or installs it. Code Mode remains opt-in and is not a security sandbox for hostile code.
+
 ## 0.11.1 - 2026-11-18
 
 ### Changed

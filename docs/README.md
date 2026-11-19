@@ -19,7 +19,19 @@ Start with the [quickstart](quickstart.md) or the [site integration guide](site-
 - [Wire protocol](protocol.md) · [Limits and not yet available](limits.md)
 - [Security boundaries](SECURITY.md) · [Export and trust boundaries](BOUNDARIES.md)
 - [Site discovery](DISCOVERY.md)
-- [DID alias](DID.md) · [Identity standards review](IDENTITY_STANDARDS_REVIEW.md) · [DID verification evidence](evidence/did-key-verification.md)
+- [DID alias](DID.md) · [Identity standards RFC](IDENTITY_STANDARDS_RFC.md) · [Phase 0 review](IDENTITY_STANDARDS_REVIEW.md) · [DID verification evidence](evidence/did-key-verification.md)
+
+## Proposed architecture
+
+These documents record research and a design decision. They describe proposed work, not shipped features. Implemented behavior remains in the sections above.
+
+- [Council report](architecture/COUNCIL_REPORT.md) · [Reference architecture](architecture/REFERENCE_ARCHITECTURE.md) · [Standards matrix](architecture/STANDARDS_MATRIX.md)
+- [Tool protocols](architecture/TOOL_PROTOCOLS.md) · [Agent interoperability](architecture/AGENT_INTEROPERABILITY.md) · [Commerce and payments](architecture/COMMERCE_PAYMENTS.md)
+- [Threat model](architecture/THREAT_MODEL.md) · [Implementation plan](architecture/IMPLEMENTATION_PLAN.md) · [Conformance plan](architecture/CONFORMANCE_PLAN.md) · [Decisions](architecture/DECISIONS.md)
+- [Interoperability and Code Mode RFC](INTEROPERABILITY_CODE_MODE_RFC.md) · [Cloudflare, Pi and AI Auth Code Mode comparison](CODE_MODE_COMPARISON.md)
+- [Connect Agent end-to-end acceptance](CONNECT_AGENT_E2E_ACCEPTANCE.md) — user-first testing contract for the full journey.
+
+The reusable worker-council prompt lives at `.agents/AI_AUTH_INTEROPERABILITY_COUNCIL.md` in the repository.
 
 ## Operations
 

@@ -45,6 +45,34 @@
     "./agent-connect": {
       "types": "./packages/p2p/index.d.ts",
       "import": "./packages/p2p/agent-connect.js"
+    },
+    "./tool-descriptor": {
+      "types": "./packages/p2p/tool-descriptor.d.ts",
+      "import": "./packages/p2p/tool-descriptor.js"
+    },
+    "./tool-registry": {
+      "types": "./packages/p2p/tool-registry.d.ts",
+      "import": "./packages/p2p/tool-registry.js"
+    },
+    "./utcp-adapter": {
+      "types": "./packages/p2p/utcp-adapter.d.ts",
+      "import": "./packages/p2p/utcp-adapter.js"
+    },
+    "./provider-adapters": {
+      "types": "./packages/p2p/provider-adapters.d.ts",
+      "import": "./packages/p2p/provider-adapters.js"
+    },
+    "./unified-tools": {
+      "types": "./packages/p2p/unified-tools.d.ts",
+      "import": "./packages/p2p/unified-tools.js"
+    },
+    "./agent-interop": {
+      "types": "./packages/p2p/agent-interop.d.ts",
+      "import": "./packages/p2p/agent-interop.js"
+    },
+    "./commerce-boundary": {
+      "types": "./packages/p2p/commerce-boundary.d.ts",
+      "import": "./packages/p2p/commerce-boundary.js"
     }
   },
   "files": [
