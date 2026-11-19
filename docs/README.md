@@ -20,6 +20,7 @@ Start with the [quickstart](quickstart.md) or the [site integration guide](site-
 - [Security boundaries](SECURITY.md) · [Export and trust boundaries](BOUNDARIES.md)
 - [Site discovery](DISCOVERY.md)
 - [DID alias](DID.md) · [Identity standards review](IDENTITY_STANDARDS_REVIEW.md) · [DID verification evidence](evidence/did-key-verification.md)
+- [RFC: MCP, WebMCP, UTCP + optional Code Mode](INTEROPERABILITY_CODE_MODE_RFC.md) · [Cloudflare/Pi Code Mode comparison](CODE_MODE_COMPARISON.md) · [Worker architecture council](../.agents/AI_AUTH_INTEROPERABILITY_COUNCIL.md)
 
 ## Operations
 
