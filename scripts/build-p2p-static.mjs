@@ -113,6 +113,17 @@ await build({
   minify: true,
   sourcemap: false,
 });
+// Footer physics pile, also independent of the React island.
+await build({
+  entryPoints: [resolve(root, "src/landing/footer.js")],
+  outfile: resolve(output, "landing/footer.js"),
+  bundle: true,
+  format: "esm",
+  platform: "browser",
+  target: ["es2022"],
+  minify: true,
+  sourcemap: false,
+});
 // Version the wallet assets by release, so a new deploy is never served from a
 // browser cache that still holds the previous stylesheet or script.
 const walletEntry = (
@@ -295,6 +306,10 @@ const agentsBundle = await readFile(
   resolve(output, "landing/agents.js"),
   "utf8",
 );
+const footerBundle = await readFile(
+  resolve(output, "landing/footer.js"),
+  "utf8",
+);
 const architecture = await readFile(
   resolve(output, "docs", "ARCHITECTURE.html"),
   "utf8",
@@ -304,8 +319,10 @@ if (
   !landing.includes('href="./docs/ARCHITECTURE.html"') ||
   !landing.includes('class="cursor-sprite"') ||
   !landing.includes('src="./landing/agents.js"') ||
+  !landing.includes('src="./landing/footer.js"') ||
   !landingBundle.includes("data-scene") ||
   !agentsBundle.includes("agent-hover") ||
+  !footerBundle.includes("pile-item") ||
   !wallet.includes(`src="./app.js?v=${version}"`) ||
   !wallet.includes(`href="./styles.css?v=${version}"`) ||
   !architecture.includes('href="./docs.css"') ||

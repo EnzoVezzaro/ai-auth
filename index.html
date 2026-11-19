@@ -344,19 +344,32 @@
     </main>
 
     <footer class="footer">
-      <a class="brand" href="./"
-        ><span class="brand-mark" aria-hidden="true"></span> AI Auth</a
+      <div class="footer-head">
+        <a class="brand" href="./"
+          ><span class="brand-mark" aria-hidden="true"></span> AI Auth</a
+        >
+        <nav aria-label="Footer navigation">
+          <a href="./docs/ARCHITECTURE.html">Architecture</a>
+          <a href="./docs/protocol.html">Protocol</a>
+          <a href="./docs/SECURITY.html">Security</a>
+          <a href="./docs/agents.html">Agents</a>
+          <a href="./wallet/">Wallet</a>
+        </nav>
+        <span class="mono"
+          >There is no server, account, or token to set up.</span
+        >
+      </div>
+      <div
+        class="footer-pile"
+        aria-label="AI Auth links stacking in the footer"
       >
-      <nav aria-label="Footer navigation">
-        <a href="./docs/ARCHITECTURE.html">Architecture</a>
-        <a href="./docs/protocol.html">Protocol</a>
-        <a href="./docs/SECURITY.html">Security</a>
-        <a href="./docs/agents.html">Agents</a>
-        <a href="./wallet/">Wallet</a>
-      </nav>
-      <span class="mono">There is no server, account, or token to set up.</span>
+        <span class="pile-hint"
+          >Move your pointer to pile up the links. They stay.</span
+        >
+      </div>
     </footer>
 
     <script type="module" src="./landing/agents.js"></script>
+    <script type="module" src="./landing/footer.js"></script>
   </body>
 </html>
