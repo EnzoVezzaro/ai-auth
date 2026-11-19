@@ -186,15 +186,15 @@
           </div>
           <div class="statusbar">
             <span><i class="live-dot"></i> session <b>active</b></span>
-            <span>signed events <b>12,410</b></span>
-            <span>relays <b>3</b></span>
+            <span>transport <b>WebRTC</b></span>
+            <span>signaling <b>public relays</b></span>
             <span>room <b>default</b></span>
           </div>
         </div>
       </section>
 
       <section class="paper" id="model" data-reveal>
-        <p class="eyebrow">[ 01 ] <span>THE MODEL</span></p>
+        <p class="eyebrow">[ 01 ] <span>Model</span></p>
         <h2 class="type">
           An identity your agents take with them<span
             class="caret"
@@ -205,7 +205,7 @@
           <div class="role-card accent-green">
             <p class="mono">SITE</p>
             <p>
-              Asks who is visiting and sets its own rules for what happens next.
+              Asks which agent is visiting and sets its own rules for access.
             </p>
             <span class="agent-action">reviewed request</span>
           </div>
@@ -216,57 +216,54 @@
           </div>
           <div class="role-card accent-pink">
             <p class="mono">AGENT</p>
-            <p>Signs in as itself, in a browser tab or a headless process.</p>
+            <p>Signs in as itself from a browser tab or a headless process.</p>
             <span class="agent-action">signed in</span>
           </div>
         </div>
       </section>
 
       <section class="dark steps" id="build" data-reveal>
-        <p class="eyebrow">[ 02 ] <span>THE BUILD</span></p>
-        <h2 class="display small">From a request to a signed room.</h2>
+        <p class="eyebrow">[ 02 ] <span>Connection</span></p>
+        <h2 class="display small">How a connection works.</h2>
         <div class="step-grid">
           <div class="step accent-yellow">
-            <p class="mono">01 · MINUTE 0</p>
-            <h3>Map</h3>
+            <p class="mono">01 · REQUEST</p>
+            <h3>Request</h3>
             <p>
-              The site asks which agent is visiting. The wallet shows the origin
-              and the room.
+              The site asks for named capabilities. The wallet shows the origin,
+              room, and exact scopes.
             </p>
-            <span class="agent-action">room mapped</span>
+            <span class="agent-action">request shown</span>
           </div>
           <div class="step accent-blue">
-            <p class="mono">02 · MINUTE 2</p>
-            <h3>Prototype</h3>
+            <p class="mono">02 · APPROVAL</p>
+            <h3>Approve</h3>
             <p>
-              You approve the connection. A signed consent ties the agent to
-              that approval.
+              You approve a subset of the requested scopes. The wallet signs
+              consent for those scopes.
             </p>
             <span class="agent-action">consent signed</span>
           </div>
           <div class="step accent-orange">
-            <p class="mono">03 · MINUTE 4</p>
-            <h3>Launch</h3>
+            <p class="mono">03 · CONNECTION</p>
+            <h3>Connect</h3>
             <p>
-              Peers meet through Nostr relays. Messages then go over a WebRTC
-              data channel.
+              Peers find each other through Nostr relays. Messages travel over a
+              WebRTC data channel.
             </p>
             <span class="agent-action">peer connected</span>
           </div>
           <div class="step">
-            <p class="mono">04 · ONGOING</p>
-            <h3>Improve</h3>
-            <p>
-              Sessions end when they expire or you revoke them. There is no
-              central switch.
-            </p>
+            <p class="mono">04 · SESSION</p>
+            <h3>Session</h3>
+            <p>Sessions end on expiry, idle timeout, or revocation.</p>
           </div>
         </div>
       </section>
 
       <section class="dark canvas-section" data-reveal>
-        <p class="eyebrow">[ 03 ] <span>THE STACK</span></p>
-        <h2 class="display small">Open code, no hosted service.</h2>
+        <p class="eyebrow">[ 03 ] <span>Stack</span></p>
+        <h2 class="display small">What runs where.</h2>
         <div class="canvas stack-canvas" data-build>
           <div class="canvas-grid" aria-hidden="true"></div>
           <svg
@@ -301,7 +298,7 @@
       </section>
 
       <section class="paper specimen" id="identity" data-reveal>
-        <p class="eyebrow">[ 04 ] <span>THE IDENTITY</span></p>
+        <p class="eyebrow">[ 04 ] <span>Identity</span></p>
         <h2 class="type small">One identity you keep.</h2>
         <div class="spec-table">
           <div>
