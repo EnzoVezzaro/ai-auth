@@ -1,6 +1,6 @@
 # User-first end-to-end acceptance plan: Connect Agent
 
-Status: proposed testing contract; not evidence that all flows pass. Scope: AI Auth SDK, wallet, headless runtime, MCP bridge, example consumer Body4AI. No protocol replacement.
+Status: proposed testing contract; not evidence that all flows pass. Scope: AI Auth SDK, wallet, headless runtime, MCP bridge, example consumer generic independent fixture. No protocol replacement.
 
 ## 1. User journey (product acceptance)
 
@@ -21,7 +21,7 @@ Status: proposed testing contract; not evidence that all flows pass. Scope: AI A
 
 **Integration:** real SDK wallet + two browser peers + headless agent + MCP tool bridge; origin isolation; room isolation; signed message/receipt; tool invocation with explicit approval; denial; reconnect; expiration; resume; process termination; malformed peer traffic.
 
-**Browser E2E:** Playwright (or existing browser harness), deterministic fixture site and Body4AI smoke test. Click Connect Agent -> copy -> parse -> approve -> connect -> show roster -> send message -> invoke safe demo action -> revoke -> verify denial. Use controlled fake clipboard where needed and a real browser for WebRTC behavior. Never mock the data channel in the network acceptance suite.
+**Browser E2E:** Playwright (or existing browser harness), deterministic fixture site and independent consumer smoke test. Click Connect Agent -> copy -> parse -> approve -> connect -> show roster -> send message -> invoke safe demo action -> revoke -> verify denial. Use controlled fake clipboard where needed and a real browser for WebRTC behavior. Never mock the data channel in the network acceptance suite.
 
 **Network E2E:** retain existing `.github/workflows/e2e-network.yml`; test real WebRTC on two isolated processes and browsers, signaling relay reachable/unreachable, blocked UDP/NAT case, dropped connections, delayed gossip, bounded catch-up. Run separate local deterministic and opt-in external-network suites; do not make flaky external infrastructure a prerequisite for every PR.
 
@@ -31,16 +31,16 @@ Status: proposed testing contract; not evidence that all flows pass. Scope: AI A
 
 ## 3. Implementation map and test ownership
 
-- `examples/body4ai/agent-connect.js` and `examples/body4ai/site/`: human-visible connect UX and safe consumer demo.
+- A neutral standalone test fixture (new `tests/fixtures/connect-agent-site/`): human-visible connect UX and safe demo tools; no product-specific integration.
 - `packages/p2p/`, wallet SDK: signed session lifecycle, peers, WebRTC, rooms, authorization.
 - `packages/agent/`: encrypted headless identity, reconnect, heartbeat, persistence.
 - `packages/mcp/bridge.js`: status, join, events, message, cursor, tool catalog, invocation, optional code mode.
-- `tests/agent-connect.test.mjs`, `tests/agent-connection-e2e.test.mjs`, `tests/agent-scenarios.test.mjs`, `tests/body4ai-site-copy.test.mjs`: extend existing tests rather than duplicate them.
+- `tests/agent-connect.test.mjs`, `tests/agent-connection-e2e.test.mjs`, `tests/agent-scenarios.test.mjs`: extend existing generic tests rather than duplicate them.
 - `.github/workflows/ci.yml` and `.github/workflows/e2e-network.yml`: separate deterministic PR gates from live network tests.
 
 ## 4. Execution order
 
-P0: baseline inventory of existing tests, fixture and reproducible manual Body4AI walkthrough; record actual behavior and missing cases.
+P0: baseline inventory of existing tests, fixture and reproducible manual neutral fixture walkthrough; record actual behavior and missing cases.
 
 P1: deterministic user journey tests for copy, approval, join, presence, messaging, safe action, rejection, revoke and exit.
 
