@@ -40,6 +40,8 @@ if (pile) {
     el.className = `pile-item pile-${index % 4}`;
     el.href = href;
     el.textContent = label;
+    // Unspawned bodies must not sit at the default 0,0 position.
+    if (!reduced && !small()) el.style.opacity = "0";
     pile.append(el);
     return el;
   });
@@ -180,6 +182,8 @@ if (pile) {
           width - body.w - 6,
         );
         body.y = -body.h - 10;
+        body.el.style.transform = `translate3d(${body.x}px, ${body.y}px, 0)`;
+        body.el.style.opacity = "1";
         spawned += 1;
         nextSpawn = now + 260;
       }
