@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.11.1 - 2026-11-18
+
+### Changed
+
+- Landing copy names the connection steps directly: Request, Approve, Connect, Session. The invented minute markers and generic process labels are gone, and each step states what actually happens.
+- The headings "From a request to a signed room" and "Open code, no hosted service" are replaced with section names. The hero status readout shows transport and signaling facts instead of made-up event and relay counts.
+
+### Added
+
+- `.agents/skills/copywriting/SKILL.md`, a project-specific copywriting skill grounded in the repository's product, audiences, voice, and verified claims.
+- `.agents/product-marketing-context.md`, the authoritative context the skill reads before drafting copy.
+
+### Note
+
+- No npm package versions changed. This release covers landing copy and repository documentation only.
+
 ## 0.11.0 - 2026-11-17
 
 ### Changed
