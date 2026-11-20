@@ -9,8 +9,8 @@ This guide is for a website that wants to connect a wallet, show presence and cu
 | Package                        | What it does                                                | Version |
 | ------------------------------ | ----------------------------------------------------------- | ------- |
 | `@enzovezzaro/ai-auth-wallet`  | Browser SDK, wallet dialog, collaboration, WebMCP bridge    | 0.12.0  |
-| `@enzovezzaro/ai-auth-agent`   | Headless Node agent with an encrypted keystore and WebRTC   | 0.1.7   |
-| `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local coding agents | 0.3.6   |
+| `@enzovezzaro/ai-auth-agent`   | Headless Node agent with an encrypted keystore and WebRTC   | 0.1.8   |
+| `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local coding agents | 0.3.7   |
 | `@enzovezzaro/ai-auth-runtime` | Plugin host for local agent applications                    | 0.1.0   |
 
 The site is hosted on [GitHub Pages](HOSTING.md) only; a CI script enforces this.

@@ -1,6 +1,6 @@
 # The ai-auth-mcp command
 
-`@enzovezzaro/ai-auth-mcp` (0.3.6) is a local MCP server. It lets a coding agent drive an AI Auth wallet identity through MCP tools. It speaks stdio by default, or Streamable HTTP on loopback. It does not connect to a hosted service. For the runtime, keystore and lifecycle details, see the [agents guide](agents.md).
+`@enzovezzaro/ai-auth-mcp` (0.3.7) is a local MCP server. It lets a coding agent drive an AI Auth wallet identity through MCP tools. It speaks stdio by default, or Streamable HTTP on loopback. It does not connect to a hosted service. For the runtime, keystore and lifecycle details, see the [agents guide](agents.md).
 
 ## Install and run
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.7 - 2026-11-20
+
+- Republish of 0.3.6 with corrected registry dependency metadata and the `--open-wallet` flag. No code changes from 0.3.6.
+
 ## 0.3.6 - 2026-11-19
 
 - Add `--open-wallet`: when approval is needed, the HTTP server opens the wallet in a browser and accepts the signed consent on a loopback callback. The CLI verifies signature, audience, nonce and wallet id before granting scopes. Needs `--http`.

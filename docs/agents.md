@@ -1,6 +1,6 @@
 # Agents and MCP
 
-Three packages can run an AI Auth agent without a browser tab. `@enzovezzaro/ai-auth-agent` (0.1.7) is the room runtime. `@enzovezzaro/ai-auth-mcp` (0.3.6) exposes it as MCP tools. `@enzovezzaro/ai-auth-runtime` (0.1.1) is a separate plugin host for local applications. For the command and its flags, see the [MCP command guide](mcp.md).
+Three packages can run an AI Auth agent without a browser tab. `@enzovezzaro/ai-auth-agent` (0.1.8) is the room runtime. `@enzovezzaro/ai-auth-mcp` (0.3.7) exposes it as MCP tools. `@enzovezzaro/ai-auth-runtime` (0.1.1) is a separate plugin host for local applications. For the command and its flags, see the [MCP command guide](mcp.md).
 
 ## Connecting from a chat app
 
