@@ -20,6 +20,7 @@ const BOOL_FLAGS = new Set([
   "no-manifest",
   "yes",
   "help",
+  "open-wallet",
 ]);
 
 const list = (value) =>
@@ -77,4 +78,6 @@ export const USAGE = `ai-auth-mcp [serve|init|whoami|preview|unlink] [options]
   --yes                confirm unlink without a prompt
   --http PORT          serve MCP over Streamable HTTP on 127.0.0.1:PORT (0 picks a free port) instead of stdio;
                        the printed URL contains a secret and is the credential for this agent
+  --open-wallet        when approval is needed, open the wallet in a browser and wait for its
+                       signed consent on the local HTTP callback; needs --http
 `;

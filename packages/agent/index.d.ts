@@ -21,6 +21,41 @@ export declare class KeystoreError extends Error {
   readonly code: KeystoreErrorCode;
 }
 
+export interface AgentInstallPackage {
+  readonly format: "ai-auth-agent-install";
+  readonly version: 1;
+  readonly name?: string;
+  readonly walletId: string;
+  readonly instanceId: string;
+  readonly binding: unknown;
+  readonly backup: string;
+  readonly site?: {
+    readonly origin: string;
+    readonly room: string;
+    readonly capabilities: readonly string[];
+    readonly link: string;
+  } | null;
+}
+
+export declare function agentKeystoreFromWalletBackup(options: {
+  backupText: string;
+  passphrase: string;
+  instanceId: string;
+}): Promise<string>;
+
+export declare function installAgentIdentity(options: {
+  dir: string;
+  installPackage: AgentInstallPackage | string;
+  passphrase: string;
+  replace?: boolean;
+}): Promise<{
+  readonly id: string;
+  readonly name: string;
+  readonly instanceId: string;
+  readonly file: string;
+  readonly site: AgentInstallPackage["site"];
+}>;
+
 export interface FileKeystoreOptions {
   dir: string;
   /** Passphrase or async supplier; otherwise AI_AUTH_PASSPHRASE, then a TTY prompt. */

@@ -181,7 +181,7 @@ async function encryptPrivateKey(privateJwk, metadata, passphrase) {
   });
 }
 
-export async function createWallet({ name, passphrase }) {
+export async function createWallet({ name, passphrase, persist = true } = {}) {
   const label = String(name ?? "")
     .trim()
     .slice(0, 60);
@@ -206,7 +206,9 @@ export async function createWallet({ name, passphrase }) {
   );
   privateJwk.d = "";
   const wallet = makeWallet({ ...metadata, privateKey, backup });
-  await saveWallet(wallet);
+  // A site may mint an identity to hand to an agent without replacing its own
+  // room key in this browser. Persist only when asked (the default).
+  if (persist) await saveWallet(wallet);
   return wallet;
 }
 

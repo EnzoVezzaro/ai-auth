@@ -68,6 +68,25 @@ const pageInstanceId = (() => {
     return createInstanceId();
   }
 })();
+const urlParams = new URLSearchParams(location.search);
+const urlRequestParam = urlParams.get("connect-request");
+const consentCallbackParam = urlParams.get("callback");
+// A local MCP server may open this wallet and ask for the signed consent back
+// on a loopback URL. Never post a consent to an arbitrary origin.
+function trustedCallback(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol === "https:") return url.href;
+    if (
+      url.protocol === "http:" &&
+      ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
+    )
+      return url.href;
+  } catch {}
+  return null;
+}
+const consentCallback = trustedCallback(consentCallbackParam);
+
 const state = {
   wallet: null,
   view: externalConnectMode ? "connect" : "overview",
@@ -80,11 +99,13 @@ const state = {
   externalOrigin: "",
   externalStatus: "",
   externalRequestReceived: false,
+  consentCallback: null,
   externalExpiryTimer: null,
   lease: null,
   renewal: null,
   sessionTimer: null,
   messages: [],
+  grants: [],
   privateMode: true,
   externalRoomReady: false,
   externalPendingEvents: [],
@@ -207,22 +228,70 @@ function walletSetupView() {
 
 function walletView() {
   if (!state.wallet) return walletSetupView();
-  return `${pageHead("IDENTITY", "Your agent has an identity.", "Other websites can verify this public ID. The private wallet key stays in this browser's storage.")}
-    <div class="grid-main">
-      <div class="stack">
-        <section class="key-card"><p class="mini-label">PUBLIC AGENT ID</p><code class="key-id">${esc(state.wallet.id)}</code><div class="key-meta"><div>Agent name<strong>${esc(state.wallet.name)}</strong></div><div>Created<strong>${esc(dateText(state.wallet.createdAt))}</strong></div><div>Key status<strong>Non-exportable</strong></div></div></section>
-        <section class="panel"><div class="panel-head"><div><h2>Signing key</h2><p class="panel-copy">The private key cannot be read back after it is imported. The encrypted backup can be copied whenever you need it.</p></div><span class="status-tag"><span class="state-dot"></span> READY</span></div>
-          <div class="metric-line"><span>Key type</span><strong>ECDSA P-256</strong></div><div class="metric-line"><span>Signature hash</span><strong>SHA-256</strong></div><div class="metric-line"><span>Exportability</span><strong>Private key: no</strong></div>
-          <div class="button-row"><button class="button secondary" id="download-backup">Download encrypted recovery file</button><button class="button quiet" id="copy-agent-id">Copy public identity</button></div>
-        </section>
-        <section class="panel"><div class="danger-zone"><div><h3>Remove this wallet from this browser</h3><p>This clears the stored signing key and local signed activity. Restore later from the encrypted recovery file.</p></div><button class="button danger small" id="forget-wallet">Remove wallet</button></div></section>
+  const id = state.wallet.id;
+  const initial = String(state.wallet.name ?? "A")
+    .charAt(0)
+    .toUpperCase();
+  const hue = [...id].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 360;
+  const grants = state.grants ?? [];
+  const activity = state.activity ?? [];
+  const connections = grants.length
+    ? grants
+        .map(
+          (grant) => `<div class="connection-card">
+            <div class="connection-head"><span class="connection-orb" aria-hidden="true"></span><div><strong>${esc(grant.audience)}</strong><small>${esc(grant.room ?? "default")}</small></div><span class="status-tag"><span class="state-dot"></span> ACTIVE</span></div>
+            <div class="cap-row">${(grant.capabilities ?? [])
+              .map(
+                (capability) =>
+                  `<span class="cap-chip">${esc(capabilityCopy(capability).title)}</span>`,
+              )
+              .join("")}</div>
+            <small class="help">${esc(sessionEndText(grant.expiresAt, Date.now()))}</small>
+          </div>`,
+        )
+        .join("")
+    : `<div class="empty-state"><h3>No connected sites</h3><p>A site appears here after it asks to connect an agent and you approve its permissions.</p><a class="button secondary small" href="../connect-agent/">Connect an agent →</a></div>`;
+  const recent = activity.length
+    ? activity
+        .slice(-3)
+        .reverse()
+        .map(
+          (entry) =>
+            `<div class="event-row"><span class="event-icon" aria-hidden="true">✓</span><div><div class="event-title">${esc(entry.body.type)}</div><div class="event-detail">${esc(shortId(entry.body.issuer))}</div></div><time class="event-time">${esc(dateText(entry.body.createdAt))}</time></div>`,
+        )
+        .join("")
+    : `<p class="panel-copy">No signed activity yet. Approving a site request adds the first entry.</p>`;
+
+  return `${pageHead("OWNER KEY", "Your identity, at a glance.", "This key signs the capabilities you approve. Agents keep their own identity and do not need this key to connect.")}
+    <div class="dashboard">
+      <section class="account-card" style="--avatar-hue:${hue}">
+        <div class="avatar" aria-hidden="true">${esc(initial)}</div>
+        <div class="account-main"><p class="mini-label">OWNER IDENTITY</p><h2>${esc(state.wallet.name)}</h2><code class="account-id">${esc(id)}</code></div>
+        <span class="status-tag"><span class="state-dot"></span> LOCAL KEY</span>
+      </section>
+      <div class="stat-grid">
+        <div class="stat"><b>${grants.length}</b><span>connected sites</span></div>
+        <div class="stat"><b>${state.room?.peers.size ?? 0}</b><span>agents nearby</span></div>
+        <div class="stat"><b>${activity.length}</b><span>signed entries</span></div>
+        <div class="stat"><b>ECDSA</b><span>P-256 · local</span></div>
       </div>
-      <aside class="stack"><section class="panel"><div class="panel-head"><div><p class="mini-label">WALLET PRINCIPLE</p><h3>Identity travels as a signature</h3></div></div><p class="panel-copy">A website supplies its origin, a fresh nonce, requested scopes and expiry. You review and sign only what you approve.</p><div class="callout top-gap"><strong>The site still decides.</strong> It must verify the wallet signature and enforce access to its own resources.</div></section>
-      <section class="panel"><div class="panel-head"><div><p class="mini-label">RECOVERY FILE</p><h3>Encrypted, not plaintext</h3></div></div><p class="panel-copy">AES-GCM encrypts the key backup with a passphrase-derived key. A wrong passphrase fails closed.</p><div class="metric-line"><span>Encryption</span><strong>AES-GCM 256</strong></div><div class="metric-line"><span>Key derivation</span><strong>PBKDF2 · SHA-256</strong></div></section></aside>
+      <div class="grid-main">
+        <div class="stack">
+          <section class="panel"><div class="panel-head"><div><p class="mini-label">CONNECTIONS</p><h2>Where this key is used</h2><p class="panel-copy">Each entry is a signed approval for one exact site. Your key never leaves this browser.</p></div></div><div class="connection-list">${connections}</div></section>
+          <section class="panel"><div class="panel-head"><div><p class="mini-label">RECENT ACTIVITY</p><h2>Signed by this key</h2></div><button class="button quiet small" data-go-view="activity">View all</button></div><div class="event-list">${recent}</div></section>
+        </div>
+        <aside class="stack">
+          <section class="panel"><div class="panel-head"><div><p class="mini-label">QUICK ACTIONS</p><h2>What next?</h2></div></div><div class="overview-actions"><a class="button secondary" href="../connect-agent/">Connect an agent</a><button class="button secondary" data-go-view="connect">Review a request</button><button class="button secondary" data-go-view="permissions">Grant access</button><button class="button quiet" data-go-view="peer">Shared room</button></div></section>
+          <section class="panel"><div class="panel-head"><div><p class="mini-label">KEY DETAILS</p><h3>Stored on this device</h3></div></div><div class="metric-line"><span>Created</span><strong>${esc(dateText(state.wallet.createdAt))}</strong></div><div class="metric-line"><span>Exportability</span><strong>Private key: no</strong></div><div class="button-row"><button class="button secondary small" id="download-backup">Download recovery file</button><button class="button quiet small" id="copy-agent-id">Copy ID</button></div></section>
+          <section class="panel"><div class="danger-zone"><div><h3>Remove this key</h3><p>Clears the local key and activity. Restore from the recovery file later.</p></div><button class="button danger small" id="forget-wallet">Remove</button></div></section>
+        </aside>
+      </div>
     </div>`;
 }
 
 function overviewView() {
+  // With a key present, the default page is the account dashboard.
+  if (state.wallet) return walletView();
   const peers = state.room?.peers.size ?? 0;
   const activityCount = state.activity?.length ?? 0;
   const identity = state.wallet
@@ -876,7 +945,10 @@ function bindView() {
         throw new Error(
           "This wallet request is no longer active. Return to the site and click Connect agent to start again.",
         );
-      if (!externalHost || state.externalSource !== externalHost)
+      if (
+        !state.consentCallback &&
+        (!externalHost || state.externalSource !== externalHost)
+      )
         throw new Error(
           "The requesting site tab is no longer available. Return to the site and click Connect agent to start again.",
         );
@@ -921,18 +993,25 @@ function bindView() {
           audience: state.externalOrigin,
           room: state.externalRequest.room ?? "default",
         });
+        state.grants = await grantStore.list();
       } catch {} // best-effort durability; resume stays unavailable
-      externalHost.postMessage(
-        {
-          type: "ai-auth/connect-consent",
-          requestNonce: state.externalRequest.nonce,
-          consent,
-          // The identity id must match the signed consent issuer; the site
-          // verifies it. The name is display-only peer labeling.
-          wallet: { id: state.wallet.id, name: state.wallet.name },
-        },
-        state.externalOrigin,
-      );
+      const consentMessage = {
+        type: "ai-auth/connect-consent",
+        requestNonce: state.externalRequest.nonce,
+        consent,
+        // The identity id must match the signed consent issuer; the site
+        // verifies it. The name is display-only peer labeling.
+        wallet: { id: state.wallet.id, name: state.wallet.name },
+      };
+      if (externalHost && state.externalSource === externalHost)
+        externalHost.postMessage(consentMessage, state.externalOrigin);
+      if (state.consentCallback) {
+        fetch(state.consentCallback, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(consentMessage),
+        }).catch(() => {});
+      }
       state.consent = consent;
       state.lease = new SessionLease(consent.body.payload);
       state.externalStatus = "sent";
@@ -1642,6 +1721,51 @@ document.querySelectorAll("[data-view]").forEach((button) =>
 
 try {
   state.wallet = await loadWallet();
+  // A directly opened wallet can carry its request and callback in the URL.
+  if (
+    typeof urlRequestParam !== "undefined" &&
+    typeof consentCallback !== "undefined" &&
+    typeof verifyPermissionRequest === "function" &&
+    urlRequestParam &&
+    consentCallback &&
+    !state.externalRequest
+  ) {
+    try {
+      const request = JSON.parse(
+        new TextDecoder().decode(
+          Uint8Array.from(
+            atob(urlRequestParam.replace(/-/gu, "+").replace(/_/gu, "/")),
+            (char) => char.charCodeAt(0),
+          ),
+        ),
+      );
+      if (
+        await verifyPermissionRequest(request, {
+          expectedOrigin: request.audience,
+        })
+      ) {
+        state.externalRequest = request;
+        state.externalOrigin = request.audience;
+        state.externalStatus = "";
+        state.externalRequestReceived = true;
+        state.consentCallback = consentCallback;
+        state.view = "connect";
+        state.externalExpiryTimer = setTimeout(
+          () => {
+            if (state.externalStatus) return;
+            state.externalStatus = "expired";
+            render();
+          },
+          Math.max(0, request.expiresAt - Date.now()),
+        );
+      }
+    } catch {
+      state.error =
+        "The connect request in this link is invalid. Return to the site and start a new connection.";
+    }
+  }
+  if (state.wallet && typeof grantStore !== "undefined")
+    state.grants = await grantStore.list();
   if (state.wallet && !externalConnectMode) {
     if (!state.privateMode) await startRoom();
   }

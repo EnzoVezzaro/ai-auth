@@ -1,11 +1,17 @@
 #!/usr/bin/env node
 import { readFile, rm, writeFile, chmod } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import {
   createFileKeystore,
   createAgentRuntime,
 } from "@enzovezzaro/ai-auth-agent";
+import {
+  NonceGuard,
+  createPermissionRequest,
+  verifyPermissionConsent,
+} from "@enzovezzaro/ai-auth-wallet";
 import { createAIAuthMcpServer, connectAIAuthMcpStdio } from "./index.js";
 import { serveAIAuthMcpHttp } from "./http.js";
 import { parseArgs, USAGE } from "./cli-args.js";
@@ -63,6 +69,65 @@ function requestedScopes(site) {
   return requested;
 }
 
+function openBrowser(url) {
+  const command =
+    process.platform === "darwin"
+      ? "open"
+      : process.platform === "win32"
+        ? "cmd"
+        : "xdg-open";
+  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+  try {
+    const child = spawn(command, args, { stdio: "ignore", detached: true });
+    child.on("error", () => {});
+    child.unref?.();
+  } catch {}
+}
+
+async function approveInBrowser({ site, asked, consentUrl, walletId }) {
+  if (!consentUrl)
+    throw new Error("--open-wallet needs --http for the consent callback");
+  const request = await createPermissionRequest(site.origin, asked, {
+    room: site.room,
+  });
+  const encoded = Buffer.from(JSON.stringify(request)).toString("base64url");
+  const walletBase = site.walletUrl ?? new URL("/wallet/", site.origin).href;
+  const walletUrl = new URL(walletBase);
+  walletUrl.searchParams.set("connect", "1");
+  walletUrl.searchParams.set("connect-request", encoded);
+  walletUrl.searchParams.set("callback", consentUrl);
+  err(`Open this wallet window to approve the connection:\n${walletUrl.href}`);
+  openBrowser(walletUrl.href);
+
+  const message = await new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("Wallet approval timed out")),
+      5 * 60_000,
+    );
+    pendingConsent = (body) => {
+      clearTimeout(timer);
+      resolve(body);
+    };
+  });
+  if (message?.type !== "ai-auth/connect-consent")
+    throw new Error("The wallet sent an unexpected response");
+  if (message.requestNonce !== request.nonce)
+    throw new Error("The wallet approval does not match this request");
+  const verified = await verifyPermissionConsent(message.consent, request, {
+    expectedOrigin: site.origin,
+    expectedWallet: walletId,
+    nonceGuard: new NonceGuard(),
+  });
+  if (!verified) throw new Error("The wallet approval failed verification");
+  const approved = message.consent.body.payload.capabilities.filter((cap) =>
+    asked.includes(cap),
+  );
+  if (!approved.length) throw new Error("No requested capability was approved");
+  return approved;
+}
+
+let pendingConsent = null;
+
 async function serve(args) {
   const site = await resolveSite(args);
   const requested = requestedScopes(site);
@@ -114,12 +179,19 @@ async function serve(args) {
           : lifetimeFromEnv(process.env);
         const approved = saved
           ? [...saved.scopes]
-          : await resolveApproval({
-              requested: asked,
-              approve: args.approve,
-              interactive: interactive(),
-              ask: askOnTty(),
-            });
+          : args.flags.has("open-wallet") && http
+            ? await approveInBrowser({
+                site,
+                asked,
+                consentUrl: http.consentUrl,
+                walletId: wallet.id,
+              })
+            : await resolveApproval({
+                requested: asked,
+                approve: args.approve,
+                interactive: interactive(),
+                ask: askOnTty(),
+              });
         runtime = createAgentRuntime({
           keystore,
           origin: site.origin,
@@ -161,6 +233,8 @@ async function serve(args) {
   };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
+  if (args.flags.has("open-wallet") && args.http === undefined)
+    throw new Error("--open-wallet needs --http for the consent callback");
   if (args.http !== undefined) {
     const port = Number(args.http);
     if (!Number.isInteger(port) || port < 0 || port > 65_535)
@@ -179,6 +253,12 @@ async function serve(args) {
       await chmod(secretFile, 0o600);
     }
     http = await serveAIAuthMcpHttp({
+      onConsent: (body) => {
+        if (!pendingConsent) throw new Error("No wallet approval is pending");
+        const resolve = pendingConsent;
+        pendingConsent = null;
+        return resolve(body);
+      },
       port,
       secret,
       createMcpServer: () => {

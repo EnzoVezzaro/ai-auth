@@ -191,3 +191,17 @@ test("the IndexedDB adapter persists grants and ended flags across instances", a
     false,
   );
 });
+
+test("list() returns only open grants for the dashboard", async () => {
+  const wallet = await makeWallet();
+  const consent = await grantConsent(wallet);
+  const backing = new Map();
+  const store = createGrantStore({
+    adapter: memoryGrantAdapter({ backing }),
+    now: () => consent.body.payload.issuedAt,
+  });
+  await store.save(consent, { audience: ORIGIN, room: ROOM });
+  assert.equal((await store.list()).length, 1);
+  await store.markEnded(ORIGIN, consent.body.payload.requestNonce);
+  assert.equal((await store.list()).length, 0);
+});

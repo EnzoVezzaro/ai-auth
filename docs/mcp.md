@@ -24,21 +24,22 @@ The passphrase comes from `AI_AUTH_PASSPHRASE` or a terminal prompt. `init` crea
 
 ## Flags
 
-| Flag                       | Meaning                                                                            |
-| -------------------------- | ---------------------------------------------------------------------------------- |
-| `--keystore-dir DIR`       | Identity directory. Default `~/.ai-auth/agent`.                                    |
-| `--connect INPUT`          | Connect instruction, its JSON, a site URL, or `@file`.                             |
-| `--origin URL --room NAME` | Explicit alternative to `--connect`.                                               |
-| `--caps a,b`               | Capabilities to request, when not discovered from the site.                        |
-| `--approve a,b`            | Exact scopes to grant without a TTY. Never more than the site requested.           |
-| `--auto-join`              | Join the room at startup.                                                          |
-| `--resume`                 | Restore the last room saved for this origin.                                       |
-| `--code-mode`              | Add the `ai_auth_code` tool.                                                       |
-| `--provide room`           | Publish `agent.ping` and `agent.self`. Needs `tools.invoke`.                       |
-| `--no-manifest`            | Do not fetch `/.well-known/ai-auth.json` for a URL.                                |
-| `--http PORT`              | Serve Streamable HTTP on `127.0.0.1:PORT` instead of stdio. `0` picks a free port. |
-| `--yes`                    | Confirm `unlink` without a prompt.                                                 |
-| `--help`                   | Print usage.                                                                       |
+| Flag                       | Meaning                                                                                                                         |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `--keystore-dir DIR`       | Identity directory. Default `~/.ai-auth/agent`.                                                                                 |
+| `--connect INPUT`          | Connect instruction, its JSON, a site URL, or `@file`.                                                                          |
+| `--origin URL --room NAME` | Explicit alternative to `--connect`.                                                                                            |
+| `--caps a,b`               | Capabilities to request, when not discovered from the site.                                                                     |
+| `--approve a,b`            | Exact scopes to grant without a TTY. Never more than the site requested.                                                        |
+| `--auto-join`              | Join the room at startup.                                                                                                       |
+| `--resume`                 | Restore the last room saved for this origin.                                                                                    |
+| `--code-mode`              | Add the `ai_auth_code` tool.                                                                                                    |
+| `--provide room`           | Publish `agent.ping` and `agent.self`. Needs `tools.invoke`.                                                                    |
+| `--no-manifest`            | Do not fetch `/.well-known/ai-auth.json` for a URL.                                                                             |
+| `--http PORT`              | Serve Streamable HTTP on `127.0.0.1:PORT` instead of stdio. `0` picks a free port.                                              |
+| `--open-wallet`            | When approval is needed, open the wallet in a browser and wait for its signed consent on the loopback callback. Needs `--http`. |
+| `--yes`                    | Confirm `unlink` without a prompt.                                                                                              |
+| `--help`                   | Print usage.                                                                                                                    |
 
 ### Choosing a site
 
@@ -78,6 +79,8 @@ The code is capped at 8 KB. It runs in a worker thread that the host terminates 
 ## HTTP mode
 
 `--http PORT` listens on `127.0.0.1:PORT`. The printed endpoint contains a random secret in the path, `/mcp/<secret>`. That secret is the credential for the agent. The CLI keeps it in `<keystore-dir>/http-secret` with mode `0600` and reuses it after a restart. Share the URL only with the client you intend to drive the agent. If you tunnel the port, use a tunnel you control. Stop the process to end the agent's presence.
+
+With `--open-wallet`, the first MCP connection opens the wallet in a browser window. The wallet shows the requesting site and exact scopes, and posts the signed consent back to a loopback `/consent/<secret>` endpoint on the same server. The CLI verifies the signature, audience, nonce and wallet id before granting any scope. The site dashboard then shows the agent as connected. No hosted gateway is involved; the local process must stay running.
 
 A reachable endpoint does not prove a live site connection. See [session lifecycle](lifecycle.md) for the strict definition of `connected`.
 

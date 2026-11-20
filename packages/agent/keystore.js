@@ -25,8 +25,10 @@ const ITERATIONS = 310_000;
 const ECDSA = { name: "ECDSA", namedCurve: "P-256" };
 const FILE_NAME = "identity.json";
 const ENV_NAME = "AI_AUTH_PASSPHRASE";
+// Locally generated instances use a UUID; instances bound by a site use the
+// wallet SDK's `inst:` form. Both are opaque identifiers for the keystore.
 const INSTANCE_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+  /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|inst:[A-Za-z0-9_-]{22})$/iu;
 const signers = new WeakMap();
 
 export class KeystoreError extends Error {
@@ -85,6 +87,91 @@ async function seal({ metadata, privateJwk }, passphrase) {
     },
     cipher: { name: "AES-GCM", iv: b64(iv), ciphertext: b64(ciphertext) },
   });
+}
+
+/**
+ * Convert a browser wallet backup into an agent keystore document for a new
+ * instance. The private key is decrypted and immediately resealed with the
+ * instance id as additional authenticated data; it is never returned.
+ */
+export async function agentKeystoreFromWalletBackup({
+  backupText,
+  passphrase,
+  instanceId,
+}) {
+  if (typeof backupText !== "string" || !backupText.trim())
+    throw new TypeError("A wallet backup is required");
+  if (typeof passphrase !== "string" || passphrase.length < 12)
+    throw new TypeError("The recovery passphrase needs at least 12 characters");
+  if (typeof instanceId !== "string" || !INSTANCE_PATTERN.test(instanceId))
+    throw new KeystoreError(
+      "KEYSTORE_CORRUPT",
+      "A valid instance id is required",
+    );
+  let doc;
+  try {
+    doc = JSON.parse(backupText);
+  } catch (error) {
+    throw new KeystoreError(
+      "KEYSTORE_CORRUPT",
+      "The backup is not valid JSON",
+      {
+        cause: error,
+      },
+    );
+  }
+  if (
+    doc?.format !== "ai-auth-wallet-backup" ||
+    doc.version !== 1 ||
+    doc.kdf?.iterations !== ITERATIONS ||
+    typeof doc.kdf.salt !== "string" ||
+    typeof doc.cipher?.iv !== "string" ||
+    typeof doc.cipher?.ciphertext !== "string"
+  )
+    throw new KeystoreError(
+      "KEYSTORE_CORRUPT",
+      "The wallet backup has an unsupported or damaged format",
+    );
+  let payload;
+  try {
+    const key = await deriveKey(passphrase, unb64(doc.kdf.salt));
+    const plain = await subtle.decrypt(
+      { name: "AES-GCM", iv: unb64(doc.cipher.iv) },
+      key,
+      unb64(doc.cipher.ciphertext),
+    );
+    payload = JSON.parse(new TextDecoder().decode(plain));
+  } catch (error) {
+    throw new KeystoreError(
+      "KEYSTORE_UNLOCK_FAILED",
+      "Could not unlock the backup: wrong passphrase or damaged file",
+      { cause: error },
+    );
+  }
+  const metadata = payload?.metadata;
+  const privateJwk = payload?.privateJwk;
+  if (
+    !metadata?.publicKey ||
+    !privateJwk?.d ||
+    (await identityFor(metadata.publicKey)) !== metadata.id
+  )
+    throw new KeystoreError(
+      "KEYSTORE_CORRUPT",
+      "The backup identity is invalid",
+    );
+  return seal(
+    {
+      metadata: {
+        id: metadata.id,
+        name: String(metadata.name ?? "agent").slice(0, 60),
+        createdAt: metadata.createdAt,
+        publicKey: metadata.publicKey,
+        instanceId,
+      },
+      privateJwk,
+    },
+    passphrase,
+  );
 }
 
 function parseDocument(text) {

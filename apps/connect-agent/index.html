@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#080a0d" />
     <meta
       name="description"
-      content="Give this link to an agent. It connects with its own identity and you watch it live in your workspace."
+      content="Create an identity for your agent, download its backup, install it, then connect it to sites with a link."
     />
     <title>Connect an agent — AI Auth</title>
     <link
@@ -23,85 +23,195 @@
         <span>AI Auth</span>
       </a>
       <span class="crumb">/ connect an agent</span>
-      <span class="status" id="room-status"
-        ><span class="dot"></span>opening room…</span
+      <span class="net"
+        ><span class="dot"></span> NO SERVER · SELF-CUSTODIAL</span
       >
     </header>
 
     <main>
-      <section class="intro">
-        <p class="eyebrow">AGENT-FIRST · NO HUMAN WALLET REQUIRED</p>
-        <h1>Give your agent this link.</h1>
-        <p class="lede">
-          It creates its own identity, connects through its own wallet, and
-          shows up here. You do not create or approve anything to see it work.
+      <section class="connect" id="connect-card">
+        <div class="visual" aria-hidden="true">
+          <span class="ring outer"></span>
+          <span class="ring middle"></span>
+          <span class="ring inner"></span>
+          <img class="mark" src="../docs/assets/ai-auth-mark.svg" alt="" />
+          <span class="satellite s1"></span>
+          <span class="satellite s2"></span>
+          <span class="satellite s3"></span>
+        </div>
+
+        <p class="eyebrow" id="state-eyebrow">1 · CREATE IDENTITY</p>
+        <h1 id="state-title">Give your agent an identity</h1>
+        <p class="lede" id="state-lede">
+          Create a self-custodied key with an encrypted backup, install it into
+          your agent, then share a link to connect it anywhere. All from the
+          SDK.
         </p>
-      </section>
 
-      <section class="grid">
-        <div class="panel share">
-          <div class="panel-head">
-            <h2>1 · Share the link</h2>
-            <span class="pill">PUBLIC INFORMATION ONLY</span>
-          </div>
-          <label for="site-link">Site link</label>
-          <div class="copy-row">
-            <input id="site-link" readonly />
-            <button id="copy-link" class="primary small">Copy link</button>
-          </div>
-          <p class="hint">
-            Send this link to your agent, then say:
-            <strong>“Connect to this website using AI Auth.”</strong>
-          </p>
+        <ol class="stepper">
+          <li class="active" data-step="1">Create</li>
+          <li data-step="2">Backup</li>
+          <li data-step="3">Install</li>
+          <li data-step="4">Connected</li>
+        </ol>
 
-          <label for="instruction">Exact connection details</label>
-          <textarea id="instruction" readonly rows="7"></textarea>
-          <div class="copy-row">
-            <button id="copy-instruction" class="primary small">
+        <div class="status-pill" id="status-pill">
+          <span class="dot"></span> WAITING
+        </div>
+
+        <form id="setup" class="setup">
+          <label for="agent-name-input">Agent name</label>
+          <input
+            id="agent-name-input"
+            maxlength="60"
+            required
+            placeholder="E.g. Research assistant"
+          />
+          <label for="passphrase">Recovery passphrase</label>
+          <input
+            id="passphrase"
+            type="password"
+            minlength="12"
+            required
+            autocomplete="new-password"
+          />
+          <label for="confirm">Confirm passphrase</label>
+          <input
+            id="confirm"
+            type="password"
+            minlength="12"
+            required
+            autocomplete="new-password"
+          />
+          <small
+            >Use 12 or more characters. The backup is encrypted in this
+            browser.</small
+          >
+          <button id="create" class="primary" type="submit">
+            Create identity &amp; download backup
+          </button>
+        </form>
+
+        <div id="share-block" hidden>
+          <section class="install">
+            <p class="mini-label">2 · BACKUP DOWNLOADED</p>
+            <h2>Save these two files</h2>
+            <ul class="files">
+              <li>
+                <b>ai-auth-agent-install.json</b
+                ><span>identity, instance binding and encrypted backup</span>
+              </li>
+              <li>
+                <b>*-recovery.json</b
+                ><span>the encrypted key backup on its own</span>
+              </li>
+            </ul>
+            <p class="fine">
+              Keep the passphrase you chose. Neither file can be opened without
+              it.
+            </p>
+            <code class="new-id" id="new-id"></code>
+          </section>
+
+          <section class="install">
+            <p class="mini-label">3 · INSTALL INTO THE AGENT</p>
+            <h2>Run this in your agent repo</h2>
+            <pre id="snippet"></pre>
+            <ol class="steps">
+              <li>
+                <b>1</b
+                ><span
+                  >Put <em>ai-auth-agent-install.json</em> in the agent's
+                  working directory.</span
+                >
+              </li>
+              <li>
+                <b>2</b
+                ><span
+                  >Run the SDK call above with the passphrase you chose.</span
+                >
+              </li>
+              <li>
+                <b>3</b
+                ><span
+                  >Start the agent runtime. This page updates when it
+                  joins.</span
+                >
+              </li>
+            </ol>
+          </section>
+
+          <section class="install">
+            <p class="mini-label">ONE PASTE FOR YOUR AGENT</p>
+            <h2>Local MCP endpoint</h2>
+            <p class="fine">
+              Run this once. It prints a loopback MCP URL; paste that URL into
+              your agent. The first connect opens the wallet approval window.
+            </p>
+            <pre id="mcp-command"></pre>
+            <p class="fine">
+              Agent config — replace the URL with the one the command prints:
+            </p>
+            <pre id="mcp-config"></pre>
+          </section>
+
+          <div class="link-box">
+            <input
+              id="site-link"
+              readonly
+              aria-label="Connect link for other sites"
+            />
+            <button id="copy-link" class="ghost small">Copy link</button>
+          </div>
+          <details class="details">
+            <summary>Exact connection details</summary>
+            <textarea id="instruction" readonly rows="6"></textarea>
+            <button id="copy-instruction" class="ghost small">
               Copy instruction
             </button>
-            <span class="hint inline"
-              >For agents using the portable connect skill.</span
-            >
-          </div>
+          </details>
           <p class="fine">
-            The link carries only the site origin, room, wallet URL and
-            requested capabilities. No keys, no tokens, no permissions are
-            granted by sharing it.
+            On any other AI Auth site, this link (or a copied instruction) is
+            all the agent needs to connect.
           </p>
         </div>
 
-        <div class="panel live">
-          <div class="panel-head">
-            <h2>2 · Watch the space</h2>
-            <span class="pill live-pill" id="live-pill">WAITING</span>
+        <section class="session" id="session" hidden>
+          <div class="session-head">
+            <div class="agent-avatar" id="agent-avatar">A</div>
+            <div>
+              <p class="mini-label">4 · CONNECTED AGENT</p>
+              <h2 id="agent-name">Agent</h2>
+              <code id="agent-id"></code>
+            </div>
           </div>
-          <div class="counter-row">
-            <div><b id="count-agents">0</b><span>agents seen</span></div>
-            <div><b id="count-messages">0</b><span>messages</span></div>
-            <div><b id="count-activity">0</b><span>activity</span></div>
-            <div><b id="count-tools">0</b><span>tools</span></div>
+          <p class="cap-label">APPROVED CAPABILITIES</p>
+          <div class="cap-row" id="capabilities"></div>
+          <p class="session-note">
+            The connection stays open while this page is open.
+          </p>
+          <div class="button-row">
+            <button id="disconnect" class="danger">Disconnect</button
+            ><button id="reconnect" class="ghost" hidden>Start over</button>
           </div>
-          <h3>Participants</h3>
-          <ul id="participants" class="participants">
-            <li class="empty">No agents yet. Share the link above.</li>
-          </ul>
-          <h3>Activity</h3>
-          <ol id="activity" class="activity">
-            <li class="empty">Nothing here yet.</li>
-          </ol>
-          <p class="fine" id="error" aria-live="polite"></p>
-        </div>
-      </section>
+        </section>
 
-      <footer class="foot">
-        <span>The site keeps this room open while the page is open.</span>
-        <span
-          >Agents create their own wallet. The optional owner wallet lives
-          <a href="../wallet/">here</a>.</span
-        >
-      </footer>
+        <section class="activity" id="activity" hidden>
+          <p class="mini-label">LIVE ACTIVITY</p>
+          <ol id="activity-list"></ol>
+        </section>
+
+        <p class="error" id="error" aria-live="polite"></p>
+      </section>
     </main>
+
+    <footer class="foot">
+      <span
+        >Agents bring their own installed identity. No human identity is created
+        here.</span
+      >
+      <a href="../wallet/">Owner wallet →</a>
+    </footer>
 
     <script type="module" src="./app.js"></script>
   </body>

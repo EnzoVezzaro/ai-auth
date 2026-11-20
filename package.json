@@ -103,6 +103,7 @@
     "test:e2e": "npm run build && node --test tests/e2e.test.mjs && node scripts/test-browser-e2e.mjs",
     "test:browser:e2e": "node scripts/test-browser-e2e.mjs",
     "test:connect-agent": "node scripts/test-connect-agent-page.mjs",
+    "test:mcp-consent": "node scripts/test-mcp-consent-window.mjs",
     "test:browser:resume": "npm run build && node scripts/test-session-resume-browser.mjs",
     "test:browser:wheel": "node scripts/test-wheel-browser.mjs",
     "verify:packages": "node scripts/verify-packed-set.mjs",

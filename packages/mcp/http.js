@@ -52,15 +52,41 @@ export async function serveAIAuthMcpHttp({
   port = 0,
   host = "127.0.0.1",
   secret = randomBytes(24).toString("base64url"),
+  onConsent,
 }) {
   if (typeof createMcpServer !== "function")
     throw new TypeError("createMcpServer must return an MCP server");
   const path = `/mcp/${secret}`;
+  const consentPath = `/consent/${secret}`;
   const sessions = new Map();
 
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
+      if (url.pathname === consentPath) {
+        res.setHeader("access-control-allow-origin", "*");
+        res.setHeader("access-control-allow-methods", "POST, OPTIONS");
+        res.setHeader("access-control-allow-headers", "content-type");
+        if (req.method === "OPTIONS") {
+          res.writeHead(204).end();
+          return;
+        }
+        if (req.method !== "POST" || typeof onConsent !== "function")
+          return reply(res, 405, "No consent callback is configured");
+        const body = await readJson(req);
+        try {
+          await onConsent(body);
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: true }));
+        } catch (error) {
+          reply(
+            res,
+            400,
+            String(error?.message ?? "Consent rejected").slice(0, 200),
+          );
+        }
+        return;
+      }
       if (url.pathname !== path) return reply(res, 404, "Not found");
       const sessionId = req.headers["mcp-session-id"];
       const existing =
@@ -95,6 +121,7 @@ export async function serveAIAuthMcpHttp({
   const address = server.address();
   return {
     url: `http://${host}:${address.port}${path}`,
+    consentUrl: `http://${host}:${address.port}${consentPath}`,
     close: async () => {
       for (const transport of sessions.values()) await transport.close();
       await new Promise((resolve) => server.close(resolve));

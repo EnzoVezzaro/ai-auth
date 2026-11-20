@@ -48,6 +48,8 @@ export function identityFor(publicKey: JsonWebKey): Promise<string>;
 export function createWallet(options: {
   name: string;
   passphrase: string;
+  /** Set false to mint an identity without replacing this browser's key. */
+  persist?: boolean;
 }): Promise<WalletIdentity>;
 export function loadWallet(): Promise<WalletIdentity | null>;
 export function importWalletBackup(

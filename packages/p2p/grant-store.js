@@ -31,6 +31,12 @@ export function memoryGrantAdapter({ backing = new Map() } = {}) {
     async put(key, record) {
       backing.set(key, structuredClone(record));
     },
+    async all() {
+      return [...backing.entries()].map(([key, record]) => ({
+        key,
+        record: structuredClone(record),
+      }));
+    },
     async clear() {
       backing.clear();
     },
@@ -84,6 +90,24 @@ export function indexedDbGrantAdapter({
         transaction.onerror = () => reject(transaction.error);
       });
     },
+    async all() {
+      const db = await open();
+      if (!db.objectStoreNames.contains(GRANT_STORE_NAME)) return [];
+      return new Promise((resolve, reject) => {
+        const request = db
+          .transaction(GRANT_STORE_NAME, "readonly")
+          .objectStore(GRANT_STORE_NAME)
+          .openCursor();
+        const rows = [];
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) return resolve(rows);
+          rows.push({ key: cursor.key, record: cursor.value });
+          cursor.continue();
+        };
+        request.onerror = () => reject(request.error);
+      });
+    },
     async clear() {
       const db = await open();
       if (!db.objectStoreNames.contains(GRANT_STORE_NAME)) return;
@@ -120,6 +144,20 @@ export function createGrantStore({
     throw new TypeError("A grant adapter with get and put is required");
 
   return {
+    /** Open grants, for dashboards that show where this key is connected. */
+    async list() {
+      if (typeof adapter.all !== "function") return [];
+      const rows = await adapter.all();
+      return rows
+        .map(({ record }) => record)
+        .filter(
+          (record) =>
+            record &&
+            record.ended !== true &&
+            (record.expiresAt === null || record.expiresAt > now()),
+        );
+    },
+
     async save(consent, { audience, room, requestNonce, at = now() } = {}) {
       const payload = consent?.body?.payload;
       if (!payload || typeof audience !== "string" || typeof room !== "string")
