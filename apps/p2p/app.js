@@ -182,28 +182,25 @@ function setupFormError() {
 }
 
 function walletSetupView() {
-  return `${pageHead("OPTIONAL · OWNER KEY", "You do not need this to connect an agent.", "Agents create their own identity in their own encrypted keystore. This owner wallet is only for approving what a site's tools may do. Connect an agent first, or set up an owner key below.")}
+  // There is deliberately no create form here. An identity is created because
+  // a site asks an agent to connect (the inline request screen), never on its
+  // own. This page only restores an identity that already exists.
+  return `${pageHead("NO WALLET YET", "Identities are created for agents, not on demand.", "Agents create their own identity in their own encrypted keystore. An owner wallet is created when a site asks you to approve its tools, right inside that request. There is nothing to set up here in advance.")}
     <div class="grid-main">
       <section class="panel">
-        <div class="panel-head"><div><h2>Create a wallet</h2><p class="panel-copy">A recovery file is encrypted before it is downloaded. Keep it separate from this browser.</p></div><span class="status-tag pending">LOCAL KEY</span></div>
-        <form id="create-wallet-form">
-          <div class="field"><label for="wallet-name">Agent name</label><input class="control" id="wallet-name" name="name" maxlength="60" autocomplete="off" required placeholder="E.g. Research assistant" /></div>
-          <div class="field"><label for="wallet-passphrase">Recovery passphrase</label><input class="control" id="wallet-passphrase" name="passphrase" type="password" minlength="12" autocomplete="new-password" required /><small>Use 12 or more characters. The wallet derives an encryption key locally.</small></div>
-          <div class="field"><label for="wallet-passphrase-confirm">Confirm passphrase</label><input class="control" id="wallet-passphrase-confirm" name="confirmation" type="password" minlength="12" autocomplete="new-password" required /></div>
-      ${setupFormError()}
-          <div class="callout"><strong>Recovery matters.</strong> If browser data is cleared, the encrypted recovery file is the only way to restore this key.</div>
-          <div class="button-row"><button class="button" type="submit">Create wallet and backup</button></div>
-        </form>
+        <div class="panel-head"><div><h2>Start with an agent</h2><p class="panel-copy">Share a connect link. The agent joins with its own self-custodied identity and you watch it work. No wallet is needed for this.</p></div><span class="status-tag pending">AGENT FIRST</span></div>
+        <div class="button-row"><a class="button" href="../connect-agent/">Connect an agent →</a></div>
         <form id="import-wallet-form" class="stack form-separated">
-          <div><h3>Restore a wallet</h3><p class="panel-copy">Import an encrypted AI Auth recovery file.</p></div>
+          <div><h3>Restore an existing wallet</h3><p class="panel-copy">Only for an identity you already own. Import its encrypted AI Auth recovery file and passphrase.</p></div>
           <div class="field"><label for="backup-file">Recovery file</label><input class="control" id="backup-file" type="file" accept="application/json,.json" required /></div>
           <div class="field"><label for="restore-passphrase">Recovery passphrase</label><input class="control" id="restore-passphrase" type="password" autocomplete="current-password" required /></div>
+          ${setupFormError()}
           <button class="button secondary" type="submit">Unlock and restore</button>
         </form>
       </section>
       <aside class="stack">
-        <section class="panel"><div class="panel-head"><div><p class="mini-label">AGENTS COME FIRST</p><h3>They create their own wallet</h3></div></div><p class="panel-copy">Give an agent your site's connect link and it joins with its own self-custodied identity. You can watch it work without creating anything here.</p><div class="button-row"><a class="button secondary small" href="../connect-agent/">Connect an agent →</a></div></section>
-        <section class="panel"><div class="panel-head"><div><p class="mini-label">WHAT THIS OWNER KEY DOES</p><h3>Approves site capabilities</h3></div></div><p class="panel-copy">When a site asks to use tools, your key signs the exact scopes you allow. A signature proves approval; the site still checks its own rules.</p><div class="metric-line"><span>Algorithm</span><strong>ECDSA · P-256</strong></div><div class="metric-line"><span>Storage</span><strong>This browser's storage</strong></div><div class="metric-line"><span>Account</span><strong>None</strong></div></section>
+        <section class="panel"><div class="panel-head"><div><p class="mini-label">WHEN A WALLET IS CREATED</p><h3>Only from a site request</h3></div></div><p class="panel-copy">When a site wants to connect an agent, its request screen creates the wallet and downloads the encrypted recovery file. That is the only time a new owner key is made.</p></section>
+        <section class="panel"><div class="panel-head"><div><p class="mini-label">WHAT THIS OWNER KEY DOES</p><h3>Approves site capabilities</h3></div></div><p class="panel-copy">Your key signs the exact scopes you allow. A signature proves approval; the site still checks its own rules.</p><div class="metric-line"><span>Algorithm</span><strong>ECDSA · P-256</strong></div><div class="metric-line"><span>Storage</span><strong>This browser's storage</strong></div><div class="metric-line"><span>Account</span><strong>None</strong></div></section>
       </aside>
     </div>`;
 }
@@ -230,7 +227,7 @@ function overviewView() {
   const activityCount = state.activity?.length ?? 0;
   const identity = state.wallet
     ? `<section class="panel"><div class="panel-head"><div><p class="mini-label">OWNER KEY</p><h2>${esc(state.wallet.name)}</h2><p class="panel-copy">This key signs the capabilities you approve. Agents keep their own identity.</p></div><span class="status-tag"><span class="state-dot"></span> READY</span></div><p class="panel-copy">Your owner key is saved in this browser.</p><code class="key-id">${esc(shortId(state.wallet.id))}</code></section>`
-    : `<section class="panel"><div class="panel-head"><div><p class="mini-label">OWNER KEY · OPTIONAL</p><h2>No owner key yet</h2><p class="panel-copy">You do not need one to connect an agent. Agents create their own wallet. Set up a key only if you want to approve what a site's tools may do.</p></div><span class="status-tag pending">NOT CREATED</span></div><div class="button-row"><a class="button secondary" href="../connect-agent/">Connect an agent →</a><button class="button" data-go-wallet>Set up owner key</button></div></section>`;
+    : `<section class="panel"><div class="panel-head"><div><p class="mini-label">OWNER KEY · OPTIONAL</p><h2>No owner key yet</h2><p class="panel-copy">You do not need one to connect an agent. Agents create their own identity. An owner key is created inside a site request, only when a site asks you to approve its tools.</p></div><span class="status-tag pending">NOT CREATED</span></div><div class="button-row"><a class="button" href="../connect-agent/">Connect an agent →</a></div></section>`;
   return `${pageHead("OWNER CONSOLE", "Agents first. You approve when it matters.", "Watch agents connect with their own identities, and use this optional owner key only when a site asks you to approve its tools.")}
     ${identity}
     <div class="grid-main top-gap">
@@ -319,7 +316,7 @@ function externalPermissionView() {
 }
 
 function walletRequired() {
-  return `<section class="empty-state"><h3>Create or restore a wallet first</h3><p>Your wallet key is needed to sign approvals and grant access.</p><button class="button" data-go-wallet>Open identity setup</button></section>`;
+  return `<section class="empty-state"><h3>No owner key in this browser</h3><p>An owner key is created when a site asks you to approve its tools. Agents create their own identity and do not need this.</p><a class="button" href="../connect-agent/">Connect an agent →</a></section>`;
 }
 
 function permissionsView() {

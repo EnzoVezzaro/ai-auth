@@ -77,8 +77,31 @@ try {
     /peer connected/iu,
   );
   assert.deepEqual(errors, []);
+
+  // A wallet must never be created in a vacuum. In a fresh context (no site
+  // wallet in IndexedDB) the owner console offers restore, not a create form.
+  const ownerContext = await browser.newContext();
+  try {
+    const ownerPage = await ownerContext.newPage();
+    await ownerPage.goto(`${server.siteUrl}wallet/`);
+    await ownerPage.locator('[data-view="wallet"]').click();
+    await waitFor(
+      async () => (await ownerPage.locator("#view .panel").count()) > 0,
+      { message: "owner console renders" },
+    );
+    assert.equal(await ownerPage.locator("#create-wallet-form").count(), 0);
+    assert.equal(await ownerPage.locator("#wallet-name").count(), 0);
+    assert.equal(await ownerPage.locator("#import-wallet-form").count(), 1);
+    const ownerText = await ownerPage.locator("#view").innerText();
+    assert.match(ownerText, /Identities are created for agents/iu);
+    assert.match(ownerText, /created when a site asks/iu);
+    assert.match(ownerText, /Connect an agent/iu);
+  } finally {
+    await ownerContext.close();
+  }
+
   console.log(
-    "Connect Agent page E2E passed: agent self-created its identity, connected, and the site showed live presence and a message.",
+    "Connect Agent page E2E passed: agent self-created its identity, connected, the site showed live presence and a message, and no wallet can be created without a request.",
   );
 } finally {
   if (agent) agent.kill("SIGTERM");
