@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.6 - 2026-11-19
+
+- Add `--open-wallet`: when approval is needed, the HTTP server opens the wallet in a browser and accepts the signed consent on a loopback callback. The CLI verifies signature, audience, nonce and wallet id before granting scopes. Needs `--http`.
+
 ## 0.3.5 - 2026-11-17
 
 - `ai_auth_send` now emits the canonical `message/text` chat type with a signed `messageId` and optional `target`. `collab/text` is still accepted from older senders and earns the same delivery receipt.

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.12.0 - 2026-11-19
 
 ### Added
 
@@ -22,7 +22,7 @@
 
 ### Note
 
-- No npm version was bumped by this entry. UTCP is an opt-in subpath; `@utcp/sdk` is only loaded when a caller supplies it or installs it. Code Mode remains opt-in and is not a security sandbox for hostile code.
+- This release publishes `@enzovezzaro/ai-auth-wallet` 0.12.0, `@enzovezzaro/ai-auth-agent` 0.1.7 and `@enzovezzaro/ai-auth-mcp` 0.3.6. UTCP is an opt-in subpath; `@utcp/sdk` is only loaded when a caller supplies it or installs it. Code Mode remains opt-in and is not a security sandbox for hostile code.
 
 ## 0.11.1 - 2026-11-18
 
