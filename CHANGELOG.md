@@ -15,6 +15,7 @@
 
 ### Changed
 
+- The optional owner wallet has a new dark brand UI and an agent-first concept: it presents itself as a control console you only need when approving site capabilities, links to the connect-agent page, and never asks you to create a wallet before an agent exists. The extracted brand mark is now on the wallet, the body4ai demo footer and the local logo gallery.
 - Optional Code Mode now bounds total and concurrent host calls, caps individual log lines, rejects corrupt shared-buffer replies, forwards abort to sends, and reports truthful partial status after a timeout. Direct tools and the `--code-mode` default are unchanged (`packages/mcp/test/code-mode-hardening.test.mjs`).
 
 ### Note

@@ -1,9 +1,7 @@
 import { CollaborationTransfers } from "../../packages/p2p/collaboration.js";
 import {
   WALLET_REQUIRED_MESSAGE,
-  WALLET_SAVED_NOTICE,
   INLINE_WALLET_NOTICE,
-  NO_WALLET_NOTICE,
   capabilityCopy,
   connectionStatusLabel,
   extendLabel,
@@ -184,7 +182,7 @@ function setupFormError() {
 }
 
 function walletSetupView() {
-  return `${pageHead("YOUR KEY. YOUR AGENT.", "Start with a wallet.", "Create an agent identity in this browser. Your wallet key is stored in this browser's storage and cannot be copied out by this page after creation.")}
+  return `${pageHead("OPTIONAL · OWNER KEY", "You do not need this to connect an agent.", "Agents create their own identity in their own encrypted keystore. This owner wallet is only for approving what a site's tools may do. Connect an agent first, or set up an owner key below.")}
     <div class="grid-main">
       <section class="panel">
         <div class="panel-head"><div><h2>Create a wallet</h2><p class="panel-copy">A recovery file is encrypted before it is downloaded. Keep it separate from this browser.</p></div><span class="status-tag pending">LOCAL KEY</span></div>
@@ -204,8 +202,8 @@ function walletSetupView() {
         </form>
       </section>
       <aside class="stack">
-        <section class="panel"><div class="panel-head"><div><p class="mini-label">WHAT THIS IS</p><h3>Agent identity without an account</h3></div></div><p class="panel-copy">Your wallet key identifies you. It signs your approvals. A signature does not give anyone access to a site.</p></section>
-        <section class="panel"><div class="panel-head"><div><p class="mini-label">NO ACCOUNT NEEDED</p><h3>Kept in this browser</h3></div></div><div class="metric-line"><span>Algorithm</span><strong>ECDSA · P-256</strong></div><div class="metric-line"><span>Storage</span><strong>This browser's storage</strong></div><div class="metric-line"><span>Account</span><strong>None</strong></div></section>
+        <section class="panel"><div class="panel-head"><div><p class="mini-label">AGENTS COME FIRST</p><h3>They create their own wallet</h3></div></div><p class="panel-copy">Give an agent your site's connect link and it joins with its own self-custodied identity. You can watch it work without creating anything here.</p><div class="button-row"><a class="button secondary small" href="../connect-agent/">Connect an agent →</a></div></section>
+        <section class="panel"><div class="panel-head"><div><p class="mini-label">WHAT THIS OWNER KEY DOES</p><h3>Approves site capabilities</h3></div></div><p class="panel-copy">When a site asks to use tools, your key signs the exact scopes you allow. A signature proves approval; the site still checks its own rules.</p><div class="metric-line"><span>Algorithm</span><strong>ECDSA · P-256</strong></div><div class="metric-line"><span>Storage</span><strong>This browser's storage</strong></div><div class="metric-line"><span>Account</span><strong>None</strong></div></section>
       </aside>
     </div>`;
 }
@@ -231,9 +229,9 @@ function overviewView() {
   const peers = state.room?.peers.size ?? 0;
   const activityCount = state.activity?.length ?? 0;
   const identity = state.wallet
-    ? `<section class="panel"><div class="panel-head"><div><p class="mini-label">AGENT IDENTITY</p><h2>${esc(state.wallet.name)}</h2><p class="panel-copy">This wallet key lives in this browser and signs your approvals.</p></div><span class="status-tag"><span class="state-dot"></span> READY</span></div><p class="panel-copy">${WALLET_SAVED_NOTICE}</p><code class="key-id">${esc(shortId(state.wallet.id))}</code></section>`
-    : `<section class="panel"><div class="panel-head"><div><p class="mini-label">AGENT IDENTITY</p><h2>Create your wallet</h2><p class="panel-copy">${NO_WALLET_NOTICE}</p></div><span class="status-tag pending">NOT CREATED</span></div><button class="button" data-go-wallet>Set up wallet</button></section>`;
-  return `${pageHead("WALLET OVERVIEW", "Your agent, at a glance.", "Manage your wallet key in this browser, approve requested permissions, and connect directly with other agents.")}
+    ? `<section class="panel"><div class="panel-head"><div><p class="mini-label">OWNER KEY</p><h2>${esc(state.wallet.name)}</h2><p class="panel-copy">This key signs the capabilities you approve. Agents keep their own identity.</p></div><span class="status-tag"><span class="state-dot"></span> READY</span></div><p class="panel-copy">Your owner key is saved in this browser.</p><code class="key-id">${esc(shortId(state.wallet.id))}</code></section>`
+    : `<section class="panel"><div class="panel-head"><div><p class="mini-label">OWNER KEY · OPTIONAL</p><h2>No owner key yet</h2><p class="panel-copy">You do not need one to connect an agent. Agents create their own wallet. Set up a key only if you want to approve what a site's tools may do.</p></div><span class="status-tag pending">NOT CREATED</span></div><div class="button-row"><a class="button secondary" href="../connect-agent/">Connect an agent →</a><button class="button" data-go-wallet>Set up owner key</button></div></section>`;
+  return `${pageHead("OWNER CONSOLE", "Agents first. You approve when it matters.", "Watch agents connect with their own identities, and use this optional owner key only when a site asks you to approve its tools.")}
     ${identity}
     <div class="grid-main top-gap">
       <section class="panel"><p class="mini-label">CURRENT SESSION</p><h2>${state.privateMode ? "Private" : "Public collaboration"}</h2><p class="panel-copy">${state.privateMode ? "You receive room events but advertise no presence until you go public." : "Agents on this site's public space find one another through connection helpers."}</p><div class="metric-line"><span>Connection</span><strong id="connection-status">${esc(state.connectionLabel || "Not connected.")}</strong></div><div class="metric-line"><span>Connected peers</span><strong id="overview-peer-count">${peers}</strong></div><div class="metric-line"><span>Stored activity</span><strong>${activityCount}</strong></div><div class="callout top-gap">The website brings the agents together. Connection helpers only help them find each other; signed messages travel directly between wallets. No AI Auth server is involved.</div></section>

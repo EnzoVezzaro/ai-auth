@@ -5,14 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="A self-custodied signing wallet and direct connection layer for AI agents."
+      content="The optional AI Auth owner wallet. Approve what site tools an agent may use. Agents create their own identities."
     />
-    <meta name="theme-color" content="#f3f1eb" />
-    <title>AI Auth — Agent wallet</title>
+    <meta name="theme-color" content="#080a0d" />
+    <title>AI Auth — Owner wallet</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="../docs/assets/ai-auth-mark.svg"
+    />
     <link rel="stylesheet" href="./styles.css" />
     <style>
-      /* Phone-width fixes for the wallet pages. A long wallet ID must wrap
-         inside the topbar instead of widening the page. */
+      /* Phone-width fixes: long wallet IDs must wrap instead of widening the page. */
       @media (max-width: 420px) {
         .topbar {
           flex-wrap: wrap;
@@ -33,11 +37,9 @@
           line-height: 1.2;
         }
       }
-      /* The wallet ID on a plain panel must use the panel's text color. */
       .panel .key-id {
         color: inherit;
       }
-      /* Touch targets are at least 44px tall on touch screens and phones. */
       @media (pointer: coarse), (max-width: 700px) {
         button,
         .button,
@@ -52,10 +54,10 @@
     <script type="module" src="./app.js"></script>
   </head>
   <body>
-    <a class="skip-link" href="#main">Skip to workspace</a>
+    <a class="skip-link" href="#main">Skip to console</a>
     <div class="app-frame">
-      <aside class="sidebar" aria-label="Workspace navigation">
-        <a class="brand" href="./" aria-label="AI Auth wallet home">
+      <aside class="sidebar" aria-label="Owner console navigation">
+        <a class="brand" href="../" aria-label="AI Auth home">
           <img
             class="brand-mark"
             src="../docs/assets/ai-auth-mark.svg"
@@ -63,22 +65,22 @@
           />
           <span>AI Auth</span>
         </a>
-        <div class="workspace-label">AGENT WALLET</div>
+        <div class="workspace-label">OWNER WALLET · OPTIONAL</div>
         <nav class="primary-nav" aria-label="Primary">
           <button class="nav-item" data-view="overview">
             <span class="nav-symbol" aria-hidden="true">⌂</span> Overview
           </button>
           <button class="nav-item" data-view="wallet">
-            <span class="nav-symbol" aria-hidden="true">◈</span> Identity
+            <span class="nav-symbol" aria-hidden="true">◈</span> Owner identity
           </button>
           <button class="nav-item" data-view="connect">
-            <span class="nav-symbol" aria-hidden="true">↗</span> Permissions
+            <span class="nav-symbol" aria-hidden="true">↗</span> Site requests
           </button>
           <button class="nav-item" data-view="permissions">
-            <span class="nav-symbol" aria-hidden="true">⌑</span> Grant access
+            <span class="nav-symbol" aria-hidden="true">⌑</span> Grants
           </button>
           <button class="nav-item" data-view="peer">
-            <span class="nav-symbol" aria-hidden="true">⇄</span> Other agents
+            <span class="nav-symbol" aria-hidden="true">⇄</span> Shared room
           </button>
           <button class="nav-item" data-view="activity">
             <span class="nav-symbol" aria-hidden="true">≋</span> Activity
@@ -90,6 +92,10 @@
             <span>Local wallet</span>
           </div>
           <p>Keys stay in this browser. No account needed.</p>
+          <p>
+            Agents create their own identity.
+            <a href="../connect-agent/">Connect an agent →</a>
+          </p>
           <a href="../docs/ARCHITECTURE.md">Architecture notes</a>
         </div>
       </aside>
@@ -98,9 +104,11 @@
         <header class="topbar">
           <div>
             <p class="crumb">
-              AI AUTH <span>/</span> <strong id="view-label">IDENTITY</strong>
+              AI AUTH <span>/</span> <strong id="view-label">OVERVIEW</strong>
             </p>
-            <p class="topbar-caption">A signing wallet for agents</p>
+            <p class="topbar-caption">
+              Optional owner wallet · you approve what agents may do
+            </p>
           </div>
           <div class="topbar-status" id="topbar-status" aria-live="polite">
             <span class="state-dot" aria-hidden="true"></span>
@@ -121,7 +129,7 @@
         </main>
         <footer class="footer-note">
           <span>AI Auth Wallet v0.2.0</span>
-          <span>Open protocol · No account needed</span>
+          <span>Open protocol · No account needed · Agents own their keys</span>
         </footer>
       </div>
     </div>

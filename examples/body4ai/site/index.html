@@ -8,7 +8,10 @@
   </head>
   <body>
     <h1>BODY4AI catalog</h1>
-    <p>Demo site built with the AI Auth SDK. Your wallet: <code id="identity">none yet</code></p>
+    <p>
+      Demo site built with the AI Auth SDK. Your wallet:
+      <code id="identity">none yet</code>
+    </p>
     <section id="catalog" aria-label="Catalog">
       <ul id="products"></ul>
     </section>
@@ -22,6 +25,13 @@
     </section>
     <div id="approvals" aria-live="polite"></div>
     <div id="cursor-overlay" aria-hidden="true"></div>
+    <footer class="built-with">
+      <img src="../../docs/assets/ai-auth-mark.svg" alt="" />
+      <span
+        >Built with <a href="../../">AI Auth</a> · agents bring their own
+        identity</span
+      >
+    </footer>
     <script type="module" src="./site.js"></script>
   </body>
 </html>
