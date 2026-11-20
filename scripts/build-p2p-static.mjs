@@ -23,6 +23,7 @@ await mkdir(output, { recursive: true });
 // Without it .well-known/ai-auth.json is built but never published.
 await writeFile(resolve(output, ".nojekyll"), "");
 await mkdir(resolve(output, "wallet"), { recursive: true });
+await mkdir(resolve(output, "connect-agent"), { recursive: true });
 await mkdir(resolve(output, "docs"), { recursive: true });
 await mkdir(resolve(output, "landing"), { recursive: true });
 await cp(resolve(root, "index.html"), resolve(output, "index.html"));
@@ -137,6 +138,30 @@ await cp(resolve(root, "styles.css"), resolve(output, "wallet/styles.css"));
 await build({
   entryPoints: [resolve(root, "apps/p2p/app.js")],
   outfile: resolve(output, "wallet/app.js"),
+  bundle: true,
+  format: "esm",
+  platform: "browser",
+  target: ["es2022"],
+  sourcemap: false,
+});
+// Agent-first page: the site opens a room with its own local identity and
+// publishes a link for an agent. No owner-wallet form is involved.
+const connectAgentEntry = (
+  await readFile(resolve(root, "apps/connect-agent/index.html"), "utf8")
+)
+  .replace('href="./style.css"', `href="./style.css?v=${version}"`)
+  .replace('src="./app.js"', `src="./app.js?v=${version}"`);
+await writeFile(
+  resolve(output, "connect-agent/index.html"),
+  withNoindex(connectAgentEntry),
+);
+await cp(
+  resolve(root, "apps/connect-agent/style.css"),
+  resolve(output, "connect-agent/style.css"),
+);
+await build({
+  entryPoints: [resolve(root, "apps/connect-agent/app.js")],
+  outfile: resolve(output, "connect-agent/app.js"),
   bundle: true,
   format: "esm",
   platform: "browser",

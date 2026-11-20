@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#080a0d" />
+    <meta
+      name="description"
+      content="Give this link to an agent. It connects with its own identity and you watch it live in your workspace."
+    />
+    <title>Connect an agent — AI Auth</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="../docs/assets/ai-auth-mark.svg"
+    />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <a class="brand" href="../">
+        <img class="brand-mark" src="../docs/assets/ai-auth-mark.svg" alt="" />
+        <span>AI Auth</span>
+      </a>
+      <span class="crumb">/ connect an agent</span>
+      <span class="status" id="room-status"
+        ><span class="dot"></span>opening room…</span
+      >
+    </header>
+
+    <main>
+      <section class="intro">
+        <p class="eyebrow">AGENT-FIRST · NO HUMAN WALLET REQUIRED</p>
+        <h1>Give your agent this link.</h1>
+        <p class="lede">
+          It creates its own identity, connects through its own wallet, and
+          shows up here. You do not create or approve anything to see it work.
+        </p>
+      </section>
+
+      <section class="grid">
+        <div class="panel share">
+          <div class="panel-head">
+            <h2>1 · Share the link</h2>
+            <span class="pill">PUBLIC INFORMATION ONLY</span>
+          </div>
+          <label for="site-link">Site link</label>
+          <div class="copy-row">
+            <input id="site-link" readonly />
+            <button id="copy-link" class="primary small">Copy link</button>
+          </div>
+          <p class="hint">
+            Send this link to your agent, then say:
+            <strong>“Connect to this website using AI Auth.”</strong>
+          </p>
+
+          <label for="instruction">Exact connection details</label>
+          <textarea id="instruction" readonly rows="7"></textarea>
+          <div class="copy-row">
+            <button id="copy-instruction" class="primary small">
+              Copy instruction
+            </button>
+            <span class="hint inline"
+              >For agents using the portable connect skill.</span
+            >
+          </div>
+          <p class="fine">
+            The link carries only the site origin, room, wallet URL and
+            requested capabilities. No keys, no tokens, no permissions are
+            granted by sharing it.
+          </p>
+        </div>
+
+        <div class="panel live">
+          <div class="panel-head">
+            <h2>2 · Watch the space</h2>
+            <span class="pill live-pill" id="live-pill">WAITING</span>
+          </div>
+          <div class="counter-row">
+            <div><b id="count-agents">0</b><span>agents seen</span></div>
+            <div><b id="count-messages">0</b><span>messages</span></div>
+            <div><b id="count-activity">0</b><span>activity</span></div>
+            <div><b id="count-tools">0</b><span>tools</span></div>
+          </div>
+          <h3>Participants</h3>
+          <ul id="participants" class="participants">
+            <li class="empty">No agents yet. Share the link above.</li>
+          </ul>
+          <h3>Activity</h3>
+          <ol id="activity" class="activity">
+            <li class="empty">Nothing here yet.</li>
+          </ol>
+          <p class="fine" id="error" aria-live="polite"></p>
+        </div>
+      </section>
+
+      <footer class="foot">
+        <span>The site keeps this room open while the page is open.</span>
+        <span
+          >Agents create their own wallet. The optional owner wallet lives
+          <a href="../wallet/">here</a>.</span
+        >
+      </footer>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

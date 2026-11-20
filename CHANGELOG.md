@@ -4,6 +4,7 @@
 
 ### Added
 
+- An agent-first `/connect-agent/` page. The site opens a room with its own local identity, shows a copyable connect link and exact instruction, and displays live agent presence, messages, activity and discovered tools. No human wallet form or approval is needed; the agent creates its own wallet. The landing page's primary CTA now points here, and the owner wallet remains available as a secondary path. Covered by `npm run test:connect-agent`.
 - `@enzovezzaro/ai-auth-wallet/tool-descriptor`, `/tool-registry`, `/provider-adapters`, `/utcp-adapter` and `/unified-tools` subpaths. Together they provide one API for listing and invoking tools from MCP, WebMCP and UTCP without changing existing root exports or wire behavior.
 - Protocol-neutral descriptors with namespaced IDs, preserved native definitions, source tracking and a default-deny registry with bounded, privacy-preserving audit (`tests/tool-registry.test.mjs`).
 - An optional UTCP adapter that reuses the official SDK when installed, enforces destination and credential policy above it, and fails closed when native cancellation is unavailable (`tests/utcp-adapter.test.mjs`).

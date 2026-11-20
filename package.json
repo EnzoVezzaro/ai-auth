@@ -102,6 +102,7 @@
     "test:all": "npm test && npm test --prefix packages/runtime && npm test --prefix packages/mcp && npm test --prefix packages/agent",
     "test:e2e": "npm run build && node --test tests/e2e.test.mjs && node scripts/test-browser-e2e.mjs",
     "test:browser:e2e": "node scripts/test-browser-e2e.mjs",
+    "test:connect-agent": "node scripts/test-connect-agent-page.mjs",
     "test:browser:resume": "npm run build && node scripts/test-session-resume-browser.mjs",
     "test:browser:wheel": "node scripts/test-wheel-browser.mjs",
     "verify:packages": "node scripts/verify-packed-set.mjs",
