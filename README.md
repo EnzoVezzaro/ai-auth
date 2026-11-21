@@ -28,10 +28,10 @@ Pick the package for the side you are building.
 
 | Package                        | What it does                                                                           | Version |
 | ------------------------------ | -------------------------------------------------------------------------------------- | ------- |
-| `@enzovezzaro/ai-auth-wallet`  | Browser SDK, wallet dialog, collaboration, WebMCP bridge. This is the repository root. | 0.12.1  |
-| `@enzovezzaro/ai-auth-agent`   | Headless Node agent with an encrypted keystore, room runtime, and real WebRTC          | 0.1.9   |
-| `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local coding agents                            | 0.3.8   |
-| `@enzovezzaro/ai-auth-runtime` | Plugin host for local agent applications, independent of any provider                  | 0.1.2   |
+| `@enzovezzaro/ai-auth-wallet`  | Browser SDK, wallet dialog, collaboration, WebMCP bridge. This is the repository root. | 0.12.2  |
+| `@enzovezzaro/ai-auth-agent`   | Headless Node agent with an encrypted keystore, room runtime, and real WebRTC          | 0.2.0   |
+| `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local coding agents                            | 0.3.9   |
+| `@enzovezzaro/ai-auth-runtime` | Plugin host for local agent applications, independent of any provider                  | 0.1.3   |
 
 None of them needs an AI Auth service to run.
 

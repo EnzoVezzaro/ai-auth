@@ -179,6 +179,20 @@ test("verifyReceipt accepts a genuine receipt", async () => {
   assert.equal(result.receipt.receiver, bob.id);
 });
 
+test("verifyReceipt checks envelope expiry against the injected clock", async () => {
+  const { bob, payload, expected } = await setup();
+  const envelope = await signedReceipt(bob, { payload });
+  // The injected clock is well past the receipt's expiresAt. A correct
+  // checkBinding() uses `now`, not Date.now(), and rejects it.
+  const future = Date.now() + 10 * 60 * 1000;
+  const result = await verifyReceipt(envelope, {
+    ...expected,
+    now: future,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "expired-envelope");
+});
+
 test("verifyReceipt rejects forged, tampered and mis-bound receipts", async () => {
   const { alice, bob, mallory, payload, expected } = await setup();
   const real = await signedReceipt(bob, { payload });

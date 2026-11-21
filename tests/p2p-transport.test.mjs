@@ -679,3 +679,108 @@ test("verified popup connections close when their signed consent expires", async
     connection?.close();
   }
 });
+
+// B05: the core used to destructure only `{ to }`, silently dropping `signal`.
+// These tests drive a real P2PRoom with real ECDSA keys and a real data channel
+// stand-in, so "no effects" means no signature was published anywhere.
+async function abortedSendRoom() {
+  const wallet = await makeWallet("Abort sender");
+  const room = new P2PRoom(wallet, "abort-room", {
+    origin: "https://site.example",
+    capabilities: ["messages.send"],
+  });
+  const deliveries = [];
+  const notifications = [];
+  room.channels.add({
+    readyState: "open",
+    send: (wire) => deliveries.push(wire),
+    close() {},
+  });
+  room.subscribe((message) => notifications.push(message));
+  return { room, deliveries, notifications };
+}
+
+test("P2PRoom rejects an already-aborted send before signing or publishing", async (t) => {
+  const { room, deliveries, notifications } = await abortedSendRoom();
+  t.after(() => room.close());
+  const controller = new AbortController();
+  controller.abort();
+
+  await assert.rejects(
+    room.send(
+      "message/text",
+      { text: "must never ship" },
+      { signal: controller.signal },
+    ),
+    { name: "AbortError" },
+  );
+  assert.deepEqual(deliveries, [], "nothing reached the data channel");
+  assert.deepEqual(notifications, [], "no outbound event was announced");
+  assert.equal(room.audit().length, 0, "nothing was recorded as sent");
+});
+
+test("P2PRoom revalidates the signal after signing and before publishing", async (t) => {
+  const { room, deliveries, notifications } = await abortedSendRoom();
+  t.after(() => room.close());
+  const realSign = crypto.subtle.sign.bind(crypto.subtle);
+  let signatures = 0;
+  const controller = new AbortController();
+  crypto.subtle.sign = async (...args) => {
+    signatures += 1;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    return realSign(...args);
+  };
+  t.after(() => {
+    delete crypto.subtle.sign;
+  });
+
+  const sending = room.send(
+    "message/text",
+    { text: "cancelled mid-signature" },
+    { signal: controller.signal },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  assert.equal(signatures, 1, "the real signature was in flight");
+  controller.abort();
+  await assert.rejects(sending, { name: "AbortError" });
+  assert.deepEqual(deliveries, [], "an aborted signature ships nothing");
+  assert.deepEqual(notifications, [], "no outbound event was announced");
+  assert.equal(room.audit().length, 0, "nothing was recorded as sent");
+});
+
+test("P2PRoom reports an explicit partial when abort arrives after publication", async (t) => {
+  const { room, deliveries, notifications } = await abortedSendRoom();
+  t.after(() => room.close());
+  const controller = new AbortController();
+  room.channels.clear();
+  room.channels.add({
+    readyState: "open",
+    send: (wire) => {
+      deliveries.push(wire);
+      controller.abort();
+    },
+    close() {},
+  });
+
+  const envelope = await room.send(
+    "message/text",
+    { text: "already on the wire" },
+    { signal: controller.signal },
+  );
+  assert.equal(deliveries.length, 1, "the committed event is not rolled back");
+  assert.equal(envelope.partial, true);
+  assert.equal(envelope.aborted, true);
+  assert.equal(notifications.at(-1).aborted, true, "listeners see the partial");
+  assert.equal(room.audit().length, 1);
+});
+
+test("P2PRoom.send without a signal is unchanged", async (t) => {
+  const { room, deliveries, notifications } = await abortedSendRoom();
+  t.after(() => room.close());
+  const envelope = await room.send("message/text", { text: "plain send" });
+  assert.equal(envelope.body.type, "message/text");
+  assert.equal(envelope.partial, undefined);
+  assert.equal(deliveries.length, 1);
+  assert.equal(notifications.length, 1);
+  assert.equal(room.audit().length, 1);
+});

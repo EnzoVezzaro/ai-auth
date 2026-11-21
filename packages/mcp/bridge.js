@@ -130,6 +130,10 @@ function clip(value) {
     : { truncated: true, preview: text.slice(0, MAX_PAYLOAD_CHARS) };
 }
 
+function sendAbortError() {
+  return new DOMException("Send aborted before submission", "AbortError");
+}
+
 // `rejected` is reserved for a provider refusing the call. Cancellations and
 // timeouts are transport outcomes, not denials, and must not invite a retry.
 function classifyToolCallError(error) {
@@ -297,6 +301,9 @@ export function createAgentBridge({
       return { connection: runtime.connectionState.status };
     },
     async send({ text, to } = {}, { signal } = {}) {
+      // A cancelled call must not mint an id or submit anything downstream,
+      // even if the injected runtime ignores the signal it receives.
+      if (signal?.aborted) throw sendAbortError();
       if (
         typeof text !== "string" ||
         text.length < 1 ||
@@ -315,6 +322,20 @@ export function createAgentBridge({
         { text, messageId, ...(to ? { target: to } : {}) },
         { ...(to ? { to } : {}), ...(signal ? { signal } : {}) },
       );
+      // The runtime/core reject a signal aborted before publication. If we are
+      // here with an aborted signal, the message may already be on the wire:
+      // report that honestly instead of claiming a clean send or a rollback.
+      if (signal?.aborted)
+        return {
+          sent: true,
+          messageId,
+          state: "sent-before-abort",
+          aborted: true,
+          partial: true,
+          rolledBack: false,
+          type: envelope?.body?.type ?? "message/text",
+          note: "The abort arrived after submission; the message may have been delivered. No rollback was attempted.",
+        };
       return {
         sent: true,
         messageId,

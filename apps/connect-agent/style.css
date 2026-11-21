@@ -542,9 +542,23 @@ button:disabled {
   }
   .status-row {
     grid-template-columns: 20px 1fr;
+    /* B1: the mark spans both rows; label and value get their own row so they
+       can never share a cell (the old grid-column:2 overlapped them). */
+    grid-template-areas:
+      "mark label"
+      "mark value";
+    align-items: start;
+    row-gap: 2px;
+  }
+  .status-row .mark {
+    grid-area: mark;
+    align-self: center;
+  }
+  .row-label {
+    grid-area: label;
   }
   .row-value {
-    grid-column: 2;
+    grid-area: value;
     text-align: left;
   }
   .advanced-list {

@@ -37,6 +37,23 @@ function inboundBudgetFor(type) {
   if (PRESENCE_BUDGET_TYPES.has(type)) return "presence";
   return "content";
 }
+
+function sendAbortError() {
+  return new DOMException("Send aborted before delivery", "AbortError");
+}
+
+// Once an envelope has reached a transport there is no rollback. Mark the
+// returned value (non-enumerable: it is local control state, never wire data)
+// so callers cannot mistake a published event for a clean, uncancelled send.
+function markAbortedEnvelope(envelope) {
+  if (!envelope || envelope.partial === true || !Object.isExtensible(envelope))
+    return envelope;
+  Object.defineProperties(envelope, {
+    aborted: { value: true, enumerable: false },
+    partial: { value: true, enumerable: false },
+  });
+  return envelope;
+}
 const MAX_ATTACHED_PEERS = 16;
 const MAX_CHANNELS_PER_PEER = 4;
 const TRYSTERO_APP_ID = "ai-auth-wallet-v1";
@@ -267,7 +284,10 @@ export class P2PRoom {
     return this;
   }
 
-  async send(type, payload = {}, { to = null } = {}) {
+  async send(type, payload = {}, { to = null, signal } = {}) {
+    // A cancelled send must not touch the audit, sign a new event or reach any
+    // transport. This is checked before every other effect, including close().
+    if (signal?.aborted) throw sendAbortError();
     if (this.closed) throw new Error("This wallet session is closed");
     if (this.privateMode && PRIVATE_BLOCKED_TYPES.has(type))
       throw new Error("Private participants do not advertise presence");
@@ -289,8 +309,9 @@ export class P2PRoom {
       nonce: randomNonce(),
       expiresAt: Date.now() + MAX_EVENT_AGE_MS,
     });
-    // close() may have run while this envelope was being signed. Nothing may
-    // reach a transport that has already been torn down.
+    // close() or an abort may have happened while this envelope was being
+    // signed. Neither may publish an event the caller has already cancelled.
+    if (signal?.aborted) throw sendAbortError();
     if (this.closed) throw new Error("This wallet session is closed");
     const wire = JSON.stringify(envelope);
     if (this.broadcast && (!this.restricted || PRESENCE_ONLY_TYPES.has(type)))
@@ -299,8 +320,17 @@ export class P2PRoom {
       if (channel.readyState === "open" && this.mayDeliver(channel, type, to))
         channel.send(wire);
     }
+    // The event may already have left a transport. There is no rollback: report
+    // an explicit partial outcome and stop deferred retries from resurrecting it.
+    const abortedAfterSend = signal?.aborted === true;
+    if (abortedAfterSend) markAbortedEnvelope(envelope);
     this.recordAudit(envelope);
-    this.notify({ direction: "out", envelope, ...(to ? { to } : {}) });
+    this.notify({
+      direction: "out",
+      envelope,
+      ...(to ? { to } : {}),
+      ...(abortedAfterSend ? { aborted: true } : {}),
+    });
     return envelope;
   }
 
@@ -322,7 +352,6 @@ export class P2PRoom {
 
   async receive(envelope, source = this.localInboundSource) {
     const budget = inboundBudgetFor(envelope?.body?.type);
-    if (!this.allowInbound(source, Date.now(), budget)) return false;
     if (
       this.closed ||
       envelope?.body?.payload?.room !== this.room ||
@@ -364,7 +393,11 @@ export class P2PRoom {
     this.pruneReplayEntries();
     if (this.seen.has(replayKey) || this.seen.size >= MAX_SEEN_EVENTS)
       return false;
+    // C3: charge the source budget only after the envelope proved valid.
+    // Invalid or replayed traffic must not starve legitimate peers sharing a
+    // source (a spoofed source could otherwise drain the whole window).
     const now = Date.now();
+    if (!this.allowInbound(source, now, budget)) return false;
     if (!this.canRoomInbound(now, budget)) return false;
     if (!this.allowIssuerInbound(envelope.body.issuer, now, budget))
       return false;
@@ -713,6 +746,34 @@ export class NostrWebRTC {
     return this.lifecycle.subscribe(listener);
   }
 
+  // Derive the authenticated peer list from the core room's VERIFIED peer map.
+  // P2PRoom only records an entry after verifyEnvelope() accepted a signed
+  // envelope, keyed by issuer + transport session. A bare data channel never
+  // appears here. Entries whose source is no longer backed by an open direct
+  // peer are skipped, so goodbye, channel close and expired leases all remove
+  // the identity instead of leaving a stale "online" behind.
+  syncAuthenticatedPeers() {
+    const peers = this.coreRoom?.peers;
+    if (!(peers instanceof Map)) return;
+    const sourceToPeerId = new Map();
+    for (const [peerId, source] of this.peerSources) {
+      if (this.directPeers.has(peerId)) sourceToPeerId.set(source, peerId);
+    }
+    const generation = this.lifecycle.snapshot.generation;
+    const authenticated = [];
+    for (const peer of peers.values()) {
+      const peerId = sourceToPeerId.get(peer.source);
+      if (!peerId) continue;
+      authenticated.push({
+        peerId,
+        walletId: peer.id,
+        sessionId: peer.session ?? null,
+        generation,
+      });
+    }
+    this.lifecycle.setAuthenticatedPeers(authenticated);
+  }
+
   // A data channel died under an active peer. Treat the transport as unhealthy
   // immediately: online state must not survive a lost channel.
   handleChannelLost(source) {
@@ -731,6 +792,7 @@ export class NostrWebRTC {
       lost = true;
     }
     this.coreRoom.directPeerCount = this.directPeers.size;
+    this.syncAuthenticatedPeers();
     if (lost && this.directPeers.size === 0) {
       this.lifecycle.invalidate();
       this.onStatus("Connection lost; trying to reconnect");
@@ -739,6 +801,9 @@ export class NostrWebRTC {
 
   async start() {
     if (this.closed) throw new Error("This collaboration room is closed");
+    // The generation identifies this transport session; an authenticated peer
+    // bound to a previous generation must not survive a reconnect.
+    this.lifecycle.setGeneration(this.coreRoom.session ?? null);
     this.coreRoom.onChannelLost = (source) => this.handleChannelLost(source);
     this.onStatus("Connecting to public Nostr relays");
     this.lifecycle.tryTransition("signaling");
@@ -815,9 +880,12 @@ export class NostrWebRTC {
     });
     this.sendAction = action.send;
     this.stopForwarding = this.coreRoom.subscribe(
-      ({ direction, envelope, to }) => {
+      ({ direction, envelope, to, aborted }) => {
         if (this.closed) return;
-        if (direction === "out") this.forward(envelope, to);
+        // Every core-room notification (verified signed event, goodbye, lease
+        // expiry or channel loss) refreshes the authenticated peer snapshot.
+        this.syncAuthenticatedPeers();
+        if (direction === "out") this.forward(envelope, to, { aborted });
         else if (direction === "in" && this.coreRoom.restricted)
           void this.flushOutbox();
       },
@@ -852,6 +920,9 @@ export class NostrWebRTC {
       this.lifecycle.removePeer(peerId);
       if (this.coreRoom.restricted) this.peerSources.delete(peerId);
       this.coreRoom.directPeerCount = this.directPeers.size;
+      // A bare channel close may carry no goodbye. Refresh immediately so a
+      // departed peer's identity is not kept alive by another peer's traffic.
+      this.syncAuthenticatedPeers();
       if (this.transport && Object.keys(this.transport.getPeers()).length === 0)
         this.onStatus("Waiting for agents on this page");
     });
@@ -879,17 +950,21 @@ export class NostrWebRTC {
   // One send per recipient. Trystero's broadcast skips any peer whose channel
   // is not open at that instant, so a peer could miss an event with no error.
   // An explicit target throws instead, which lets the missed peer be retried.
-  deliver(envelope, to) {
+  deliver(envelope, to, { retry = true } = {}) {
     const targets = this.targetsFor(envelope, to) ?? [...this.directPeers];
     return Promise.all(
-      targets.map((peerId) => this.deliverToPeer(envelope, peerId)),
+      targets.map((peerId) => this.deliverToPeer(envelope, peerId, { retry })),
     );
   }
 
-  deliverToPeer(envelope, peerId) {
+  deliverToPeer(envelope, peerId, { retry = true } = {}) {
     return Promise.resolve()
       .then(() => this.sendAction(envelope, { target: [peerId] }))
-      .catch(() => this.queueDelivery(envelope, peerId));
+      .catch(() => {
+        // An aborted event was already published before the cancellation. Do
+        // not queue a later retry: the caller must see a truthful partial send.
+        if (retry) this.queueDelivery(envelope, peerId);
+      });
   }
 
   queueDelivery(envelope, peerId) {
@@ -947,7 +1022,7 @@ export class NostrWebRTC {
     return true;
   }
 
-  forward(envelope, to) {
+  forward(envelope, to, { aborted = false } = {}) {
     if (this.closed) return;
     const wire = JSON.stringify(envelope);
     const expiresAt = envelope?.body?.payload?.expiresAt;
@@ -979,15 +1054,18 @@ export class NostrWebRTC {
       stage: "transport-sending",
       type: envelope?.body?.type,
     });
-    void this.deliver(envelope, to)
+    void this.deliver(envelope, to, { retry: !aborted })
       .then(() =>
         this.onDiagnostic({
-          stage: "transport-sent",
+          stage: aborted ? "transport-sent-before-abort" : "transport-sent",
           type: envelope?.body?.type,
         }),
       )
       .catch(() => {
-        if (this.enqueueOutbound({ envelope, expiresAt, to }, { front: true }))
+        if (
+          !aborted &&
+          this.enqueueOutbound({ envelope, expiresAt, to }, { front: true })
+        )
           this.onStatus(
             envelope?.body?.type === "collab/attachment"
               ? "An attachment chunk could not be sent; it is queued for retry"

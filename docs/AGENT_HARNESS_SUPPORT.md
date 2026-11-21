@@ -44,7 +44,7 @@ Executed from the terminal of the OpenCode harness in which this register was up
 | `node --version`     | `v22.23.4`                                                                                         |
 | `npm --version`      | `10.9.9`                                                                                           |
 | Harness donde corrió | OpenCode (terminal de la sesión de trabajo); no se modificó su configuración MCP                   |
-| Paquetes del repo    | root `@enzovezzaro/ai-auth-wallet` 0.12.1; `@enzovezzaro/ai-auth-mcp` 0.3.8 (según `package.json`) |
+| Paquetes del repo    | root `@enzovezzaro/ai-auth-wallet` 0.12.2; `@enzovezzaro/ai-auth-mcp` 0.3.9 (según `package.json`) |
 
 | Comando exacto ejecutado                                                                                                                         | Resultado | Salida real relevante                                                                                                                                               |
 | ------------------------------------------------------------------------------------------------------------------------------------------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -95,4 +95,4 @@ To move a cell from NO VERIFICADO or PARCIAL to VERIFICADO, record: OS and clien
 
 ## P2-16: version source of truth
 
-The canonical release source is the root `package.json` (`0.12.1` for this repository). Package-specific tables in [the README](../README.md) and [site integration](site-integration.md) mirror each package's own `package.json`: `@enzovezzaro/ai-auth-agent` `0.1.9`, `@enzovezzaro/ai-auth-mcp` `0.3.8` and `@enzovezzaro/ai-auth-runtime` `0.1.2`. Any version rendered in a UI surface is generated from that source at build time or omitted from nontechnical UI; this document does not hardcode or invent a product version. Changes to UI version labels live with the UI owners and are resolved in the 0.12.1 [changelog](../CHANGELOG.md).
+The canonical release source is the root `package.json` (`0.12.2` for this repository). Package-specific tables in [the README](../README.md) and [site integration](site-integration.md) mirror each package's own `package.json`: `@enzovezzaro/ai-auth-agent` `0.2.0`, `@enzovezzaro/ai-auth-mcp` `0.3.9` and `@enzovezzaro/ai-auth-runtime` `0.1.3`. Any version rendered in a UI surface is generated from that source at build time or omitted from nontechnical UI; this document does not hardcode or invent a product version. Changes to UI version labels live with the UI owners and are resolved in the 0.12.1 [changelog](../CHANGELOG.md).

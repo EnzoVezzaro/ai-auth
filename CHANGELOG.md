@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.12.2 - 2026-11-21
+
+Correctness, privacy and accessibility fixes from two review passes over 0.12.1: the parallel reviewer wave and the principal Codex Sol E2E review. **No protocol or wire-format change and no new compatibility claim.** The findings are bug fixes to already-shipped surfaces; limitations stay documented as limitations. Published as `@enzovezzaro/ai-auth-wallet` 0.12.2, `@enzovezzaro/ai-auth-runtime` 0.1.3, `@enzovezzaro/ai-auth-agent` 0.2.0 and `@enzovezzaro/ai-auth-mcp` 0.3.9.
+
+Additional fixes from the principal E2E review, all verified with real signatures/transport unless noted:
+
+- **Authenticated peer identity (B02):** snapshots now expose `authenticatedPeers` and `authenticatedConnected`, derived only from verified envelopes. The connect-agent UI requires the _same_ authenticated wallet/session that produced the accepted proof to be live, so another peer staying online no longer keeps "Connected" green after the expected agent leaves.
+- **Abort actually cancels send (B05):** `P2PRoom.send`, the agent runtime and the MCP bridge reject an aborted signal before signing/effects and recheck after the signature await. Prior aborts produce no send and no lease touch; a late abort reports `partial: true`, `rolledBack: false` truthfully.
+- **Consent is not connectivity (B07):** the host-site example shows `Authorized` after wallet consent and only `Connected` when the expected agent is live; agent loss clears green even if another signed peer remains. Peer rows keep the `signed presence — not authorized` label.
+- **Expiry status and terminal lifecycle (B10):** `setAuthorization("expired")` reports `expired` (not `revoked`), and `invalidate()` no longer revives terminal states into `reconnecting`.
+- **Copied command preserves the room (B11):** the command to paste includes `--room <validated room>`, so a non-default room survives clipboard → parser → resolve. The URL query remains a public hint, never a grant.
+- **E2E cleanup (B13):** the connect-agent E2E explicitly closes runtime/responders/contexts and relay sockets, has a cleanup deadline, and exits non-zero if cleanup fails; a printed PASS is no longer the completion signal.
+
+Verification on Node v22.23.4 (NPM must run on v22; v26 breaks `mock.timers`): `npm test` 693/693, `npm test --prefix packages/{mcp,agent,runtime}` 99/61/7, `npm run test:connect-agent` and `npm run test:host-site` exit 0, `npm run test:mcp-consent`, `npm run test:types`, `npm run build`, `npm run verify:docs` (38 pages) and `npm run format:check` all PASS.
+
+Known non-fixes documented honestly: no TURN, revocation eventually consistent, no automatic browser reconnect, no hardware/model attestation, Code Mode is not a host sandbox, and no interactive Claude Code / Codex / ChatGPT harness session is claimed. The catalog timeouts seen during the review were local and flaky (isolated reruns passed), not a demonstrated relay failure.
+
+### Identity / UI (worker A)
+
+- An expired grant no longer stays green: the connect-agent flow treats `expiresAt <= now()` as expired, schedules the transition, clears approved access and effective scopes, and offers Re-approve while keeping the historical "Identity verified" fact.
+- Full wallet/session ids and nonces are masked in the Advanced proof view; the proof JSON is sanitized before display. `authorizationScopes()` now requires the exact origin audience, a future expiry, no revocation and well-formed scopes. The unverified `applyVerifiedProof` seam is removed from the production bundle. The error state is visible from the first phase with `role="alert"`, and the stepper exposes `aria-current="step"`.
+- A grant attached to a challenge is compared with the proof's grant, and a proof issued after a revocation no longer carries the revoked authorization. The replay guard now has a direct unit test.
+
+### Layout / accessibility (worker B)
+
+- At 320px the status rows no longer overlap: label and value get separate grid areas. The reduced-motion check measures the spinner animation instead of a stale selector, and the alert no longer carries a conflicting polite live region.
+
+### Transport / lifecycle (worker C)
+
+- Inbound presence and cursor events no longer refresh the idle clock; idle is reset only by authorized non-presence activity, matching `docs/lifecycle.md` and `docs/SECURITY.md`.
+- Session↔issuer binding is rechecked after signature verification and bound atomically, closing the TOCTOU window. Inbound budget is charged only after the envelope verifies and replay is rejected. `connection.close()` is reentrant-safe, invalidation no longer forces `reconnecting` from `revoked`/`expired`, the replay cache keeps its held accounting on eviction, and the receipt binding check uses the injected clock.
+
+### Wallet / host site (worker D)
+
+- The wallet's peer roster masks the agent id in the visible row (the full id remains only in the functional Grant button attribute), and the raw signed-grant panes mask `issuer`/`recipient`. Copy/export actions still use the original unmasked envelope.
+- The host-site example labels every peer row `signed presence — not authorized`: the site does not verify other peers' owner-issued membership, so room presence is never presented as site authorization. The E2E asserts the label for both the authorised and the uninvited peer.
+
+### Honest limits
+
+- These are fixes to already-shipped surfaces, not new features. Presence still does not equal authorization, revocation is still eventually consistent, there is still no TURN server and no automatic reconnect on refresh, and no interactive Claude Code / Codex / ChatGPT harness session is claimed.
+
 ## 0.12.1 - 2026-11-21
 
 Patch release implementing the code-reviewed audit `docs/AGENT_IDENTITY_UX_AUDIT_2026_11_20.md`. The guiding rule: **never claim Connected without a verified identity, an effective authorization and a live authenticated peer.** All items below were implemented with passing automated evidence; limitations are stated honestly rather than reported as compatible.

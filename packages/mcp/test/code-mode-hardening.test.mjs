@@ -3,7 +3,13 @@
 // on timeout, and abort propagation to send.
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { createAgentBridge } from "../bridge.js";
+import { createAgentRuntime } from "../../agent/runtime.js";
+import { createFileKeystore } from "../../agent/keystore.js";
+import { createHub } from "../../agent/test/fake-transport.mjs";
 
 function fakeRuntime(overrides = {}) {
   return {
@@ -222,4 +228,86 @@ test("send still completes normally when it resolves before the timeout", async 
   assert.equal(out.ok, true, out.reason);
   assert.equal(out.value, true);
   assert.ok(sentSignal, "the signal is forwarded on the success path too");
+});
+
+// B05: forwarding a signal to a cooperative mock was never enough. The core
+// used to discard it; these tests pin the bridge and the real transport.
+test("bridge refuses an aborted send even when the runtime ignores the signal", async () => {
+  let calls = 0;
+  const runtime = fakeRuntime({
+    send: async () => {
+      calls += 1;
+      return { body: { type: "message/text" } };
+    },
+  });
+  const bridge = createAgentBridge({
+    runtime,
+    clientFactory: () => ({ catalogs: [] }),
+  });
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    bridge.send({ text: "must not ship" }, { signal: controller.signal }),
+    { name: "AbortError" },
+  );
+  assert.equal(calls, 0, "an aborted call never reaches the runtime");
+});
+
+async function realRuntime(t, hub, name) {
+  const dir = await mkdtemp(path.join(tmpdir(), "ai-auth-b05-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const keystore = createFileKeystore({
+    dir,
+    passphrase: "synthetic-only-test-passphrase",
+    env: {},
+  });
+  await keystore.create({ name });
+  const runtime = createAgentRuntime({
+    keystore,
+    origin: "https://site.example",
+    room: "lobby",
+    capabilities: ["presence.read", "messages.send"],
+    joinRoom: hub.joinRoom,
+    stateFile: null,
+    delay: async () => {},
+  });
+  t.after(() => runtime.close());
+  await runtime.join();
+  return runtime;
+}
+
+test("bridge + real runtime + real P2PRoom publish nothing for an aborted send", async (t) => {
+  const realBroadcastChannel = globalThis.BroadcastChannel;
+  globalThis.BroadcastChannel = class {
+    postMessage() {}
+    close() {}
+  };
+  t.after(() => {
+    globalThis.BroadcastChannel = realBroadcastChannel;
+  });
+  const hub = createHub();
+  const sender = await realRuntime(t, hub, "AbortSender");
+  const receiver = await realRuntime(t, hub, "AbortReceiver");
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  let received = 0;
+  receiver.onEvent((event) => {
+    if (
+      event.direction === "in" &&
+      event.envelope?.body?.type === "message/text"
+    )
+      received += 1;
+  });
+  const bridge = createAgentBridge({ runtime: sender });
+  t.after(() => bridge.close());
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    bridge.send(
+      { text: "synthetic aborted send" },
+      { signal: controller.signal },
+    ),
+    { name: "AbortError" },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(received, 0, "no signed message reached the peer");
 });

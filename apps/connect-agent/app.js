@@ -13,6 +13,7 @@ import {
   createAIAuthConnectInstruction,
 } from "@enzovezzaro/ai-auth-wallet";
 import { createPairingVerifier } from "./pairing.js";
+import { verifyPairingGrant } from "../../packages/agent/pairing.js";
 
 const CAPABILITIES = ["presence.read", "messages.send", "tools.invoke"];
 const params = new URLSearchParams(location.search);
@@ -35,6 +36,16 @@ const state = {
   revoked: false,
   effectiveScopes: [],
   transportStatus: "idle",
+  // Strict connectivity from the transport snapshot: an AUTHENTICATED live peer
+  // AND an active authorization. A saved grant or a reachable endpoint never
+  // sets this.
+  snapshotConnected: false,
+  // Identity/session of peers whose identity came from a verified signed
+  // envelope. An open data channel alone is NOT in this list.
+  authenticatedPeers: [],
+  // The transport peer (wallet + signed session) that delivered the accepted
+  // proof. Online requires that EXACT peer to still be live.
+  proofTransport: null,
   online: false,
   name: null,
   id: null,
@@ -57,6 +68,7 @@ let offTransport;
 let offRoom;
 let instructionPrompt = "";
 let reconnecting = false;
+let expiryTimer = null;
 
 const PHASE_COPY = {
   start: {
@@ -118,6 +130,56 @@ const PHASE_COPY = {
 const shortWallet = (value) =>
   value ? `${value.slice(0, 10)}…${value.slice(-6)}` : "Not verified";
 
+// A scope is a lowercase dotted identifier (e.g. "presence.read"). Anything
+// else — wildcards, empty strings, injected markup — is never shown as approved.
+const SCOPE_PATTERN = /^[a-z][a-z0-9-]{0,63}(?:\.[a-z0-9-]{1,63})*$/u;
+const SENSITIVE_KEY = /privateKey|secret|passphrase|signature|proof$/iu;
+const IDENTITY_KEY =
+  /walletId|instanceId|sessionId|nonce|challengeId|issuer|bridge/u;
+
+function authorizationClaim(proof) {
+  const claims = proof?.claims ?? {};
+  return claims.authorization ?? claims.grant ?? null;
+}
+
+function authorizationExpiresAt(proof) {
+  const auth = authorizationClaim(proof);
+  return auth && Number.isFinite(auth.expiresAt) ? auth.expiresAt : null;
+}
+
+function authorizationExpired(proof, at = Date.now()) {
+  const expiresAt = authorizationExpiresAt(proof);
+  return expiresAt !== null && expiresAt <= at;
+}
+
+function redactProofValue(value) {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(redactProofValue);
+  const out = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (SENSITIVE_KEY.test(key)) out[key] = "[redacted]";
+    else if (IDENTITY_KEY.test(key) && typeof child === "string")
+      out[key] = shortWallet(child);
+    else out[key] = redactProofValue(child);
+  }
+  return out;
+}
+
+function sanitizedProofJson(proof) {
+  if (!proof) return null;
+  let text = JSON.stringify(redactProofValue(proof));
+  // Belt and braces: a full identifier must never survive under an unusual key.
+  const full = [
+    state.expected.walletId,
+    state.expected.instanceId,
+    state.challenge?.nonce,
+    state.challenge?.challengeId,
+    state.id,
+  ].filter((value) => typeof value === "string" && value.length > 6);
+  for (const value of full) text = text.split(value).join(shortWallet(value));
+  return text;
+}
+
 function setPhase(phase) {
   state.phase = phase;
   const copy = PHASE_COPY[phase] ?? PHASE_COPY.verifying;
@@ -127,9 +189,15 @@ function setPhase(phase) {
   $("#state-lede").textContent = copy.lede;
 
   const chapter = phase === "start" ? 1 : phase === "install" ? 2 : 3;
-  $("#chapter-choose").classList.toggle("active", chapter === 1);
-  $("#chapter-approve").classList.toggle("active", chapter === 2);
-  $("#chapter-verify").classList.toggle("active", chapter === 3);
+  for (const [selector, step] of [
+    ["#chapter-choose", 1],
+    ["#chapter-approve", 2],
+    ["#chapter-verify", 3],
+  ]) {
+    $(selector).classList.toggle("active", chapter === step);
+    if (chapter === step) $(selector).setAttribute("aria-current", "step");
+    else $(selector).removeAttribute("aria-current");
+  }
   $("#start").hidden = phase !== "start";
   $("#waiting").hidden = phase !== "install";
   $("#session").hidden = chapter !== 3;
@@ -147,6 +215,7 @@ function connectionOfflineText() {
   // Revocation is about the grant, not the transport: even if the data channel
   // is still open, the connection row must never imply approved access.
   if (state.revoked) return "Access revoked";
+  if (authorizationExpired(state.proof)) return "Authorization expired";
   return (
     {
       idle: "Offline",
@@ -155,7 +224,9 @@ function connectionOfflineText() {
       "waiting-for-peers": "Waiting for agent",
       "approval-pending": "Approve in wallet",
       "wallet-authorized": "Waiting for agent",
-      "direct-peer-connected": "Offline",
+      // A channel may still be open for a DIFFERENT peer after the expected
+      // agent left. Say the agent is offline, not that the room is disconnected.
+      "direct-peer-connected": "Agent offline",
       reconnecting: "Reconnecting",
       degraded: "Degraded",
       expired: "Authorization expired",
@@ -167,15 +238,22 @@ function connectionOfflineText() {
 
 // The effective scopes come only from a verified authorization claim. The
 // hardcoded request list is never rendered as approved capabilities.
-function authorizationScopes(proof) {
-  const claims = proof?.claims ?? {};
-  const auth = claims.authorization ?? claims.grant ?? null;
+function authorizationScopes(proof, at = Date.now()) {
+  const auth = authorizationClaim(proof);
   if (!auth || typeof auth !== "object") return null;
-  const audienceOk =
-    typeof auth.audience !== "string" || auth.audience === origin;
+  // Every binding must hold: a missing/non-string audience, a revoked grant or
+  // an expired/unparseable expiry is never an approved permission.
+  if (auth.audience !== origin) return null;
+  if (auth.revoked === true) return null;
+  if (!Number.isFinite(auth.expiresAt) || auth.expiresAt <= at) return null;
   const scopes = auth.scopes ?? auth.capabilities ?? auth.effectiveScopes;
-  if (!audienceOk || !Array.isArray(scopes) || scopes.length === 0) return null;
-  if (!scopes.every((scope) => typeof scope === "string")) return null;
+  if (!Array.isArray(scopes) || scopes.length === 0) return null;
+  if (
+    !scopes.every(
+      (scope) => typeof scope === "string" && SCOPE_PATTERN.test(scope),
+    )
+  )
+    return null;
   return [...new Set(scopes)];
 }
 
@@ -195,6 +273,10 @@ function renderDiagnosis() {
     action = "Try again";
   } else if (state.revoked || state.transportStatus === "revoked") {
     message = "Access was revoked for this identity.";
+    action = "Re-approve";
+  } else if (authorizationExpired(state.proof)) {
+    message =
+      "The signed authorization expired. Re-approve in the wallet, then verify again.";
     action = "Re-approve";
   } else if (state.transportStatus === "expired") {
     message = "Authorization expired. The agent is no longer online.";
@@ -290,13 +372,17 @@ function escapeHtml(value) {
 
 function renderAdvanced() {
   const d = state.diagnostics ?? {};
-  $("#adv-did").textContent = state.expected.walletId || "—";
-  $("#adv-instance").textContent = state.expected.instanceId || "Not bound";
+  $("#adv-did").textContent = state.expected.walletId
+    ? shortWallet(state.expected.walletId)
+    : "—";
+  $("#adv-instance").textContent = state.expected.instanceId
+    ? shortWallet(state.expected.instanceId)
+    : "Not bound";
   $("#adv-challenge").textContent = state.challenge
-    ? `${state.challenge.challengeId ?? "—"} / ${state.challenge.nonce ?? "—"}`
+    ? `${state.challenge.challengeId ? shortWallet(state.challenge.challengeId) : "—"} / ${state.challenge.nonce ? shortWallet(state.challenge.nonce) : "—"}`
     : "—";
   $("#adv-proof").textContent = state.proof
-    ? JSON.stringify(state.proof)
+    ? sanitizedProofJson(state.proof)
     : state.pairingAvailable
       ? "No verified proof yet"
       : "Secure pairing module unavailable";
@@ -307,19 +393,75 @@ function renderAdvanced() {
   $("#adv-transport").textContent = state.transportStatus;
   $("#adv-diagnostics").textContent = [
     `directPeers: ${d.directPeerCount ?? 0}`,
+    `authenticatedPeers: ${d.authenticatedCount ?? state.authenticatedPeers.length}`,
     `generation: ${d.generation ?? "none"}`,
     `relays: ${d.relaysConnected ?? "unknown"}`,
     d.lastIceError ? `ICE: ${d.lastIceError}` : "ICE: no error",
   ].join(" · ");
 }
 
+function clearExpiryTimer() {
+  if (expiryTimer !== null) {
+    clearTimeout(expiryTimer);
+    expiryTimer = null;
+  }
+}
+
+// An accepted grant has a hard expiry. Without a timer the UI could stay green
+// indefinitely until some unrelated event happened to call recompute().
+function scheduleExpiryTimer() {
+  clearExpiryTimer();
+  if (state.revoked) return;
+  const expiresAt = authorizationExpiresAt(state.proof);
+  if (expiresAt === null) return;
+  const delay = expiresAt - Date.now();
+  if (delay <= 0) {
+    recompute();
+    return;
+  }
+  // The small margin makes the expiry check true when this callback runs.
+  expiryTimer = setTimeout(() => {
+    expiryTimer = null;
+    recompute();
+  }, delay + 5);
+}
+
+// The peer that delivered the accepted proof must still be live. Matching only
+// the transport's global status would let any other data channel keep the page
+// "Connected" after the expected agent left (audit B02). The wallet + signed
+// session pair binds online to that exact authenticated peer: a new session
+// after a reconnect is a different peer and needs a fresh proof.
+function proofPeerLive() {
+  const proofPeer = state.proofTransport;
+  if (!proofPeer?.walletId || !proofPeer?.sessionId) return false;
+  if (proofPeer.walletId !== state.expected.walletId) return false;
+  return (state.authenticatedPeers ?? []).some(
+    (peer) =>
+      peer.walletId === proofPeer.walletId &&
+      peer.sessionId === proofPeer.sessionId,
+  );
+}
+
 // One source of truth: online is only ever derived from a verified proof PLUS a
-// live authenticated transport. Any negative lifecycle transition clears it
-// immediately while identity verification stays a separate historical fact.
+// live authenticated transport AND the exact peer that proved it. Any negative
+// lifecycle transition clears it immediately while identity verification stays
+// a separate historical fact.
 function recompute() {
-  const live = state.transportStatus === "direct-peer-connected";
+  const expired = authorizationExpired(state.proof);
+  const live =
+    state.transportStatus === "direct-peer-connected" &&
+    state.snapshotConnected === true &&
+    proofPeerLive();
+  if (expired) {
+    state.accessApproved = false;
+    state.effectiveScopes = [];
+  }
   state.online = Boolean(
-    live && !state.revoked && state.identityVerified && state.accessApproved,
+    live &&
+    !state.revoked &&
+    !expired &&
+    state.identityVerified &&
+    state.accessApproved,
   );
 
   // Lifecycle snapshots must not advance the wizard before the user has chosen
@@ -332,6 +474,7 @@ function recompute() {
   if (state.error) state.phase = "error";
   else if (state.online) state.phase = "connected";
   else if (state.revoked) state.phase = "revoked";
+  else if (expired) state.phase = "expired";
   else if (state.transportStatus === "expired") state.phase = "expired";
   else if (state.transportStatus === "revoked") state.phase = "revoked";
   else if (state.transportStatus === "disconnected")
@@ -371,11 +514,15 @@ function applyVerifiedProof(proof) {
       ? proof.claims.agent.name
       : shortWallet(proof.walletId));
 
+  const expired = authorizationExpired(proof);
   const scopes = authorizationScopes(proof);
-  state.effectiveScopes = scopes ?? [];
-  state.accessApproved = Boolean(scopes?.length);
+  state.effectiveScopes = expired ? [] : (scopes ?? []);
+  state.accessApproved = Boolean(!expired && scopes?.length);
   state.error = "";
   recompute();
+  // Even a proof that is already expired goes through recompute(); scheduling
+  // only arms a timer for a still-live grant.
+  scheduleExpiryTimer();
   return true;
 }
 
@@ -403,11 +550,16 @@ function buildInstructions() {
     room,
   });
   // Public setup page only: no query string acts as a credential and no
-  // private endpoint, key or recovery material is copied.
+  // private endpoint, key or recovery material is copied. The page query is a
+  // location hint, never a grant. `room` was validated by
+  // createAIAuthConnectInstruction above, so pass it explicitly: otherwise the
+  // parser treats the URL as discovery-only and resolveSite falls back to the
+  // manifest's first room ("default"), losing a custom ?room= from the link.
   const setupPage = `${location.origin}${location.pathname}?room=${encodeURIComponent(room)}`;
   const command = `npx -y @enzovezzaro/ai-auth-mcp serve \\
   --http 0 \\
   --connect "${setupPage}" \\
+  --room "${room}" \\
   --open-wallet \\
   --auto-join`;
 
@@ -458,6 +610,7 @@ async function startVerification() {
   }
   verifier?.close?.();
   verifier = null;
+  clearExpiryTimer();
   state.challenge = null;
   state.proof = null;
   state.proofAt = null;
@@ -465,6 +618,8 @@ async function startVerification() {
   state.accessApproved = false;
   state.revoked = false;
   state.effectiveScopes = [];
+  // A new challenge needs a fresh proof from a fresh peer session.
+  state.proofTransport = null;
   state.online = false;
   state.error = "";
   state.verificationStarted = true;
@@ -492,6 +647,7 @@ async function startVerification() {
         // transport may still be open; online is recomputed from the revoked
         // grant and cleared, while identityVerified stays a historical fact.
         state.revoked = true;
+        clearExpiryTimer();
         state.accessApproved = false;
         state.effectiveScopes = [];
         state.error = "";
@@ -514,8 +670,16 @@ async function startVerification() {
 
 function handleSnapshot(snapshot) {
   state.transportStatus = snapshot.status;
+  // Strict: an open channel for some other peer is not the expected agent.
+  state.snapshotConnected = snapshot.authenticatedConnected === true;
+  state.authenticatedPeers = (snapshot.authenticatedPeers ?? []).map(
+    (peer) => ({
+      ...peer,
+    }),
+  );
   state.diagnostics = {
     directPeerCount: snapshot.directPeerCount,
+    authenticatedCount: state.authenticatedPeers.length,
     generation: snapshot.generation,
     relaysConnected: snapshot.diagnostics?.relaysConnected,
     lastIceError: snapshot.diagnostics?.lastIceError,
@@ -524,9 +688,28 @@ function handleSnapshot(snapshot) {
   recompute();
 }
 
-function handleRoomEvent({ direction, envelope }) {
+function handleRoomEvent({ direction, envelope, peer }) {
   if (direction !== "in") return;
   const { type, issuer, payload = {} } = envelope.body ?? {};
+  // The accepted proof travels on a verified signed envelope. Bind online to
+  // the transport peer (wallet + signed session) that actually delivered it;
+  // the verifier independently checks the signature and wallet/instance. A
+  // different peer's channel never satisfies this binding.
+  if (
+    type === "agent/pair-proof" &&
+    issuer === state.expected.walletId &&
+    typeof peer?.session === "string" &&
+    peer.session
+  ) {
+    const next = { walletId: issuer, sessionId: peer.session };
+    if (
+      state.proofTransport?.walletId !== next.walletId ||
+      state.proofTransport?.sessionId !== next.sessionId
+    ) {
+      state.proofTransport = next;
+      recompute();
+    }
+  }
   // An inbound hello/heartbeat only shows up in advanced diagnostics. It never
   // sets the verified identity or the connected state.
   if (
@@ -559,8 +742,43 @@ async function resetTransport() {
   offTransport = transport.onConnectionState(handleSnapshot);
   offRoom = siteRoom.subscribe(handleRoomEvent);
   state.transportStatus = transport.connectionState.status;
+  state.snapshotConnected =
+    transport.connectionState.authenticatedConnected === true;
+  state.authenticatedPeers = [];
+  // A fresh transport/generation invalidates any proof-to-peer binding.
+  state.proofTransport = null;
   state.online = false;
   await transport.start();
+}
+
+// Debug/test seam. A caller-supplied proof is never trusted for authorization:
+// its grant envelope is re-verified against the active challenge before it can
+// affect the access-approved state. Identity-only synthetic proofs stay usable
+// for accessibility screenshots, but can never turn the connection green
+// without a live, signed, challenge-bound grant (recompute() enforces that).
+async function applyVerifiedProofSeam(proof) {
+  const auth = authorizationClaim(proof);
+  if (!auth || typeof auth !== "object") return applyVerifiedProof(proof);
+  const challengePayload = state.challenge?.challenge?.body?.payload ?? {};
+  const reverified = await verifyPairingGrant(auth, {
+    expectedIssuer: siteWallet?.id,
+    audience: origin,
+    room,
+    walletId: state.expected.walletId,
+    instanceId: state.expected.instanceId,
+    sessionId: challengePayload.sessionId,
+    nonce: challengePayload.nonce,
+    expiresAt: challengePayload.expiresAt,
+    now: () => Date.now(),
+  }).catch(() => null);
+  const claims = { ...(proof.claims ?? {}) };
+  if (reverified) claims.authorization = reverified;
+  else {
+    // Never let an unverified grant grant access.
+    delete claims.authorization;
+    delete claims.grant;
+  }
+  return applyVerifiedProof({ ...proof, claims });
 }
 
 function exposeControls() {
@@ -570,9 +788,10 @@ function exposeControls() {
     client,
     siteWallet,
     verifier,
-    // Test/debug seam: still validates expected wallet + instance and requires
-    // a live transport before anything is shown as connected.
-    applyVerifiedProof,
+    // Signature-checking seam (see applyVerifiedProofSeam). It still validates
+    // the expected wallet + instance and requires a live transport before
+    // anything is shown as connected.
+    applyVerifiedProof: applyVerifiedProofSeam,
     startVerification,
     get challenge() {
       return state.challenge;
@@ -688,9 +907,12 @@ async function start() {
   $("#disconnect").addEventListener("click", async () => {
     verifier?.close?.();
     verifier = null;
+    clearExpiryTimer();
     state.challenge = null;
     await transport?.close();
     state.transportStatus = "disconnected";
+    state.authenticatedPeers = [];
+    state.proofTransport = null;
     state.online = false;
     recompute();
   });

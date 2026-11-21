@@ -8,10 +8,10 @@ This guide is for a website that wants to connect a wallet, show presence and cu
 
 | Package                        | What it does                                                | Version |
 | ------------------------------ | ----------------------------------------------------------- | ------- |
-| `@enzovezzaro/ai-auth-wallet`  | Browser SDK, wallet dialog, collaboration, WebMCP bridge    | 0.12.1  |
-| `@enzovezzaro/ai-auth-agent`   | Headless Node agent with an encrypted keystore and WebRTC   | 0.1.9   |
-| `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local coding agents | 0.3.8   |
-| `@enzovezzaro/ai-auth-runtime` | Plugin host for local agent applications                    | 0.1.2   |
+| `@enzovezzaro/ai-auth-wallet`  | Browser SDK, wallet dialog, collaboration, WebMCP bridge    | 0.12.2  |
+| `@enzovezzaro/ai-auth-agent`   | Headless Node agent with an encrypted keystore and WebRTC   | 0.2.0   |
+| `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local coding agents | 0.3.9   |
+| `@enzovezzaro/ai-auth-runtime` | Plugin host for local agent applications                    | 0.1.3   |
 
 The version numbers above mirror each package's own `package.json`. The root `package.json` is the single source for the product release label; any version rendered in UI is generated from that source at build time or omitted from nontechnical UI.
 
@@ -46,6 +46,8 @@ connection.close();
 Use HTTPS outside local development. The default room name is `default`. Peers find each other by the exact site origin and room name, combined into a shared topic hash. Pass `room` to use a separate space.
 
 For a runnable, minimal version of this exact flow — one **Connect agent** button, a real in-page wallet approval, effective scopes only, peers and signed events — see the [minimal host site example](/host-site/README.html) and its real end-to-end test (`npm run test:host-site`). It covers only the external wallet connection; identity setup is a separate flow documented in the [Connect Agent acceptance plan](CONNECT_AGENT_E2E_ACCEPTANCE.md).
+
+In that example every peer row is labelled `signed presence — not authorized`. The site sees signed hello/heartbeat events in an open room but does not verify the owner's membership authority for other peers, so a peer in the list is presence only, never a site grant. Full wallet and agent ids are masked in the example UI and in the wallet's developer panes; only an explicit copy/export action uses the unmasked signed envelope. The same rule applies everywhere in this product: a room is a coordination boundary, not an authorization boundary.
 
 ### Connect options
 

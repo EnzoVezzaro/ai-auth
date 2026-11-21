@@ -50,6 +50,7 @@ let site;
 let authority;
 let agent;
 let rogue;
+let roguePrefix = null;
 let exitCode = 0;
 
 const step = async (n, name, fn) => {
@@ -173,6 +174,9 @@ const pageView = (page) =>
       ),
       peers: text("#peers"),
       peerCodes: [...document.querySelectorAll("#peers li code")].map((n) =>
+        n.textContent.trim(),
+      ),
+      peerRows: [...document.querySelectorAll("#peers li")].map((n) =>
         n.textContent.trim(),
       ),
       events: text("#events"),
@@ -375,7 +379,7 @@ try {
 
   await step(
     4,
-    "Owner approves subset: Connected, effective scopes only, masked id",
+    "Owner approves subset: Authorized (no agent yet), effective scopes only, masked id",
     async (evidence) => {
       let view = await pageView(site);
       assert.equal(
@@ -392,10 +396,27 @@ try {
       await wallet
         .locator('#external-permission-form button[type="submit"]')
         .click();
-      await waitForPhase("connected");
+      // B07: consent alone is authorization, not a live agent. The site must
+      // NOT show Connected at this point — no agent exists yet (step 5).
+      await waitForPhase("authorized");
       view = await pageView(site);
 
-      assert.match(view.status, /^Connected/u, "status shows Connected");
+      assert.equal(
+        view.phase,
+        "authorized",
+        "approval yields Authorized, not Connected",
+      );
+      assert.match(
+        view.status,
+        /^Authorized/u,
+        "status shows Authorized after consent",
+      );
+      assert.doesNotMatch(
+        view.status,
+        /^Connected/u,
+        "consent without a live agent is never Connected",
+      );
+      assert.equal(view.peerCodes.length, 0, "no agent peer has joined yet");
       assert.equal(view.maskLeaked, false, "full wallet id is never rendered");
       assert.match(
         view.status,
@@ -423,16 +444,17 @@ try {
       assert.equal(
         await connectDisabled(),
         true,
-        "Connect is disabled while connected",
+        "Connect is disabled while authorized",
       );
       assert.equal(
         await site.locator("#disconnect").isDisabled(),
         false,
-        "Disconnect is enabled",
+        "Disconnect is enabled once authorized",
       );
       evidence.statusShape = view.status.replace(/[A-Za-z0-9]/gu, "x");
       evidence.effectiveScopes = view.effective;
       evidence.room = view.request?.room;
+      evidence.consentWithoutAgentIsNotConnected = true;
     },
   );
 
@@ -453,16 +475,30 @@ try {
       });
       const expected = short(agent.id);
       await waitFor(
-        async () =>
-          (await pageView(site)).peerCodes.some((code) =>
-            code.startsWith(expected),
-          ),
+        async () => {
+          const v = await pageView(site);
+          return (
+            v.peerCodes.some((code) => code.startsWith(expected)) &&
+            v.phase === "connected"
+          );
+        },
         {
           timeout: 90_000,
-          message: "owner agent to appear as a masked verified peer",
+          message:
+            "owner agent to appear as a live verified peer with Connected status",
         },
       );
       let view = await pageView(site);
+      assert.equal(
+        view.phase,
+        "connected",
+        "a live verified agent peer makes the site Connected",
+      );
+      assert.match(
+        view.status,
+        /^Connected/u,
+        "status shows Connected only with a live agent",
+      );
       assert.ok(
         view.peerKeys.some((key) => key.startsWith(expected)),
         "agent appears in the site's presence state",
@@ -470,6 +506,13 @@ try {
       assert.ok(
         view.peerCodes.every((code) => code.includes("…")),
         "peer ids are masked",
+      );
+      assert.ok(view.peerRows.length > 0, "at least one peer row is shown");
+      assert.ok(
+        view.peerRows.every((row) =>
+          row.includes("signed presence — not authorized"),
+        ),
+        "every peer row is labelled signed presence — not authorized",
       );
 
       await waitFor(
@@ -531,6 +574,30 @@ try {
       const rogueMembership = await rogueAuthority.admit(rogueId, [FORBIDDEN]);
       await rogue.cmd("join", { membership: rogueMembership });
 
+      // The room is open, so the uninvited peer's signed presence is listed.
+      // It must carry the "not authorized" label: presence is not a site grant.
+      // It is deliberately left alive into step 7: when the real agent leaves,
+      // this other peer must not inherit the Connected state.
+      roguePrefix = short(rogue.id);
+      await waitFor(
+        async () =>
+          (await pageView(site)).peerRows.some((row) =>
+            row.includes(roguePrefix),
+          ),
+        {
+          timeout: 45_000,
+          message: "uninvited peer to appear as a labelled peer row",
+        },
+      );
+      const rogueRow = (await pageView(site)).peerRows.find((row) =>
+        row.includes(roguePrefix),
+      );
+      assert.match(
+        rogueRow ?? "",
+        /signed presence — not authorized/u,
+        "uninvited peer is labelled signed presence — not authorized",
+      );
+
       const before = await pageView(site);
       await expectStable(
         async () => {
@@ -551,7 +618,7 @@ try {
       assert.equal(
         after.phase,
         "connected",
-        "site connection stays the owner's",
+        "site stays Connected for the bound owner agent, not the uninvited peer",
       );
       assert.deepEqual(
         after.scopeChips,
@@ -573,14 +640,14 @@ try {
       // asserted as a pass.
       evidence.openRoomNote =
         "peer list reflects signed presence, not site authorization";
-      await rogue.stop();
-      rogue = null;
+      // Keep the rogue alive on purpose; step 7 proves it cannot keep the site
+      // Connected once the expected agent has left.
     },
   );
 
   await step(
     7,
-    "Agent offline removes its peer; Disconnect clears any green state",
+    "Agent offline: site stops being Connected even with another peer; Disconnect clears green state",
     async (evidence) => {
       assert.ok(agent, "authorised agent exists from step 5");
       const expected = agentShort();
@@ -593,6 +660,18 @@ try {
           ),
         { timeout: 60_000, message: "offline agent to leave the peer list" },
       );
+      // B07: leaving the bound agent must drop the green state by liveness,
+      // even though the uninvited peer from step 6 is still in the room.
+      await waitFor(
+        async () => {
+          const v = await pageView(site);
+          return v.phase !== "connected" && !/^Connected/u.test(v.status);
+        },
+        {
+          timeout: 60_000,
+          message: "site to leave Connected when the bound agent goes offline",
+        },
+      );
       await expectStable(async () => (await pageView(site)).peerCodes, {
         window: 1_000,
         message: "offline agent must not reappear",
@@ -600,13 +679,38 @@ try {
       let view = await pageView(site);
       assert.equal(
         view.phase,
-        "connected",
-        "owner's own connection remains valid",
+        "authorized",
+        "the authorization survives the agent's departure",
+      );
+      assert.match(
+        view.status,
+        /^Authorized/u,
+        "status returns to Authorized / agent offline",
+      );
+      assert.doesNotMatch(
+        view.status,
+        /^Connected/u,
+        "no green Connected state lingers for a departed agent",
       );
       assert.ok(
         !view.peerCodes.some((code) => code.startsWith(expected)),
         "no false green peer for the offline agent",
       );
+      assert.ok(
+        roguePrefix &&
+          view.peerCodes.some((code) => code.startsWith(roguePrefix)),
+        "another verified peer is still present but did not keep the site Connected",
+      );
+      assert.ok(
+        view.peerRows.every((row) =>
+          row.includes("signed presence — not authorized"),
+        ),
+        "the remaining peer stays labelled signed presence — not authorized",
+      );
+      evidence.agentOfflineStatus = view.status;
+      evidence.otherPeerStillPresent = true;
+      await rogue?.stop();
+      rogue = null;
 
       await site.locator("#disconnect").click();
       await waitForPhase("disconnected");

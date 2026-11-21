@@ -113,7 +113,7 @@ test("a numeric session TTL ends the headless session", async (t) => {
   }
   const ended = await status();
   assert.equal(ended.authorization, "expired");
-  assert.equal(ended.connection, "revoked");
+  assert.equal(ended.connection, "expired");
   assert.equal(ended.connected, false);
 });
 

@@ -7,6 +7,7 @@ import {
   createAgentDescriptor,
   createInstanceId,
   identityFor,
+  NonceGuard,
   randomNonce,
   signEnvelope,
 } from "../packages/p2p/index.js";
@@ -182,6 +183,40 @@ test("replay of the same proof is accepted only once", async () => {
   });
   await s.h.deliver("site", proofEnvelope);
   assert.equal(s.verified.length, 1);
+});
+
+// A9: exercise the single-use primitive directly, not only through the room
+// flow. The verifier's replay defence is only as good as this guard.
+test("NonceGuard consumes a nonce exactly once and rejects expired or malformed input", () => {
+  const guard = new NonceGuard();
+  const nonce = randomNonce();
+  const expiresAt = NOW + 60_000;
+  assert.ok(nonce.length >= 20, "fixture nonce must satisfy the guard");
+  assert.equal(
+    guard.consume(nonce, expiresAt, NOW),
+    true,
+    "the first use of a fresh nonce is accepted",
+  );
+  assert.equal(
+    guard.consume(nonce, expiresAt, NOW + 1),
+    false,
+    "a replayed nonce is rejected even before its expiry",
+  );
+  assert.equal(
+    guard.consume(randomNonce(), expiresAt, NOW),
+    true,
+    "a different nonce is still accepted",
+  );
+  assert.equal(
+    guard.consume(randomNonce(), NOW - 1, NOW),
+    false,
+    "an already-expired nonce is rejected",
+  );
+  assert.equal(
+    guard.consume("short", expiresAt, NOW),
+    false,
+    "a malformed nonce is rejected",
+  );
 });
 
 test("a different peer never completes the expected pairing", async () => {
@@ -608,11 +643,15 @@ test("a revocation arriving before the proof prevents that grant from ever going
     1,
     "onRevoked did not fire for the early revocation",
   );
+  // A8: the proof still verifies identity, but it must not carry the revoked
+  // authorization. Otherwise a consumer could paint the row green for one tick
+  // before the revocation callback cleared access.
   assert.equal(
-    grantKey(s.verified[0].claims.authorization),
-    grantKey(s.grant),
-    "the historical proof keeps the grant it carried",
+    s.verified[0].claims.authorization,
+    undefined,
+    "a proof for an already-revoked grant must not carry authorization",
   );
+  assert.equal(s.verifier.revoked, true);
 });
 
 test("grant revocation helpers verify only a fresh, owner-signed, well-formed message", async () => {

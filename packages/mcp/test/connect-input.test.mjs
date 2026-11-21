@@ -37,6 +37,44 @@ test("a bare URL is discovery only: origin, no capabilities, never consent", () 
   );
 });
 
+test("B11: a copied custom-room instruction keeps its room; a URL query is only a location hint, never a grant", async () => {
+  // The connect page publishes ?room=custom-room in its public setup link. The
+  // copied command must carry that room explicitly (--room): parsing the bare
+  // URL alone is discovery-only and would otherwise resolve to rooms[0].
+  const custom = createAIAuthConnectInstruction({
+    siteOrigin: "https://site.example",
+    walletUrl: "https://wallet.example/wallet/",
+    capabilities: ["presence.read"],
+    room: "custom-room",
+    siteName: "Site",
+  });
+  for (const clipboard of [custom.instruction, custom.json]) {
+    const parsed = parseConnectInput(clipboard);
+    assert.equal(parsed.origin, "https://site.example");
+    assert.equal(parsed.room, "custom-room");
+    assert.equal(parsed.discoveryOnly, false);
+  }
+
+  const hint = parseConnectInput(
+    "https://site.example/connect-agent/?room=custom-room",
+  );
+  assert.equal(hint.origin, "https://site.example");
+  assert.equal(hint.room, null, "the query is not parsed as an authorization");
+  assert.equal(hint.discoveryOnly, true);
+  assert.deepEqual(hint.capabilities, []);
+
+  // Discovery alone picks the manifest's first room. That is exactly why the
+  // copied command must pass --room when the link selected another room.
+  const discovered = await fetchSiteManifest("https://site.example", {
+    fetch: okFetch({
+      ...strictManifest,
+      rooms: [{ name: "default", mode: "open" }],
+    }),
+  });
+  assert.equal(discovered.room, "default");
+  assert.equal(discovered.discoveryOnly, true);
+});
+
 test("rejects unsafe or malformed input", () => {
   for (const bad of [
     "",

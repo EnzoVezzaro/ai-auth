@@ -96,6 +96,10 @@ export const CONNECTION_TRANSITIONS = Object.freeze(
   ),
 );
 
+// Ended sessions are final: a lost transport must not revive them. Recovery
+// needs an explicit reauthorization and reconnect (via idle), never invalidate.
+const TERMINAL_STATUSES = new Set(["expired", "revoked", "disconnected"]);
+
 export function canTransition(from, to) {
   return CONNECTION_TRANSITIONS[from]?.includes(to) === true;
 }
@@ -103,17 +107,33 @@ export function canTransition(from, to) {
 function freezeSnapshot(state) {
   return Object.freeze({
     status: state.status,
-    // Strict connectivity: never true from a saved identity, grant, room,
-    // registration, discovery event or HTTP endpoint. It requires a live
-    // transport peer plus an authorization that has not expired or been revoked.
+    // Legacy transport connectivity: a live data channel. Kept lenient for
+    // mirrors that only track peer ids. It never comes from a saved identity,
+    // grant, room, registration, discovery event or HTTP endpoint.
     connected:
       state.status === "direct-peer-connected" &&
       state.peers.length > 0 &&
+      state.authorization === "active",
+    // Strict connectivity for the "connected now" contract: an open channel is
+    // not enough. At least one peer must be AUTHENTICATED (identity from a
+    // verified signed envelope) and still live, with an authorization that has
+    // not expired or been revoked. Consumers expecting a SPECIFIC agent must
+    // still match `authenticatedPeers` against that agent; a different live
+    // peer never makes the expected agent online (audit B02).
+    authenticatedConnected:
+      state.status === "direct-peer-connected" &&
+      state.authenticatedPeers.length > 0 &&
       state.authorization === "active",
     generation: state.generation,
     authorization: state.authorization,
     directPeerCount: state.peers.length,
     peers: Object.freeze(state.peers.map((peer) => Object.freeze({ ...peer }))),
+    // Identity/session/generation of every live AUTHENTICATED peer. Kept
+    // separate from `peers` (raw open channels) so a channel alone cannot
+    // impersonate the agent the page is waiting for.
+    authenticatedPeers: Object.freeze(
+      state.authenticatedPeers.map((peer) => Object.freeze({ ...peer })),
+    ),
     diagnostics: Object.freeze({
       relaysConnected: state.relaysConnected,
       ...(state.lastIceError ? { lastIceError: state.lastIceError } : {}),
@@ -131,6 +151,7 @@ export function createConnectionState(options = {}) {
   const state = {
     status: "idle",
     peers: [],
+    authenticatedPeers: [],
     relaysConnected: null,
     lastIceError: undefined,
     waitingSince: 0,
@@ -168,6 +189,9 @@ export function createConnectionState(options = {}) {
       )
     ) {
       state.peers = [];
+      // Losing transport presence loses every authenticated identity with it:
+      // a peer that must reauthenticate after a reconnect is not the same peer.
+      state.authenticatedPeers = [];
     }
   }
 
@@ -196,8 +220,7 @@ export function createConnectionState(options = {}) {
 
   function addPeer({ peerId, walletId, fingerprint } = {}) {
     validPeerId(peerId);
-    if (state.status === "expired" || state.status === "disconnected")
-      return snapshot;
+    if (TERMINAL_STATUSES.has(state.status)) return snapshot;
     if (state.peers.some((peer) => peer.peerId === peerId)) return snapshot;
     state.peers = [
       ...state.peers,
@@ -218,10 +241,54 @@ export function createConnectionState(options = {}) {
 
   function removePeer(peerId) {
     validPeerId(peerId);
-    if (!state.peers.some((peer) => peer.peerId === peerId)) return snapshot;
+    const hadAuthenticated = state.authenticatedPeers.some(
+      (peer) => peer.peerId === peerId,
+    );
+    if (
+      !state.peers.some((peer) => peer.peerId === peerId) &&
+      !hadAuthenticated
+    )
+      return snapshot;
     state.peers = state.peers.filter((peer) => peer.peerId !== peerId);
+    if (hadAuthenticated)
+      state.authenticatedPeers = state.authenticatedPeers.filter(
+        (peer) => peer.peerId !== peerId,
+      );
     if (state.peers.length === 0 && state.status === "direct-peer-connected")
       enter("waiting-for-peers");
+    publish();
+    return snapshot;
+  }
+
+  // Authoritative, replaceable set of live authenticated peers. The transport
+  // derives it from verified signed envelopes (issuer + session), so identity
+  // cannot be attached to a peer merely because a data channel opened. A
+  // goodbye, closed channel or expired lease removes the entry at the source.
+  function setAuthenticatedPeers(peers) {
+    if (!Array.isArray(peers))
+      throw new TypeError("authenticatedPeers must be an array");
+    const next = peers.map((peer) => {
+      if (!peer || typeof peer.walletId !== "string" || !peer.walletId)
+        throw new TypeError(
+          "each authenticated peer needs a non-empty walletId",
+        );
+      if (
+        peer.sessionId !== null &&
+        peer.sessionId !== undefined &&
+        typeof peer.sessionId !== "string"
+      )
+        throw new TypeError("sessionId must be a string or null");
+      return {
+        ...(peer.peerId ? { peerId: peer.peerId } : {}),
+        walletId: peer.walletId,
+        sessionId: peer.sessionId ?? null,
+        generation: peer.generation ?? state.generation ?? null,
+      };
+    });
+    // Avoid a publish storm on every heartbeat: only a real change matters.
+    if (JSON.stringify(next) === JSON.stringify(state.authenticatedPeers))
+      return snapshot;
+    state.authenticatedPeers = next;
     publish();
     return snapshot;
   }
@@ -239,7 +306,12 @@ export function createConnectionState(options = {}) {
     if (id !== null && (typeof id !== "string" || !id)) {
       throw new TypeError("generation must be a non-empty string or null");
     }
-    state.generation = id;
+    if (id !== state.generation) {
+      // A new generation is a new authenticated transport session. Proofs
+      // bound to the previous generation must not survive it.
+      state.generation = id;
+      state.authenticatedPeers = [];
+    }
     publish();
     return snapshot;
   }
@@ -248,12 +320,11 @@ export function createConnectionState(options = {}) {
     if (!["active", "expired", "revoked"].includes(value))
       throw new TypeError("authorization must be active, expired or revoked");
     state.authorization = value;
-    if (value !== "active" && state.status !== "revoked") {
-      if (!tryTransition("revoked")) {
-        // Revocation/expiry always invalidates presence, even from a state
-        // whose transition table forbids a direct move to `revoked`.
-        enter("revoked");
-      }
+    if (value !== "active") {
+      // The status must report what actually ended the authorization: an
+      // expiry is "expired", a revocation is "revoked". Either way presence is
+      // invalidated, even from a state whose table forbids a direct transition.
+      if (!tryTransition(value)) enter(value);
     }
     publish();
     return snapshot;
@@ -264,10 +335,19 @@ export function createConnectionState(options = {}) {
   // can be true again.
   function invalidate({ terminal = false } = {}) {
     state.lastIceError = state.lastIceError ?? "transport-lost";
-    if (!tryTransition(terminal ? "disconnected" : "reconnecting")) {
-      enter(terminal ? "disconnected" : "reconnecting");
+    // C5/B10: a revoked, expired or closed session is terminal. A transport
+    // failure must not revive it into reconnecting and imply recovery is
+    // possible. It only drops live presence; reconnect requires explicit
+    // reauthorization and a fresh transition out of the terminal state.
+    if (!TERMINAL_STATUSES.has(state.status)) {
+      if (!tryTransition(terminal ? "disconnected" : "reconnecting")) {
+        enter(terminal ? "disconnected" : "reconnecting");
+      }
     }
     state.peers = [];
+    // The old generation can no longer authenticate any late signed event.
+    state.generation = null;
+    state.authenticatedPeers = [];
     publish();
     return snapshot;
   }
@@ -290,6 +370,7 @@ export function createConnectionState(options = {}) {
     tryTransition,
     addPeer,
     removePeer,
+    setAuthenticatedPeers,
     recordError,
     setGeneration,
     setAuthorization,

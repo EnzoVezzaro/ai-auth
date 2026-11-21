@@ -14,6 +14,8 @@ import path from "node:path";
 import {
   createSharedRoomTopic,
   identityFor,
+  NostrWebRTC,
+  P2PRoom,
   randomNonce,
   signEnvelope,
   TOOL_ERROR_CODES,
@@ -119,6 +121,45 @@ test("1. a runtime connects only through a live transport and reports connected"
   assert.deepEqual(
     a.runtime.peers().map((p) => ({ id: p.id, stale: p.stale })),
     [{ id: b.runtime.identity.id, stale: false }],
+  );
+});
+
+test("inbound presence/cursor is passive and does not refresh an idle grant", async (t) => {
+  const hub = createHub();
+  let touches = 0;
+  const authorization = {
+    check: () => "active",
+    touch: () => {
+      touches += 1;
+      return true;
+    },
+  };
+  const a = await makeRuntime(t, hub, "A", { runtime: { authorization } });
+  const b = await makeRuntime(t, hub, "B");
+  await a.runtime.join();
+  await b.runtime.join();
+  await until(
+    () => a.runtime.peers().length === 1 && b.runtime.peers().length === 1,
+  );
+  // Let the peer/hello exchange settle first: liveness never touches a lease.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  let sawCursor = false;
+  a.runtime.onEvent((message) => {
+    if (
+      message.direction === "in" &&
+      message.envelope?.body?.type === "presence/cursor"
+    )
+      sawCursor = true;
+  });
+  touches = 0;
+  await b.runtime.send("presence/cursor", {
+    cursor: { x: 0.4, y: 0.6 },
+  });
+  await until(() => sawCursor);
+  assert.equal(
+    touches,
+    0,
+    "a cursor announcement must not count as authorized activity",
   );
 });
 
@@ -434,4 +475,108 @@ test("14. two tabs of one wallet stay separate in the runtime registry", async (
   await until(() => site.runtime.peers().length === 1);
   assert.equal(site.runtime.peers()[0].session, "tab-b-session");
   await tab.leave();
+});
+
+test("B02 (real A/B): a different live peer never keeps the expected agent online", async (t) => {
+  // Real wallets, real signed envelopes, real P2PRoom/NostrWebRTC lifecycle,
+  // in-process fake transport. No signature mocks.
+  const hub = createHub({ goodbyeOnly: true });
+  async function makeFullWallet(name) {
+    const keys = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["sign", "verify"],
+    );
+    const publicKey = await crypto.subtle.exportKey("jwk", keys.publicKey);
+    const id = await identityFor(publicKey);
+    const identity = { id, publicKey, privateKey: keys.privateKey };
+    return {
+      ...identity,
+      name,
+      sign: (type, payload) => signEnvelope(identity, type, payload),
+    };
+  }
+  const walletA = await makeFullWallet("A");
+  const walletB = await makeFullWallet("B");
+
+  const join = async (wallet) => {
+    const room = new P2PRoom(wallet, ROOM, {
+      origin: ORIGIN,
+      capabilities: CAPS,
+    });
+    const net = new NostrWebRTC(room, {
+      origin: ORIGIN,
+      room: ROOM,
+      joinRoom: hub.joinRoom,
+    });
+    t.after(async () => {
+      await room.close().catch(() => {});
+      await net.close().catch(() => {});
+    });
+    await net.start();
+    return { room, net };
+  };
+
+  const site = await join(await makeFullWallet("site"));
+  assert.equal(site.net.connectionState.status, "waiting-for-peers");
+
+  // A is the expected agent: its signed hello authenticates a real peer.
+  const a = await join(walletA);
+  await until(() =>
+    site.net.connectionState.authenticatedPeers.some(
+      (p) => p.walletId === walletA.id,
+    ),
+  );
+  const proofPeerA = site.net.connectionState.authenticatedPeers.find(
+    (p) => p.walletId === walletA.id,
+  );
+  assert.ok(
+    proofPeerA.sessionId,
+    "the authenticated peer has a signed session",
+  );
+  const onlineForA = () => {
+    const snap = site.net.connectionState;
+    return (
+      snap.authenticatedConnected === true &&
+      snap.authenticatedPeers.some(
+        (p) =>
+          p.walletId === proofPeerA.walletId &&
+          p.sessionId === proofPeerA.sessionId,
+      )
+    );
+  };
+  assert.equal(onlineForA(), true, "the expected agent is online");
+
+  // B joins with its own signed identity. Both channels are now open and both
+  // peers are authenticated, but B is not the verified agent.
+  const b = await join(walletB);
+  await until(() => site.net.connectionState.directPeerCount === 2);
+  await until(() =>
+    site.net.connectionState.authenticatedPeers.some(
+      (p) => p.walletId === walletB.id,
+    ),
+  );
+  assert.equal(onlineForA(), true, "B's arrival must not displace A");
+
+  // A leaves with a signed goodbye. B's channel stays open and authenticated.
+  await a.room.close({ goodbye: true });
+  await a.net.close();
+  await until(
+    () =>
+      !site.net.connectionState.authenticatedPeers.some(
+        (p) => p.walletId === walletA.id,
+      ),
+  );
+  const after = site.net.connectionState;
+  assert.equal(after.connected, true, "B still has an open data channel");
+  assert.equal(after.authenticatedConnected, true, "B is still authenticated");
+  assert.equal(
+    after.authenticatedPeers.some((p) => p.walletId === walletB.id),
+    true,
+  );
+  assert.equal(
+    onlineForA(),
+    false,
+    "B's presence must not keep the expected agent online",
+  );
 });

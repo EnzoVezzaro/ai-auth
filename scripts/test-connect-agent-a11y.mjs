@@ -1,8 +1,9 @@
 // Accessibility + mobile QA for the connect-agent page, against the identity-UX
 // audit contract (P2-18 and the accessibility gate). Runs at 320px, keyboard
-// only where noted, checks visible focus, an aria-live status region, reduced
-// motion and a textual (not colour-only) status signal, and writes sanitized
-// screenshots to screenshots/qa-*.png.
+// only where noted, checks visible focus, an aria-live status region, a real
+// .ring.middle animation that stops under reduced motion, non-overlapping
+// status-row rects, a non-degraded role=alert, and a textual (not colour-only)
+// status signal, and writes sanitized screenshots to screenshots/qa-*.png.
 //
 // All identity data here is synthetic. No full wallet id, passphrase or signed
 // material is placed in an assertion message or in a screenshot. Deterministic
@@ -80,6 +81,59 @@ async function statusRegion(page) {
   });
 }
 
+// The animated element in this page is .ring.middle ("animation: spin 18s").
+// Measuring it in both contexts is what makes the reduced-motion check real;
+// the old check looked for a non-existent ".spinner" and always passed.
+function ringDuration(page) {
+  return page.evaluate(() => {
+    const ring = document.querySelector(".ring.middle");
+    return ring ? getComputedStyle(ring).animationDuration : null;
+  });
+}
+
+// B1: measure label vs value boxes of every status row. A shared grid cell
+// produces a positive intersection in both axes; stacking them in separate
+// rows must leave at least one axis with no overlap.
+async function assertNoRowOverlap(page, where) {
+  const rows = await page.evaluate(() =>
+    [...document.querySelectorAll(".status-row")].map((row) => {
+      const box = (selector) => {
+        const r = row.querySelector(selector)?.getBoundingClientRect();
+        return r
+          ? {
+              top: r.top,
+              bottom: r.bottom,
+              left: r.left,
+              right: r.right,
+              width: r.width,
+              height: r.height,
+            }
+          : null;
+      };
+      return { id: row.id, label: box(".row-label"), value: box(".row-value") };
+    }),
+  );
+  assert.equal(rows.length, 3, `${where}: three status rows must be present`);
+  for (const row of rows) {
+    assert.ok(
+      row.label && row.value,
+      `${where}: ${row.id} must have a label and a value`,
+    );
+    const vertical =
+      Math.min(row.label.bottom, row.value.bottom) -
+      Math.max(row.label.top, row.value.top);
+    const horizontal =
+      Math.min(row.label.right, row.value.right) -
+      Math.max(row.label.left, row.value.left);
+    assert.ok(
+      vertical <= 0.5 || horizontal <= 0.5,
+      `${where}: ${row.id} label/value overlap (vertical=${vertical.toFixed(1)}px, horizontal=${horizontal.toFixed(1)}px, label=${JSON.stringify(row.label)}, value=${JSON.stringify(row.value)})`,
+    );
+  }
+  console.log(`RECTS ${where}: ${JSON.stringify(rows)}`);
+  return rows;
+}
+
 try {
   browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
@@ -124,6 +178,15 @@ try {
   );
 
   await capture(page, "qa-connect-agent-initial.png");
+
+  // B2 baseline: prove the page actually animates before asserting that reduced
+  // motion stops it. Measuring only the reduced context (or a missing element)
+  // makes the check vacuous.
+  const normalDuration = await ringDuration(page);
+  assert.ok(
+    normalDuration !== null && parseFloat(normalDuration) > 0,
+    `normal motion must be active on .ring.middle: ${normalDuration}`,
+  );
 
   // Synthetic expected wallet, set without moving focus so the keyboard walk
   // below still starts from the top of the document.
@@ -260,6 +323,10 @@ try {
   );
   await capture(page, "qa-connect-agent-verified-offline.png");
 
+  // B1 regression: the verified-offline screenshot used to show label/value
+  // overlapping in all three rows at 320px. Measure the live rects here.
+  await assertNoRowOverlap(page, "verified-offline@320px");
+
   // Authorized + online needs a real authenticated peer; this static a11y run
   // deliberately does not fake it. The page E2E covers that with a live agent.
   console.log(
@@ -277,24 +344,24 @@ try {
     await waitFor(() => reducedPage.locator("#connect").isVisible(), {
       message: "CTA visible with reduced motion",
     });
-    const reduced = await reducedPage.evaluate(() => {
-      const spinner = document.querySelector(".spinner");
-      return {
-        matches: matchMedia("(prefers-reduced-motion: reduce)").matches,
-        duration: spinner ? getComputedStyle(spinner).animationDuration : "0s",
-        ctaVisible:
-          (document.querySelector("#connect")?.getBoundingClientRect().width ??
-            0) > 0,
-      };
-    });
+    const reducedDuration = await ringDuration(reducedPage);
+    const reduced = await reducedPage.evaluate(() => ({
+      matches: matchMedia("(prefers-reduced-motion: reduce)").matches,
+      ctaVisible:
+        (document.querySelector("#connect")?.getBoundingClientRect().width ??
+          0) > 0,
+    }));
     assert.equal(
       reduced.matches,
       true,
       "reduced-motion media query must match",
     );
+    console.log(
+      `MOTION .ring.middle: normal=${normalDuration} reduced=${reducedDuration}`,
+    );
     assert.ok(
-      parseFloat(reduced.duration) < 0.01,
-      `reduced motion must stop motion: ${reduced.duration}`,
+      reducedDuration !== null && parseFloat(reducedDuration) < 0.01,
+      `reduced motion must stop .ring.middle animation: normal=${normalDuration}, reduced=${reducedDuration}`,
     );
     assert.equal(
       reduced.ctaVisible,
@@ -305,9 +372,30 @@ try {
     await reducedContext.close();
   }
 
+  // B3 regression: role="alert" already implies an assertive live region, so an
+  // explicit aria-live="polite" silently degrades it. Fail if any alert region
+  // carries the polite value (the old code did, on #error). Kept last so the
+  // layout/motion evidence above is still collected if this assertion trips.
+  const alertRegions = await page.evaluate(() =>
+    [...document.querySelectorAll('[role="alert"]')].map((el) => ({
+      id: el.id || null,
+      live: el.getAttribute("aria-live"),
+    })),
+  );
+  assert.ok(
+    alertRegions.length > 0,
+    "an error region with role=alert must exist",
+  );
+  for (const alert of alertRegions)
+    assert.notEqual(
+      alert.live,
+      "polite",
+      `role="alert" must not be degraded to aria-live="polite" (#${alert.id})`,
+    );
+
   assert.deepEqual(errors, []);
   console.log(
-    "PASS connect-agent a11y: 320px layout, keyboard focus, aria-live status, textual status and reduced motion all held.",
+    "PASS connect-agent a11y: 320px layout, no status-row overlap, keyboard focus, aria-live status, non-degraded role=alert, textual status and real reduced motion all held.",
   );
 } catch (error) {
   const message = error?.message ?? String(error);

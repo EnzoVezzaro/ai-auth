@@ -142,6 +142,22 @@ const esc = (value) =>
   );
 const shortId = (value) =>
   value ? `${value.slice(0, 20)}…${value.slice(-9)}` : "Not created";
+// Developer panes dump signed JSON, but a full wallet or agent id must never be
+// rendered there. Mask only the identity-bearing string fields; copy/export
+// actions keep using the original, unmasked envelope.
+function maskIds(value) {
+  if (Array.isArray(value)) return value.map(maskIds);
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [key, child] of Object.entries(value))
+      out[key] =
+        (key === "issuer" || key === "recipient") && typeof child === "string"
+          ? shortId(child)
+          : maskIds(child);
+    return out;
+  }
+  return value;
+}
 const dateText = (value) => new Date(value).toLocaleString();
 function durationText(ms) {
   if (ms === null) return "Never";
@@ -364,8 +380,8 @@ function walletView() {
             <div class="metric-line"><span>Instance ID</span><strong>${esc(pageInstanceId)}</strong></div>
             <div class="metric-line"><span>Room / origin</span><strong>${esc(state.room?.roomName ?? "default")} · ${esc(location.origin)}</strong></div>
             <div class="metric-line"><span>Transport</span><strong>${esc(connectionStatusLabel(state.rtc?.connectionState?.status ?? "idle"))}</strong></div>
-            <p class="panel-copy">Raw signed grants (public envelopes only):</p>
-            <pre>${esc(JSON.stringify(grants, null, 2))}</pre>
+            <p class="panel-copy">Raw signed grants (public envelopes only, ids masked):</p>
+            <pre>${esc(JSON.stringify(maskIds(grants), null, 2))}</pre>
           </details>
         </aside>
       </div>
@@ -521,7 +537,14 @@ function peerRows() {
       const granted = scopes.length
         ? `Granted scopes: ${scopes.map(esc).join(", ")}`
         : "No scopes granted";
-      return `<div class="peer-chip"><div><strong>${esc(peer.name)}</strong><code>${esc(peer.id)}</code><small class="help">Verified presence</small><small class="help" data-scopes="${esc(scopes.join(","))}">${granted}</small></div><button class="button quiet small" type="button" data-grant-peer="${esc(peer.id)}">Grant</button></div>`;
+      // The visible id is masked (inline string work so the roster stays
+      // extractable); the full id stays only in the button's data attribute
+      // because it is required to actually sign a grant to this peer.
+      const shownId =
+        typeof peer.id === "string" && peer.id
+          ? `${peer.id.slice(0, 20)}…${peer.id.slice(-9)}`
+          : "Not created";
+      return `<div class="peer-chip"><div><strong>${esc(peer.name)}</strong><code>${esc(shownId)}</code><small class="help">Verified presence</small><small class="help" data-scopes="${esc(scopes.join(","))}">${granted}</small></div><button class="button quiet small" type="button" data-grant-peer="${esc(peer.id)}">Grant</button></div>`;
     })
     .join("")}</div>`;
 }
@@ -602,7 +625,7 @@ function activityView() {
             .reverse()
             .map(
               (entry) =>
-                `<div class="event-row"><span class="event-icon" aria-hidden="true"></span><div><div class="event-title">${esc(entry.body.type)}</div><div class="event-detail">${esc(JSON.stringify(entry.body.payload))}</div><div class="event-detail">Signature ${entry.verified ? "verified" : "invalid"} · ${esc(shortId(entry.body.issuer))}</div></div><time class="event-time">${esc(dateText(entry.body.createdAt))}</time></div>`,
+                `<div class="event-row"><span class="event-icon" aria-hidden="true"></span><div><div class="event-title">${esc(entry.body.type)}</div><div class="event-detail">${esc(JSON.stringify(maskIds(entry.body.payload)))}</div><div class="event-detail">Signature ${entry.verified ? "verified" : "invalid"} · ${esc(shortId(entry.body.issuer))}</div></div><time class="event-time">${esc(dateText(entry.body.createdAt))}</time></div>`,
             )
             .join("")}</div>`
         : `<div class="empty-state"><h3>No signed activity yet</h3><p>Creating a wallet, approving a request, granting a capability and sending a message will add signed entries here.</p></div>`
@@ -1309,7 +1332,7 @@ function bindView() {
         expiresAt: input.expiresAt,
       });
       $("#grant-result").innerHTML =
-        `<section class="panel"><div class="panel-head"><div><p class="mini-label">VERIFIED LOCALLY</p><h3>Signed grant</h3></div></div><div class="fingerprint">${esc(JSON.stringify(grant, null, 2))}</div><div class="button-row"><button class="button secondary small" id="copy-grant">Copy grant</button></div></section>`;
+        `<section class="panel"><div class="panel-head"><div><p class="mini-label">VERIFIED LOCALLY</p><h3>Signed grant</h3></div></div><div class="fingerprint">${esc(JSON.stringify(maskIds(grant), null, 2))}</div><div class="button-row"><button class="button secondary small" id="copy-grant">Copy grant</button></div></section>`;
       $("#copy-grant").addEventListener("click", () =>
         copyText(JSON.stringify(grant), "Signed grant copied."),
       );

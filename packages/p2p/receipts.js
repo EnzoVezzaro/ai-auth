@@ -59,7 +59,7 @@ export function buildReceiptPayload({
 
 const fail = (reason) => ({ ok: false, reason });
 
-function checkBinding(body, expected) {
+function checkBinding(body, expected, now) {
   const payload = body?.payload;
   if (body?.type !== RECEIPT_TYPE || payload?.v !== RECEIPT_VERSION)
     return "not-a-v1-receipt";
@@ -73,7 +73,7 @@ function checkBinding(body, expected) {
   if (!Number.isFinite(payload.receivedAt)) return "bad-time";
   if (typeof payload.nonce !== "string" || payload.nonce.length < 20)
     return "bad-nonce";
-  if (!Number.isFinite(payload.expiresAt) || payload.expiresAt <= Date.now())
+  if (!Number.isFinite(payload.expiresAt) || payload.expiresAt <= now)
     return "expired-envelope";
   return "";
 }
@@ -86,7 +86,7 @@ export async function verifyReceipt(
   envelope,
   { sender, room, origin, now = Date.now() } = {},
 ) {
-  const reason = checkBinding(envelope?.body, { sender, room, origin });
+  const reason = checkBinding(envelope?.body, { sender, room, origin }, now);
   if (reason) return fail(reason);
   const { payload } = envelope.body;
   if (payload.receivedAt > now + CLOCK_SKEW_MS) return fail("bad-time");

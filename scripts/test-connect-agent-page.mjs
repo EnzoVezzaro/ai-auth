@@ -7,7 +7,7 @@
 // No passphrase or full wallet id is ever placed in an assertion message or a
 // screenshot — all identity material here is synthetic fixture material.
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { webcrypto } from "node:crypto";
@@ -56,10 +56,134 @@ const STATUS_ROWS = ["Identity verified", "Access approved", "Connected now"];
 const server = await startStaticServer();
 const dir = await mkdtemp(join(tmpdir(), "ai-auth-connect-agent-"));
 let browser;
+let context;
+let page;
 let runtime;
 let responder;
+let bContext;
+let bPage;
+
+// A printed PASS is not completion: the process must actually exit. These
+// bounds turn a leaked Nostr/WebRTC/child-process handle into a non-zero exit
+// instead of a CI job that hangs forever after a green assertion line.
+const CLEANUP_TIMEOUT_MS = 20_000;
+const EXIT_GRACE_MS = 5_000;
+let cleanupFailed = false;
+let passMessage = null;
 
 const step = (name) => console.log(`STEP ${name}`);
+
+function activeResources() {
+  try {
+    return process.getActiveResourcesInfo?.() ?? [];
+  } catch {
+    return [];
+  }
+}
+
+function traceHandles(label) {
+  const names = [...new Set(activeResources())].sort();
+  let handles = [];
+  try {
+    handles = (process._getActiveHandles?.() ?? []).map((handle) => {
+      const name = handle?.constructor?.name ?? typeof handle;
+      if (name === "TLSSocket")
+        return `${name}(${handle.remoteAddress ?? "?"}:${handle.remotePort ?? "?"} ${handle.servername ?? handle._host ?? ""})`;
+      return name;
+    });
+  } catch {}
+  if (names.length || handles.length)
+    console.error(
+      `CLEANUP_TRACE ${label}: resources=[${names.join(", ")}] handles=[${[...new Set(handles)].join(", ")}]`,
+    );
+  return names;
+}
+
+async function closeQuietly(label, fn) {
+  try {
+    await fn();
+  } catch (error) {
+    cleanupFailed = true;
+    console.error(`CLEANUP_FAIL ${label}: ${error?.message ?? error}`);
+  }
+}
+
+async function cleanup() {
+  await closeQuietly("responder", async () => responder?.close?.());
+  await closeQuietly("runtime", async () => {
+    if (runtime) await runtime.close();
+  });
+  // Close the page and its context explicitly before the browser: a stray
+  // Playwright page can hold CDP/websocket handles even after browser.close().
+  await closeQuietly("bPage", async () => bPage?.close?.());
+  await closeQuietly("bContext", async () => bContext?.close?.());
+  await closeQuietly("page", async () => page?.close?.());
+  await closeQuietly("context", async () => context?.close?.());
+  await closeQuietly("browser", async () => browser?.close?.());
+  await closeQuietly("server", async () => {
+    await server.stop?.();
+    if (server.child?.exitCode === null && server.child?.signalCode === null)
+      server.child?.kill("SIGKILL");
+  });
+  await closeQuietly("tempdir", async () =>
+    rm(dir, { recursive: true, force: true }),
+  );
+  // The agent runtime opens several wss:// relay sockets that can outlive
+  // runtime.close() by many seconds. This script created that runtime, so it
+  // also releases those sockets; otherwise the process hangs after PASS.
+  closeStrayRelaySockets();
+  traceHandles("after-close");
+}
+
+function closeStrayRelaySockets() {
+  try {
+    for (const handle of process._getActiveHandles?.() ?? []) {
+      if (handle?.constructor?.name !== "TLSSocket") continue;
+      handle.destroy();
+    }
+  } catch {
+    // Diagnostics are reported by traceHandles and the exit guard.
+  }
+}
+
+// A destroyed wss:// socket is not gone until the event loop reaps it. Wait
+// for the handles this script owns to actually drain instead of racing a
+// timer against them (a green PASS with a hanging process is the bug).
+async function waitForCleanExit(timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    let pending = 0;
+    try {
+      for (const handle of process._getActiveHandles?.() ?? []) {
+        const name = handle?.constructor?.name;
+        if (name === "TLSSocket" || name === "ChildProcess") pending += 1;
+      }
+    } catch {}
+    if (pending === 0) return true;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return false;
+}
+
+async function cleanupWithDeadline() {
+  let timer;
+  try {
+    await Promise.race([
+      cleanup(),
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`cleanup exceeded ${CLEANUP_TIMEOUT_MS} ms`)),
+          CLEANUP_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } catch (error) {
+    cleanupFailed = true;
+    console.error(`CLEANUP_FAIL ${error?.message ?? error}`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function blocked(reasons) {
   return new Error(
@@ -70,10 +194,10 @@ function blocked(reasons) {
 try {
   step("browser-launch");
   browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
+  context = await browser.newContext({
     permissions: ["clipboard-read", "clipboard-write"],
   });
-  const page = await context.newPage({ acceptDownloads: true });
+  page = await context.newPage({ acceptDownloads: true });
 
   // Record observable phase transitions so "verified before connected" is
   // proven rather than inferred from a single green screenshot. Only phase
@@ -505,6 +629,115 @@ try {
   assert.deepEqual(errors, []);
   step("revocation-replay-ignored");
 
+  // ---- B02 regression: expected peer A leaves while peer B stays live. ----
+  // Re-verify the same agent A so there is a fresh, unrevoked online state to
+  // displace. The owner-grant seam above signs a fresh grant for each challenge.
+  await page.evaluate(async () => {
+    await window.__connectAgentControls.startVerification();
+  });
+  await waitFor(
+    () => page.evaluate(() => window.__connectAgent?.phase === "verifying"),
+    { message: "fresh verification started for the presence regression" },
+  );
+  await waitFor(
+    () => page.evaluate(() => window.__connectAgent?.phase === "connected"),
+    { timeout: 45_000, message: "agent A is online again" },
+  );
+  step("reonline-for-expected-peer-loss");
+
+  // Agent B: an unrelated but GENUINELY SIGNED peer in the same room. A second
+  // browser tab runs its own site wallet + real transport (separate JS context,
+  // so Trystero's one-join-per-room cache does not conflict with agent A). It
+  // has no proof for A's wallet, so it must never satisfy the page's binding.
+  bContext = await browser.newContext();
+  bPage = await bContext.newPage();
+  await bPage.goto(`${server.siteUrl}connect-agent/`);
+  await waitFor(
+    () =>
+      bPage.evaluate(
+        () =>
+          window.__connectAgent?.transportStatus === "direct-peer-connected",
+      ),
+    { timeout: 30_000, message: "peer B tab joined the room" },
+  );
+  const bWalletId = await bPage.evaluate(
+    () => window.__connectAgentControls?.siteWallet?.id,
+  );
+  assert.ok(bWalletId, "peer B has its own independent wallet");
+  assert.notEqual(bWalletId, agentWallet.id);
+  await waitFor(
+    () =>
+      page.evaluate(
+        (id) =>
+          (window.__connectAgent?.authenticatedPeers ?? []).some(
+            (peer) => peer.walletId === id,
+          ),
+        bWalletId,
+      ),
+    { timeout: 30_000, message: "agent B has a live authenticated channel" },
+  );
+  const withB = await page.evaluate(() => ({
+    online: window.__connectAgent?.online === true,
+    phase: window.__connectAgent?.phase,
+    count: window.__connectAgent?.diagnostics?.directPeerCount ?? 0,
+  }));
+  assert.equal(withB.online, true, "B's arrival must not displace A");
+  assert.equal(withB.phase, "connected");
+  step("second-peer-live");
+
+  // A leaves with a real goodbye. B's channel remains open and authenticated,
+  // but the peer that carried A's verified proof is gone.
+  await runtime.close();
+  await waitFor(
+    () =>
+      page.evaluate(
+        (id) =>
+          (window.__connectAgent?.authenticatedPeers ?? []).every(
+            (peer) => peer.walletId !== id,
+          ),
+        agentWallet.id,
+      ),
+    { timeout: 30_000, message: "agent A's authenticated peer is gone" },
+  );
+  const afterA = await page.evaluate(() => ({
+    online: window.__connectAgent?.online === true,
+    phase: window.__connectAgent?.phase,
+    identityVerified: window.__connectAgent?.identityVerified === true,
+    transportStatus: window.__connectAgent?.transportStatus,
+    count: window.__connectAgent?.diagnostics?.directPeerCount ?? 0,
+    wallets: (window.__connectAgent?.authenticatedPeers ?? []).map(
+      (peer) => peer.walletId,
+    ),
+  }));
+  assert.equal(afterA.phase, "offline", "expected peer A left: phase offline");
+  assert.equal(afterA.online, false, "B must not keep the page online");
+  assert.equal(
+    afterA.identityVerified,
+    true,
+    "verification stays a historical fact",
+  );
+  assert.equal(
+    afterA.transportStatus,
+    "direct-peer-connected",
+    "B's data channel is still open",
+  );
+  assert.ok(afterA.count >= 1, "another live peer really remains");
+  assert.equal(afterA.wallets.includes(bWalletId), true, "B is still live");
+  assert.equal(
+    afterA.wallets.includes(agentWallet.id),
+    false,
+    "A is no longer the live peer",
+  );
+  assert.equal(
+    (await page.locator("#status-text").innerText()).trim(),
+    "AGENT OFFLINE",
+  );
+  assert.equal(
+    (await page.locator("#connected-status").innerText()).trim(),
+    "Agent offline",
+  );
+  step("expected-peer-loss-is-offline");
+
   // A wallet must still never be created in a vacuum in the owner console.
   const ownerContext = await browser.newContext();
   try {
@@ -524,20 +757,36 @@ try {
     await ownerContext.close();
   }
 
-  console.log(
-    "PASS connect-agent E2E: instructions copied, unexpected peer refused, real signed proof verified, live peer present, Connected shown with granted scopes only, and an owner-signed revocation cleared online while preserving identity verification.",
-  );
+  // Deferred until cleanup succeeds: stdout PASS is evidence, not the
+  // completion signal. The process exit code is what CI must gate on.
+  passMessage =
+    "PASS connect-agent E2E: instructions copied, unexpected peer refused, real signed proof verified, live peer present, Connected shown with granted scopes only, owner-signed revocation cleared online while preserving identity verification, and the expected agent going offline while another live peer remains.";
 } catch (error) {
   const message = error?.message ?? String(error);
+  const cause = error?.cause?.message;
   console.error(
-    message.startsWith("BLOCKED:") ? message : `E2E_FAIL ${message}`,
+    message.startsWith("BLOCKED:")
+      ? message
+      : `E2E_FAIL ${message}${cause ? ` (cause: ${cause})` : ""}`,
   );
   process.exitCode = 1;
 } finally {
-  responder?.close?.();
-  await runtime?.close?.().catch(() => {});
-  if (browser) await browser.close().catch(() => {});
-  await server.stop?.();
-  server.child?.kill("SIGTERM");
-  await rm(dir, { recursive: true, force: true }).catch(() => {});
+  await cleanupWithDeadline();
+  const drained = await waitForCleanExit(EXIT_GRACE_MS);
+  if (!drained) {
+    cleanupFailed = true;
+    traceHandles("after-drain-deadline");
+    console.error(
+      `E2E_FAIL sockets/child process did not close within ${EXIT_GRACE_MS} ms`,
+    );
+  }
+  if (cleanupFailed) process.exitCode = 1;
+  if (process.exitCode !== 1 && passMessage) console.log(passMessage);
+
+  // Everything this script owns was closed and awaited above. Third-party
+  // keep-alive timers can still keep the loop alive, so terminate explicitly
+  // with the REAL result instead of hanging after a green PASS. stdout is
+  // flushed first so piped CI logs keep the diagnostics.
+  const code = process.exitCode ?? 0;
+  process.stdout.write("", () => process.exit(code));
 }

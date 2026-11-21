@@ -78,6 +78,7 @@ function fakeBrowser() {
   };
   return {
     win,
+    popup,
     sentToWallet,
     fromWallet,
     deliver,
@@ -672,6 +673,90 @@ test("a peer hello cannot rebind a session already bound to another issuer", asy
     envelope: await announcement(first, "peer/heartbeat"),
   });
   assert.equal(events.length, 2, "the original binder still owns the session");
+});
+
+test("a concurrent binder cannot overwrite a session during async verification", async (t) => {
+  const ctx = await connected(t);
+  const events = [];
+  ctx.connection.onEvent((event) => events.push(event));
+  const first = await makeWallet("First");
+  const second = await makeWallet("Second");
+  // Pause the first signature verification so the second announcement can
+  // finish and bind the session while the first is still in flight.
+  const realVerify = globalThis.crypto.subtle.verify.bind(
+    globalThis.crypto.subtle,
+  );
+  let calls = 0;
+  let releaseFirst;
+  const gate = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  globalThis.crypto.subtle.verify = async (...args) => {
+    calls += 1;
+    if (calls === 1) await gate;
+    return realVerify(...args);
+  };
+  t.after(() => {
+    globalThis.crypto.subtle.verify = realVerify;
+  });
+
+  const announcement = (wallet) =>
+    wallet.sign("peer/hello", {
+      label: wallet.name,
+      room: ROOM,
+      origin: ORIGIN,
+      session: "race-session-123456",
+      nonce: randomNonce(),
+      expiresAt: Date.now() + 60_000,
+    });
+
+  const pendingFirst = ctx.b.deliver({
+    type: "ai-auth/collaboration-event",
+    envelope: await announcement(first),
+  });
+  for (let i = 0; i < 50 && calls === 0; i += 1)
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(calls, 1, "the first envelope is inside verifyEnvelope");
+
+  await ctx.b.deliver({
+    type: "ai-auth/collaboration-event",
+    envelope: await announcement(second),
+  });
+  releaseFirst();
+  await pendingFirst;
+
+  assert.equal(
+    events.length,
+    1,
+    "the late binder must not overwrite the session owned by the first finisher",
+  );
+  assert.equal(events[0].body.issuer, second.id);
+});
+
+test("close() is not reentrant when a withdrawn catalog re-enters close", async (t) => {
+  const ctx = await connected(t, { caps: ["tools.invoke", "presence.read"] });
+  const disconnects = [];
+  ctx.connection.onDisconnect(() => disconnects.push("disconnect"));
+  const originalPost = ctx.b.popup.postMessage;
+  let reentered = false;
+  ctx.b.popup.postMessage = (...args) => {
+    originalPost(...args);
+    if (args[0]?.type === "ai-auth/site-agent-event" && !reentered) {
+      reentered = true;
+      ctx.connection.close("revoked");
+    }
+  };
+  ctx.connection.close("closed");
+  assert.equal(
+    disconnects.length,
+    1,
+    "a re-entrant close must not run the disconnect sequence twice",
+  );
+  assert.equal(
+    ctx.b.sentToWallet.filter((m) => m.type === "ai-auth/session-ended").length,
+    1,
+    "session-ended is posted exactly once",
+  );
 });
 
 test("a replay-cache flood from one issuer does not blackhole the room", async (t) => {

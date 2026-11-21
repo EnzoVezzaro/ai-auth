@@ -85,6 +85,10 @@ function validateRoom(room) {
   return room;
 }
 
+function sendAbortError() {
+  return new DOMException("Send aborted before authorization", "AbortError");
+}
+
 // A headless runtime mounts no wheel, so the runtime itself signs the receipt
 // an addressed chat message earns. Like the wheel's receipt it proves only that
 // this wallet accepted the message, never that anyone read it.
@@ -238,10 +242,13 @@ export function createAgentRuntime(options = {}) {
       void applySignedRevocation(message.envelope.body).catch(() => {});
       return;
     }
+    // Peer announcements and cursor movement are passive presence, not
+    // authorized activity: they must not refresh an idle lease (C1).
     const liveness =
       eventType === "peer/hello" ||
       eventType === "peer/heartbeat" ||
-      eventType === "peer/goodbye";
+      eventType === "peer/goodbye" ||
+      eventType === "presence/cursor";
     if (message.direction === "in" && message.envelope && !liveness)
       touchAuthorization();
     if (refreshAuthorization() !== "active") return;
@@ -596,10 +603,25 @@ export function createAgentRuntime(options = {}) {
       );
     },
     async send(type, payload = {}, sendOptions = {}) {
+      const signal = sendOptions?.signal;
+      // An already-aborted send must not refresh the authorization lease, sign
+      // anything, or reach the transport. Check before every other effect.
+      if (signal?.aborted) throw sendAbortError();
       if (!touchAuthorization())
         throw new Error(`Authorization is ${authStatus}; sending refused`);
       if (!core || core.closed) throw new Error("Join a room before sending");
-      return core.send(type, payload, sendOptions);
+      const envelope = await core.send(type, payload, sendOptions);
+      // The core revalidates the signal after signing and before publishing. If
+      // we get here with an aborted signal, the event was already committed: no
+      // rollback is possible, so surface an explicit partial outcome.
+      if (signal?.aborted && envelope) {
+        if (!envelope.partial && Object.isExtensible(envelope))
+          Object.defineProperties(envelope, {
+            aborted: { value: true, enumerable: false },
+            partial: { value: true, enumerable: false },
+          });
+      }
+      return envelope;
     },
     /**
      * Publishes tools this runtime executes itself. Peers (and the site's

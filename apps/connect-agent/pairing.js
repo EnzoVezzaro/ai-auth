@@ -198,11 +198,26 @@ export function createPairingVerifier({
           now: at,
         });
         if (!authorization) return;
+        // A grant attached to the challenge is the exact one the owner approved
+        // for THIS challenge. Read the live challenge state here, at proof time:
+        // a different (even validly signed) grant must never be substituted for
+        // the one that travelled with the challenge.
+        if (active?.authorization) {
+          const expectedKey = grantKey(active.authorization);
+          if (!expectedKey || grantKey(authorization) !== expectedKey) return;
+        }
       }
 
       // Single use: a replayed proof cannot consume the nonce a second time.
       if (!guard.consume(active.nonce, active.expiresAt, at)) return;
       const acceptedKey = authorization ? grantKey(authorization) : null;
+      // A revocation may land before the proof it targets. The signed proof
+      // still verifies identity, but it must NOT carry the authorization claim:
+      // emitting it would let a consumer go green for one tick until the
+      // revocation callback clears access.
+      const revokedBeforeProof = Boolean(
+        acceptedKey && revokedGrantKeys.has(acceptedKey),
+      );
       const proof = Object.freeze({
         walletId: verified.walletId,
         instanceId: verified.instanceId,
@@ -210,15 +225,12 @@ export function createPairingVerifier({
         claims: Object.freeze({
           ...verified.claims,
           selfReported: true,
-          ...(authorization ? { authorization } : {}),
+          ...(authorization && !revokedBeforeProof ? { authorization } : {}),
         }),
         verifiedAt: at,
       });
       // Retain the accepted grant so a later owner-signed revocation can be
       // matched against it. Clearing active keeps the challenge single-use.
-      const revokedBeforeProof = Boolean(
-        acceptedKey && revokedGrantKeys.has(acceptedKey),
-      );
       accepted = authorization
         ? Object.freeze({
             grantKey: acceptedKey,

@@ -97,6 +97,10 @@ export function createReplayCache() {
           }
       }
       if (entries.size >= MAX_REPLAY_TOTAL) drop(entries.keys().next().value);
+      // C6: a global eviction may have removed this same issuer's oldest key,
+      // which decremented `counts` behind our back. Re-read it so the per-
+      // issuer bound reflects reality instead of a stale, inflated value.
+      held = counts.get(issuer) ?? 0;
       entries.set(key, { issuer, expiresAt });
       counts.set(issuer, held + 1);
     },
@@ -914,6 +918,20 @@ export async function connectAIAuthModal({
     // Verification awaits crypto, so a second copy of the same event can pass
     // the first has() while this one is in flight. Recheck before accepting.
     if (seen.has(replayKey)) return;
+    // C2: the session↔issuer binding was read before the await. Another event
+    // may have claimed or moved it while the signature was being checked, so
+    // re-read it now and bind only if the session is still free or already
+    // ours. A concurrent binder must never be silently overwritten.
+    const currentIssuer = issuerBySession.get(payload.session);
+    if (announcement) {
+      if (currentIssuer && currentIssuer !== envelope.body.issuer) {
+        debug("sdk-rejected-session-taken", envelope.body.type);
+        return;
+      }
+    } else if (currentIssuer !== envelope.body.issuer) {
+      debug("sdk-rejected-session-rebound", envelope.body.type);
+      return;
+    }
     seen.note(replayKey, envelope.body.issuer, payload.expiresAt);
     if (announcement) bindSession(envelope.body.issuer, payload.session);
     if (envelope.body.type === "peer/goodbye")
@@ -949,6 +967,10 @@ export async function connectAIAuthModal({
 
   function createConnection() {
     let closed = false;
+    // Set before publishing the empty tool catalog: that call can re-enter
+    // close() (e.g. a guard on an already-ended lease), which must be a no-op
+    // rather than repeating the whole teardown (C4).
+    let closing = false;
     const lifecycleListeners = new Set();
     const connectedEvent = () => ({
       type: "connected",
@@ -1269,7 +1291,8 @@ export async function connectAIAuthModal({
         );
       },
       close(reason = "closed") {
-        if (closed) return;
+        if (closed || closing) return;
+        closing = true;
         // Withdraw the site's WebMCP catalog while the signed connection is
         // still usable. Peers drop its tools at once instead of waiting for
         // expiry or inferring from a later absence.

@@ -70,6 +70,45 @@ test("a cursor stream does not use up the budget for chat messages", async () =>
   await room.close();
 });
 
+test("invalid envelopes do not consume the source's inbound budget", async () => {
+  const sender = await makeWallet("Sender");
+  const receiver = await makeWallet("Agent");
+  const room = new P2PRoom(receiver, "research", { origin: ORIGIN });
+  const source = {};
+  const signed = await sender.sign("message/text", {
+    room: "research",
+    origin: ORIGIN,
+    session: "budget-session",
+    nonce: randomNonce(),
+    expiresAt: Date.now() + 60_000,
+    text: "genuine",
+  });
+  const tampered = structuredClone(signed);
+  tampered.proof.signature = "AA";
+
+  // More invalid envelopes than the 10s source window allows. With the budget
+  // charged before verification they starvation-block the real sender.
+  for (let index = 0; index < 70; index += 1) {
+    const junk = structuredClone(tampered);
+    junk.body.payload.nonce = randomNonce();
+    assert.equal(await room.receive(junk, source), false);
+  }
+  const genuine = await sender.sign("message/text", {
+    room: "research",
+    origin: ORIGIN,
+    session: "budget-session",
+    nonce: randomNonce(),
+    expiresAt: Date.now() + 60_000,
+    text: "genuine after the flood",
+  });
+  assert.equal(
+    await room.receive(genuine, source),
+    true,
+    "a valid envelope is accepted after a flood of rejected ones",
+  );
+  await room.close();
+});
+
 test("the presence budget still limits a flood of heartbeats", async () => {
   const sender = await makeWallet("Flooder");
   const receiver = await makeWallet("Agent");

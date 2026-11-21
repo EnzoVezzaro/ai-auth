@@ -259,7 +259,7 @@ export function renderDocPage({
   cssPath = "./docs.css",
   brandPath = "../index.html",
   assetPath = "./assets/ai-auth-mark.svg",
-  version = "0.12.1",
+  version = "0.12.2",
 }) {
   // The shell already renders the document title as the page h1. The README
   // has its banner and badge block before the title, so find the first h1

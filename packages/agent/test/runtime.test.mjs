@@ -440,7 +440,7 @@ test("an expiring authorization lease ends the session and stops tool traffic", 
   assert.ok(touches > 0, "authorized sends refresh the idle clock");
   clock += 6_000;
   await a.runtime.checkLeases();
-  assert.equal(a.runtime.connectionState.status, "revoked");
+  assert.equal(a.runtime.connectionState.status, "expired");
   assert.equal(a.runtime.connectionState.authorization, "expired");
   assert.equal(a.runtime.connectionState.connected, false);
   assert.deepEqual(a.runtime.peers(), []);
@@ -474,7 +474,7 @@ test("an idle authorization is reported as expiry and a revoke call ends it now"
   idle = true;
   await a.runtime.checkLeases();
   assert.equal(a.runtime.connectionState.authorization, "expired");
-  assert.equal(a.runtime.connectionState.status, "revoked");
+  assert.equal(a.runtime.connectionState.status, "expired");
   await assert.rejects(
     a.runtime.send("message/text", { text: "x" }),
     /Authorization is expired/u,
@@ -609,4 +609,134 @@ test("an unsigned or foreign revocation never ends the session", async (t) => {
   assert.notEqual(a.runtime.connectionState.status, "revoked");
   assert.equal(a.runtime.connectionState.authorization, "active");
   await a.runtime.send("message/text", { text: "still active" });
+});
+
+// B05: these use the real runtime, the real P2PRoom core and the in-process
+// hub. A mock that happens to honour `signal` would not catch the core dropping
+// it on the floor, which is exactly the bug being fixed.
+async function connectedPair(t, hub, names = ["AbortSender", "AbortReceiver"]) {
+  const sender = await setup(t, hub, { name: names[0] });
+  const receiver = await setup(t, hub, { name: names[1] });
+  await sender.runtime.join();
+  await receiver.runtime.join();
+  await until(
+    () =>
+      sender.runtime.connectionState.status === "direct-peer-connected" &&
+      receiver.runtime.connectionState.status === "direct-peer-connected",
+  );
+  let received = 0;
+  receiver.runtime.onEvent((event) => {
+    if (
+      event.direction === "in" &&
+      event.envelope?.body?.type === "message/text"
+    )
+      received += 1;
+  });
+  return { sender, receiver, received: () => received };
+}
+
+test("an already-aborted send stops the real runtime before lease, signature or hub", async (t) => {
+  const hub = createHub();
+  let touches = 0;
+  const authorization = {
+    check: () => "active",
+    touch: () => {
+      touches += 1;
+      return true;
+    },
+  };
+  const sender = await setup(t, hub, {
+    name: "AbortSender",
+    authorization,
+  });
+  const receiver = await setup(t, hub, { name: "AbortReceiver" });
+  await sender.runtime.join();
+  await receiver.runtime.join();
+  await until(
+    () =>
+      sender.runtime.connectionState.status === "direct-peer-connected" &&
+      receiver.runtime.connectionState.status === "direct-peer-connected",
+  );
+  let received = 0;
+  receiver.runtime.onEvent((event) => {
+    if (
+      event.direction === "in" &&
+      event.envelope?.body?.type === "message/text"
+    )
+      received += 1;
+  });
+  const touchesBefore = touches;
+  let outbound = 0;
+  sender.runtime.onEvent((event) => {
+    if (event.direction === "out") outbound += 1;
+  });
+  const controller = new AbortController();
+  controller.abort();
+
+  await assert.rejects(
+    sender.runtime.send(
+      "message/text",
+      { text: "must not ship" },
+      {
+        signal: controller.signal,
+      },
+    ),
+    { name: "AbortError" },
+  );
+  assert.equal(
+    touches,
+    touchesBefore,
+    "the authorization lease was not touched",
+  );
+  assert.equal(outbound, 0, "nothing was announced as sent");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(received, 0, "the peer received nothing");
+});
+
+test("an abort during the real signature delivers nothing to the peer", async (t) => {
+  const hub = createHub();
+  const { sender, received } = await connectedPair(t, hub);
+  let outbound = 0;
+  sender.runtime.onEvent((event) => {
+    if (event.direction === "out") outbound += 1;
+  });
+  const realSign = crypto.subtle.sign.bind(crypto.subtle);
+  let signatures = 0;
+  const controller = new AbortController();
+  crypto.subtle.sign = async (...args) => {
+    signatures += 1;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    return realSign(...args);
+  };
+  t.after(() => {
+    delete crypto.subtle.sign;
+  });
+
+  const sending = sender.runtime.send(
+    "message/text",
+    { text: "cancelled mid-signature" },
+    { signal: controller.signal },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  assert.equal(signatures, 1, "the real ECDSA signature was in flight");
+  controller.abort();
+  await assert.rejects(sending, { name: "AbortError" });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(received(), 0, "the peer received nothing");
+  assert.equal(outbound, 0, "nothing was announced as sent");
+});
+
+test("send without a signal keeps working through the real runtime", async (t) => {
+  const hub = createHub();
+  const { sender, receiver, received } = await connectedPair(t, hub);
+  const envelope = await sender.runtime.send("message/text", {
+    text: "plain send",
+  });
+  assert.equal(envelope.body.type, "message/text");
+  assert.equal(envelope.partial, undefined);
+  await until(() => received() === 1);
+  assert.equal(
+    receiver.runtime.connectionState.status,
+    "direct-peer-connected",
+  );
 });
