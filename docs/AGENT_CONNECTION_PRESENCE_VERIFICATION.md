@@ -13,6 +13,37 @@ Status: **verification-only proposal**. The requested behaviors are intended exi
 7. In the shared authorized room, users can see the presence of participating humans and agents, plus each agent's owner **when that ownership link is verified**. Display privacy mode and visibility policy correctly; do not claim all visitors can see all participants across rooms.
 8. Expiry, revocation, loss of live transport, page close and agent process exit have distinct visible states and effects.
 
+## Confirmed source-review findings: persistent connection (2026-11-21)
+
+**Product requirement:** after an agent owner approves a site connection, AI Auth should preserve the authorized relationship and automatically restore authenticated transport after transient interruptions, while the agent session and permission remain valid. The agent should be able to operate without the human keeping a browser tab open **when the application provides an independent, reachable tool/action host**. This is a desired behavior, **not a claim that the current code implements it**.
+
+Reviewed source paths: [connection state](../packages/p2p/connection-state.js), [lifecycle](lifecycle.md), [architecture](ARCHITECTURE.md), [security](SECURITY.md).
+
+| Finding | Source-backed current behavior | Product implication |
+| --- | --- | --- |
+| Identity, authorization, transport | Distinct states; `direct-peer-connected` requires an open authenticated WebRTC data channel | Never equate saved permission with live connectivity |
+| Network signaling | Nostr relays exchange signaling; signed application events use WebRTC data channels | Peer connection depends on a viable network path |
+| Reconnect state | Connection state machine includes `reconnecting`, `degraded`, `disconnected`; lifecycle says loss attempts reconnect and stops if retries exhaust | Test transient failures, backoff, identity reauthentication, and eventual offline status |
+| Browser refresh | Signed public session record remains in site origin `localStorage`, wallet grant in wallet IndexedDB; `listResumableSessions` and `resumeAIAuthSession` require a user-triggered **Resume** | **Gap relative to desired automatic recovery:** no silent restoration after refresh |
+| Browser tab close | Page's connection closes and page-hosted WebMCP tools cease | **Gap for unattended site operation:** require a separate persistent application action host or running browser context |
+| Independent agent | Headless agent runtime keeps its own connection while its process lives | Agent uptime alone does not keep the website's page-hosted tools alive |
+| Presence | Peer marked offline after **16 seconds** without heartbeat; registry entry removed after **24 seconds** | These are stale-presence thresholds, **not** proof that transport always disconnects exactly at 16 seconds |
+| Authorization duration | UI first-use default 30 minutes (or shorter site cap); owner may choose other durations or indefinite when allowed; idle timeout defaults to 10 minutes for bounded sessions | Persistence must honor signed expiry, idle timeout and revocation; heartbeats do not extend authorization |
+| Network fallback | Public STUN, **no TURN fallback**; restrictive NAT/firewalls can block WebRTC | Connectivity cannot be guaranteed in all networks |
+| Page tool authorization | Site must approve page tool calls in addition to wallet scope | Do not bypass site-side security to achieve unattended execution |
+
+### Verification work to perform
+
+1. Reproduce a normal authenticated connect, then verify presence and site action calls.
+2. Interrupt transport and observe reconnection state, reauthentication and recovery; test revoked/expired grants cannot reconnect.
+3. Refresh the website: prove whether the saved grant is listed and whether a user click is required. Capture UX and timing.
+4. Close the owner's browser while the headless agent stays running: separately test (a) agent transport and (b) whether website-hosted tools are callable. Do not conflate these.
+5. Propose the minimum secure architecture for unattended website actions: an independently running, origin-bound action endpoint/host; preserve per-action site policy and scoped consent.
+6. Define and test desired automatic reconnection only within a still-valid, non-revoked session, with explicit UI status and bounded retry/backoff.
+7. Record code paths, tests, screenshots, pass/fail/blocked and precise gaps before authoring implementation PRs.
+
+**Evidence status:** source/code review and documentation cross-check only. No runtime E2E tests executed as part of this update.
+
 ## Verification matrix
 
 | Scenario | Expected result | Evidence |
