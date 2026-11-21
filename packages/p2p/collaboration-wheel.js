@@ -103,7 +103,9 @@ class Wheel {
       this.ledger.subscribe((entry) => {
         this.inbox = this.inbox
           .then(() => this.renderEntry(entry))
-          .catch(() => {});
+          .catch(() =>
+            this.reportDiagnostic("A delivery status could not be updated."),
+          );
       }),
     );
     const network = this.options.network;
@@ -150,6 +152,19 @@ class Wheel {
 
   say(text) {
     this.ui.status.textContent = text;
+  }
+
+  // Surface a failure on the existing, bounded status surface. Messages here
+  // are fixed generic strings: never event payloads, secrets or peer data.
+  // Best effort and non-throwing so a failed step cannot break queue recovery
+  // in the inbox promise chain.
+  reportDiagnostic(text) {
+    if (this.disposed) return;
+    try {
+      this.say(text);
+    } catch {
+      // Status surface unavailable; recovery must still continue.
+    }
   }
 
   // ---- open / close / focus ------------------------------------------------
@@ -217,7 +232,15 @@ class Wheel {
     const peers = this.options.room?.peers;
     if (!peers) return;
     for (const peer of [...peers.values()]) {
-      const verified = await verifyPeerKey(peer.publicKey, peer.id);
+      let verified;
+      try {
+        verified = await verifyPeerKey(peer.publicKey, peer.id);
+      } catch {
+        // A verification error is not trust: skip this peer and report it
+        // generically, without exposing the key, id or any peer data.
+        this.reportDiagnostic("A peer could not be verified.");
+        continue;
+      }
       if (this.disposed) return;
       if (verified) {
         // A signed event may have refreshed this peer more recently than the
@@ -237,7 +260,14 @@ class Wheel {
     const key = envelope?.proof?.publicKey;
     const issuer = envelope?.body?.issuer;
     if (key && issuer) {
-      const verified = await verifyPeerKey(key, issuer);
+      let verified;
+      try {
+        verified = await verifyPeerKey(key, issuer);
+      } catch {
+        // Rejected verification is not trust. Report it without exposing the
+        // key, issuer or envelope, and leave the peer untrusted.
+        this.reportDiagnostic("A peer could not be verified.");
+      }
       if (this.disposed) return;
       if (verified && verified.walletId !== this.selfId)
         this.known = rememberPeer(this.known, verified);
@@ -700,7 +730,9 @@ class Wheel {
     }
     this.inbox = this.inbox
       .then(() => this.showIncoming(event))
-      .catch(() => {});
+      .catch(() =>
+        this.reportDiagnostic("An incoming message could not be processed."),
+      );
   }
 
   async whoIs(event) {
