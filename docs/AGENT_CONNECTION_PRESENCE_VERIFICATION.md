@@ -19,18 +19,18 @@ Status: **verification-only proposal**. The requested behaviors are intended exi
 
 Reviewed source paths: [connection state](../packages/p2p/connection-state.js), [lifecycle](lifecycle.md), [architecture](ARCHITECTURE.md), [security](SECURITY.md).
 
-| Finding | Source-backed current behavior | Product implication |
-| --- | --- | --- |
-| Identity, authorization, transport | Distinct states; `direct-peer-connected` requires an open authenticated WebRTC data channel | Never equate saved permission with live connectivity |
-| Network signaling | Nostr relays exchange signaling; signed application events use WebRTC data channels | Peer connection depends on a viable network path |
-| Reconnect state | Connection state machine includes `reconnecting`, `degraded`, `disconnected`; lifecycle says loss attempts reconnect and stops if retries exhaust | Test transient failures, backoff, identity reauthentication, and eventual offline status |
-| Browser refresh | Signed public session record remains in site origin `localStorage`, wallet grant in wallet IndexedDB; `listResumableSessions` and `resumeAIAuthSession` require a user-triggered **Resume** | **Gap relative to desired automatic recovery:** no silent restoration after refresh |
-| Browser tab close | Page's connection closes and page-hosted WebMCP tools cease | **Gap for unattended site operation:** require a separate persistent application action host or running browser context |
-| Independent agent | Headless agent runtime keeps its own connection while its process lives | Agent uptime alone does not keep the website's page-hosted tools alive |
-| Presence | Peer marked offline after **16 seconds** without heartbeat; registry entry removed after **24 seconds** | These are stale-presence thresholds, **not** proof that transport always disconnects exactly at 16 seconds |
-| Authorization duration | UI first-use default 30 minutes (or shorter site cap); owner may choose other durations or indefinite when allowed; idle timeout defaults to 10 minutes for bounded sessions | Persistence must honor signed expiry, idle timeout and revocation; heartbeats do not extend authorization |
-| Network fallback | Public STUN, **no TURN fallback**; restrictive NAT/firewalls can block WebRTC | Connectivity cannot be guaranteed in all networks |
-| Page tool authorization | Site must approve page tool calls in addition to wallet scope | Do not bypass site-side security to achieve unattended execution |
+| Finding                            | Source-backed current behavior                                                                                                                                                              | Product implication                                                                                                     |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Identity, authorization, transport | Distinct states; `direct-peer-connected` requires an open authenticated WebRTC data channel                                                                                                 | Never equate saved permission with live connectivity                                                                    |
+| Network signaling                  | Nostr relays exchange signaling; signed application events use WebRTC data channels                                                                                                         | Peer connection depends on a viable network path                                                                        |
+| Reconnect state                    | Connection state machine includes `reconnecting`, `degraded`, `disconnected`; lifecycle says loss attempts reconnect and stops if retries exhaust                                           | Test transient failures, backoff, identity reauthentication, and eventual offline status                                |
+| Browser refresh                    | Signed public session record remains in site origin `localStorage`, wallet grant in wallet IndexedDB; `listResumableSessions` and `resumeAIAuthSession` require a user-triggered **Resume** | **Gap relative to desired automatic recovery:** no silent restoration after refresh                                     |
+| Browser tab close                  | Page's connection closes and page-hosted WebMCP tools cease                                                                                                                                 | **Gap for unattended site operation:** require a separate persistent application action host or running browser context |
+| Independent agent                  | Headless agent runtime keeps its own connection while its process lives                                                                                                                     | Agent uptime alone does not keep the website's page-hosted tools alive                                                  |
+| Presence                           | Peer marked offline after **16 seconds** without heartbeat; registry entry removed after **24 seconds**                                                                                     | These are stale-presence thresholds, **not** proof that transport always disconnects exactly at 16 seconds              |
+| Authorization duration             | UI first-use default 30 minutes (or shorter site cap); owner may choose other durations or indefinite when allowed; idle timeout defaults to 10 minutes for bounded sessions                | Persistence must honor signed expiry, idle timeout and revocation; heartbeats do not extend authorization               |
+| Network fallback                   | Public STUN, **no TURN fallback**; restrictive NAT/firewalls can block WebRTC                                                                                                               | Connectivity cannot be guaranteed in all networks                                                                       |
+| Page tool authorization            | Site must approve page tool calls in addition to wallet scope                                                                                                                               | Do not bypass site-side security to achieve unattended execution                                                        |
 
 ### Verification work to perform
 
@@ -46,20 +46,20 @@ Reviewed source paths: [connection state](../packages/p2p/connection-state.js), 
 
 ## Verification matrix
 
-| Scenario | Expected result | Evidence |
-| --- | --- | --- |
-| SDK integration and connect UI | Connect action and copyable instruction work | Browser E2E screenshot + assertions |
-| First wallet connection | Approval popup; origin, scopes and duration are explicit | Browser E2E + consent signature assertions |
-| Reconnect to approved site | Grant remains recorded; resume follows existing policy; no silent privilege expansion | Reload and resume test |
-| Identity vs authorization vs online | Distinct states; online only on authenticated live WebRTC channel | State-machine test and transport logs |
-| Agent works with owner browsing | Authorized site actions execute and are audited | Browser E2E with human present |
-| Agent works after owner leaves | Headless runtime remains live; site action remains available only if its host is running | Headless E2E; distinguish page-hosted tools from server/headless tools |
-| Agent performs ordinary allowed actions | Existing approved capabilities suffice when policy allows; sensitive actions require additional site approval | Positive and negative tool-call tests |
-| Shared human and agent presence | Correct room membership and online/offline state | Multi-client browser E2E |
-| Agent ownership display | Verified owner binding is shown; unverified claims are labeled or hidden | Signature/attestation tests |
-| Restricted/private rooms | Visibility follows policy; private mode not misrepresented as anonymity | Privacy E2E |
-| Disconnect, expiry, revocation | Operations cease as dictated by signed policy; offline and unauthorized remain distinct | Lifecycle tests |
-| Network interruption | UI reports degraded/offline; no fabricated connected state | WebRTC fault injection |
+| Scenario                                | Expected result                                                                                               | Evidence                                                               |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| SDK integration and connect UI          | Connect action and copyable instruction work                                                                  | Browser E2E screenshot + assertions                                    |
+| First wallet connection                 | Approval popup; origin, scopes and duration are explicit                                                      | Browser E2E + consent signature assertions                             |
+| Reconnect to approved site              | Grant remains recorded; resume follows existing policy; no silent privilege expansion                         | Reload and resume test                                                 |
+| Identity vs authorization vs online     | Distinct states; online only on authenticated live WebRTC channel                                             | State-machine test and transport logs                                  |
+| Agent works with owner browsing         | Authorized site actions execute and are audited                                                               | Browser E2E with human present                                         |
+| Agent works after owner leaves          | Headless runtime remains live; site action remains available only if its host is running                      | Headless E2E; distinguish page-hosted tools from server/headless tools |
+| Agent performs ordinary allowed actions | Existing approved capabilities suffice when policy allows; sensitive actions require additional site approval | Positive and negative tool-call tests                                  |
+| Shared human and agent presence         | Correct room membership and online/offline state                                                              | Multi-client browser E2E                                               |
+| Agent ownership display                 | Verified owner binding is shown; unverified claims are labeled or hidden                                      | Signature/attestation tests                                            |
+| Restricted/private rooms                | Visibility follows policy; private mode not misrepresented as anonymity                                       | Privacy E2E                                                            |
+| Disconnect, expiry, revocation          | Operations cease as dictated by signed policy; offline and unauthorized remain distinct                       | Lifecycle tests                                                        |
+| Network interruption                    | UI reports degraded/offline; no fabricated connected state                                                    | WebRTC fault injection                                                 |
 
 ## Current architectural constraints to check, not erase
 

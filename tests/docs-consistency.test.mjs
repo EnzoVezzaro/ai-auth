@@ -2,7 +2,7 @@
 // shipped text and compare version claims to the manifests and the public API
 // list to a live import, so a doc cannot silently drift from the code again.
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
 
@@ -178,4 +178,32 @@ test("DTC-12: connect panel copy helpers are declared", async () => {
   const dts = await read("packages/p2p/index.d.ts");
   assert.match(dts, /export function connectPanelStatusText/u);
   assert.match(dts, /export function connectPanelButtonLabel/u);
+});
+
+test("DTC-13: every source doc is published by the build manifest", async () => {
+  const build = await read("scripts/build-p2p-static.mjs");
+  const block = build.match(/const DOC_PAGES = \[([\s\S]*?)\n\];/u)?.[1];
+  assert.ok(block, "DOC_PAGES manifest not found in the build script");
+  const listed = new Set(
+    [...block.matchAll(/file:\s*"([^"]+)"/gu)].map((match) => match[1]),
+  );
+  assert.ok(
+    listed.has("AGENT_CONNECTION_PRESENCE_VERIFICATION.md"),
+    "AGENT_CONNECTION_PRESENCE_VERIFICATION.md is not published by DOC_PAGES",
+  );
+  const sourceDocs = [];
+  const walk = async (dir, prefix = "") => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const relative = `${prefix}${entry.name}`;
+      if (entry.isDirectory() && entry.name !== "archive")
+        sourceDocs.push(
+          ...(await walk(resolve(dir, entry.name), `${relative}/`)),
+        );
+      else if (entry.name.endsWith(".md")) sourceDocs.push(relative);
+    }
+    return sourceDocs;
+  };
+  await walk(resolve(root, "docs"));
+  for (const name of sourceDocs)
+    assert.ok(listed.has(name), `${name}: not published by DOC_PAGES`);
 });
