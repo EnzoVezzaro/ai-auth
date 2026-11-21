@@ -278,6 +278,127 @@ test("a tampered package or a missing passphrase fails closed without leaking se
 });
 
 // ---------------------------------------------------------------------------
+// P0-04 (clean machine) — explicit, opt-in identity creation. `serve` never
+// mints an identity; `init --new-identity` is the one opt-in path.
+// ---------------------------------------------------------------------------
+
+test("init --new-identity creates and prints a fresh identity in a clean directory", async (t) => {
+  const dir = await scratch(t);
+  const r = run([
+    "init",
+    "--new-identity",
+    "--keystore-dir",
+    dir,
+    "--name",
+    "Fresh agent",
+  ]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout.trim(), /^agent:[A-Za-z0-9_-]+$/u);
+  assert.ok(!r.stdout.includes(PASS) && !r.stderr.includes(PASS));
+  assert.equal(
+    run(["whoami", "--keystore-dir", dir]).stdout.trim(),
+    r.stdout.trim(),
+  );
+  if (process.platform !== "win32")
+    assert.equal(
+      (await stat(path.join(dir, "identity.json"))).mode & 0o777,
+      0o600,
+    );
+  // The created keystore unlocks as a real identity in the agent runtime.
+  const wallet = await createFileKeystore({
+    dir,
+    passphrase: PASS,
+    env: {},
+  }).unlock();
+  assert.equal(wallet.id, r.stdout.trim());
+});
+
+test("plain serve on a clean directory fails, names the exact next command and creates nothing", async (t) => {
+  const clean = await scratch(t);
+  const r = run([
+    "serve",
+    "--keystore-dir",
+    clean,
+    "--origin",
+    "https://site.example",
+    "--room",
+    "lobby",
+    "--caps",
+    "presence.read",
+    "--approve",
+    "presence.read",
+  ]);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /init --new-identity/u);
+  assert.doesNotMatch(r.stderr, /agent ready|listening/u);
+  await assert.rejects(readFile(path.join(clean, "identity.json")), {
+    code: "ENOENT",
+  });
+  await assert.rejects(readFile(grantPath(clean)), { code: "ENOENT" });
+  await assert.rejects(readFile(path.join(clean, "runtime.json")), {
+    code: "ENOENT",
+  });
+  await assert.rejects(readFile(path.join(clean, "http-secret")), {
+    code: "ENOENT",
+  });
+});
+
+test("init --new-identity refuses to overwrite an existing keystore without --replace", async (t) => {
+  const dir = await scratch(t);
+  assert.equal(
+    run(["init", "--new-identity", "--keystore-dir", dir]).status,
+    0,
+  );
+  const before = await readFile(path.join(dir, "identity.json"), "utf8");
+  const state = {
+    [grantPath(dir)]: "{}\n",
+    [path.join(dir, "runtime.json")]: "{}\n",
+    [path.join(dir, "http-secret")]: "previous-secret-value",
+  };
+  for (const [file, text] of Object.entries(state))
+    await writeFile(file, text, { mode: 0o600 });
+
+  const denied = run(["init", "--new-identity", "--keystore-dir", dir]);
+  assert.notEqual(denied.status, 0);
+  assert.match(denied.stderr, /--replace/u);
+  assert.equal(await readFile(path.join(dir, "identity.json"), "utf8"), before);
+  for (const [file, text] of Object.entries(state))
+    assert.equal(await readFile(file, "utf8"), text);
+});
+
+test("init --new-identity --replace archives the old identity and clears saved state", async (t) => {
+  const dir = await scratch(t);
+  const first = run(["init", "--new-identity", "--keystore-dir", dir]);
+  assert.equal(first.status, 0, first.stderr);
+  const before = await readFile(path.join(dir, "identity.json"), "utf8");
+  await writeFile(grantPath(dir), "{}\n", { mode: 0o600 });
+  await writeFile(path.join(dir, "runtime.json"), "{}\n", { mode: 0o600 });
+  await writeFile(path.join(dir, "http-secret"), "previous-secret-value", {
+    mode: 0o600,
+  });
+
+  const r = run(["init", "--new-identity", "--keystore-dir", dir, "--replace"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout.trim(), /^agent:[A-Za-z0-9_-]+$/u);
+  assert.notEqual(r.stdout.trim(), first.stdout.trim());
+  assert.match(
+    r.stderr,
+    /grants and the local MCP endpoint secret were cleared/u,
+  );
+  const archived = await readFile(path.join(dir, "identity.json"), "utf8").then(
+    (text) => text !== before,
+  );
+  assert.ok(archived, "a fresh identity file replaces the previous one");
+  await assert.rejects(readFile(grantPath(dir)), { code: "ENOENT" });
+  await assert.rejects(readFile(path.join(dir, "runtime.json")), {
+    code: "ENOENT",
+  });
+  await assert.rejects(readFile(path.join(dir, "http-secret")), {
+    code: "ENOENT",
+  });
+});
+
+// ---------------------------------------------------------------------------
 // P0-05 — public descriptor and explicit project-subpath discovery
 // ---------------------------------------------------------------------------
 

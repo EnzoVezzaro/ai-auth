@@ -556,24 +556,34 @@ function buildInstructions() {
   // parser treats the URL as discovery-only and resolveSite falls back to the
   // manifest's first room ("default"), losing a custom ?room= from the link.
   const setupPage = `${location.origin}${location.pathname}?room=${encodeURIComponent(room)}`;
-  const command = `npx -y @enzovezzaro/ai-auth-mcp serve \\
-  --http 0 \\
-  --connect "${setupPage}" \\
-  --room "${room}" \\
-  --open-wallet \\
+  // Identity creation is an explicit, one-time opt-in step. `serve` only ever
+  // unlocks the existing keystore; it never mints an identity. Both commands
+  // share the same keystore directory so serve uses what init created.
+  const initCommand = `npx -y @enzovezzaro/ai-auth-mcp init --new-identity \
+  --keystore-dir ~/.ai-auth/agent`;
+  const serveCommand = `npx -y @enzovezzaro/ai-auth-mcp serve \
+  --keystore-dir ~/.ai-auth/agent \
+  --http 0 \
+  --connect "${setupPage}" \
+  --room "${room}" \
+  --open-wallet \
   --auto-join`;
 
   return `${instruction.instruction}
 
 Local setup (manual — review before running in your agent):
 
-${command}
+1) Create the agent identity once (passphrase from AI_AUTH_PASSPHRASE or a TTY prompt):
+${initCommand}
+
+2) Start the MCP bridge (uses the existing identity only; it never creates one):
+${serveCommand}
 
 Steps:
-1. Run the command above. It prints a loopback MCP URL.
-2. Approve the wallet window that opens on first connect. The agent creates and stores its own identity in a local encrypted keystore.
+1. Run command 1 once. It prints a public wallet ID; "serve" does not create an identity.
+2. Run command 2. It prints a loopback MCP URL, and the wallet window on first connect asks you to approve the exact scopes.
 3. Paste the printed MCP URL into your agent's MCP config and start the agent runtime.
-4. Copy the public wallet ID your agent prints, paste it into "Expected agent wallet ID" on this page, then choose Verify & connect.
+4. Copy the public wallet ID printed by command 1, paste it into "Expected agent wallet ID" on this page, then choose Verify & connect.
 
 This page marks a connection verified only after a fresh signed proof from that exact wallet and instance. Joining the room alone is not proof.
 

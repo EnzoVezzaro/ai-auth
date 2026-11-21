@@ -315,6 +315,8 @@ try {
   assert.match(copied, /Capabilities:.*presence\.read/u);
   assert.match(copied, /--open-wallet/u);
   assert.match(copied, /--auto-join/u);
+  assert.match(copied, /init --new-identity/u);
+  assert.match(copied, /does not create an identity/iu);
   assert.match(copied, /never paste private keys/iu);
 
   // P0-01 regression: peer B arriving while we wait for peer A must never

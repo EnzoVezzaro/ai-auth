@@ -30,6 +30,7 @@ const BOOL_FLAGS = new Set([
   "help",
   "open-wallet",
   "replace",
+  "new-identity",
 ]);
 
 const list = (value) =>
@@ -82,7 +83,12 @@ export const USAGE = `ai-auth-mcp [serve|init|setup|whoami|preview|unlink] [opti
                        Imports the generated identity with an explicit passphrase (AI_AUTH_PASSPHRASE
                        or TTY). Nothing is created or replaced implicitly.
   --replace            archive an existing identity before importing a *different* one (init/setup only).
-                       Never done automatically; clearing saved grants and the MCP endpoint secret follows.
+                       Never done automatically; clearing saved grants, runtime state and the MCP endpoint secret follows.
+  --new-identity       opt in to creating a fresh local identity (init only; clean directory).
+                       Uses AI_AUTH_PASSPHRASE or a TTY prompt. Never overwrites an existing
+                       keystore unless --replace is also passed, which archives the old identity
+                       and clears its saved grants, runtime state and MCP endpoint secret.
+                       "serve" never creates an identity: run "init --new-identity" first.
   setup                bootstrap then serve: reuse an existing keystore, otherwise import --from-install,
                        then run the same MCP bridge as "serve" (all serve options apply)
   --auto-join | --resume   join the room at startup / restore the last room
