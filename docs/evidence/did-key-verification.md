@@ -8,13 +8,13 @@ This is independent verification. The adapter and its tests were **not** modifie
 
 ## Environment
 
-- Repo: `/Users/mac/Desktop/Github/ai-auth` (Node `v22.23.4`, npm `10.9.9`, darwin)
-- External workdir: `/private/var/folders/lt/lfbc4_451gg2pb0vvbz8lc4m0000gn/T/opencode/did-verify`
+- Repo: the AI Auth checkout used for this run (Node `v22.23.4`, npm `10.9.9`, darwin)
+- External workdir: a throwaway directory outside the repo, for example `${TMP:-/tmp/ai-auth-did-verify}`
 
 ## Exact setup commands (run outside the repo)
 
 ```sh
-TMP=/private/var/folders/lt/lfbc4_451gg2pb0vvbz8lc4m0000gn/T/opencode/did-verify
+TMP=${TMP:-/tmp/ai-auth-did-verify}
 mkdir -p "$TMP" && cd "$TMP"
 npm init -y >/dev/null
 npm install multiformats@14.0.6 multicodec@3.2.1 \
@@ -35,9 +35,9 @@ Resolved tarballs (from the external `package-lock.json`): `multiformats-14.0.6.
 ## Rerun the verification
 
 ```sh
-cd /Users/mac/Desktop/Github/ai-auth
+cd /path/to/ai-auth
 node scripts/verify-did-key.mjs \
-  --modules-dir /private/var/folders/lt/lfbc4_451gg2pb0vvbz8lc4m0000gn/T/opencode/did-verify/node_modules
+  --modules-dir "${TMP:-/tmp/ai-auth-did-verify}/node_modules"
 ```
 
 Observed output ended with `RESULT: PASS (54/54 checks passed)`, exit code `0`. The script generates 6 fresh P-256 keypairs per run with Node Web Crypto and checks each with all three external layers, then runs rejection cases through the adapter's public API.

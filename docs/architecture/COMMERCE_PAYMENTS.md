@@ -1,6 +1,6 @@
 # Commerce and payments
 
-> Status: boundary decision and proposed integration plan. No commerce or payment code exists in this repository. No real purchases, payment submissions or financial account operations are permitted during development or testing. Research date: 2026-11-19.
+> Status: boundary decision and proposed integration plan. No real payment operations, mandate minting or provider integrations exist. An additive deny-by-default boundary helper ships as the optional `./commerce-boundary` subpath; it contains no purchase logic. No real purchases, payment submissions or financial account operations are permitted during development or testing. Research date: 2026-11-19.
 
 ## 1. Hard rule
 

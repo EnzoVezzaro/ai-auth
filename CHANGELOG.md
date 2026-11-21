@@ -1,6 +1,33 @@
 # Changelog
 
-## 0.12.0 - 2026-11-19
+## 0.12.1 - 2026-11-21
+
+Patch release implementing the code-reviewed audit `docs/AGENT_IDENTITY_UX_AUDIT_2026_11_20.md`. The guiding rule: **never claim Connected without a verified identity, an effective authorization and a live authenticated peer.** All items below were implemented with passing automated evidence; limitations are stated honestly rather than reported as compatible.
+
+### Changed / Fixed (P0 — identity truthfulness)
+
+- Pairing now binds an immutable expected wallet + instance to a fresh single-use challenge (`apps/connect-agent/pairing.js`, `packages/agent/pairing.js`). Unrelated peers, wrong keys, wrong instances, replayed nonces and mismatched origins/rooms never complete a pairing. The UI derives its state from real lifecycle transitions and shows only effective verified scopes — never the requested defaults.
+- Owner-signed `agent/access-grant` authorization is verified with `verifyPairingGrant` before any scope appears as approved. Without a valid grant, identity may verify but access stays "Permissions not verified" and online stays false.
+- Owner-signed `agent/access-grant-revocation` invalidates the accepted grant immediately, clears online while preserving the historical "Identity verified" fact, and is replay/dedupe safe. Covered by `tests/connect-agent-pairing.test.mjs`, `packages/agent/test/pairing.test.mjs` and a live revocation step in `npm run test:connect-agent`.
+- `ai-auth-mcp setup` / `init --from-install` provides a canonical bootstrap path with explicit approval, no hidden `init`, and no inheritance of grants or the HTTP secret when replacing an identity. `--open-wallet` no longer hits a temporal-dead-zone bug, and GitHub Pages subpath discovery is explicit and honest.
+
+### Added (P1 — one flow and verifiable external connection)
+
+- `apps/connect-agent/`: one primary action and three chapters (Choose → Approve/Install → Verify & Connect) with separate rows for Identity verified, Access approved and Connected now, an actionable error state and an Advanced area for raw proof and diagnostics.
+- A minimal external wallet integration at `examples/host-site/` plus `npm run test:host-site`: a real in-page wallet modal, owner approval of a subset, effective scopes only, a masked id and a verified peer with signed messages. Distinct from identity setup, which keeps its own E2E (`npm run test:connect-agent`).
+- First-use session default is now a bounded 30 minutes (or the site cap) instead of Never, while "Until I disconnect" remains explicit (P1-15, security decision in `docs/lifecycle.md`). No protocol or saved-grant semantics changed.
+
+### Documentation and limits (honest status)
+
+- `docs/AGENT_HARNESS_SUPPORT.md` records live automated verification from this environment (stdio + Streamable HTTP MCP tool calls, consent and connect-agent E2E) with date, OS, Node/npm versions and commands. Interactive Claude Code, Codex and ChatGPT desktop/web sessions were **not** run here and remain **NO VERIFIED**, not claimed compatible.
+- `docs/site-integration.md` links the runnable host-site example and its 7-step E2E. Architecture, lifecycle, protocol, discovery and conformance docs were aligned with shipped v0.12.1 subpaths.
+- Known limitations: no A2A/ACP task state machine, no hardware attestation (provider/model stay self-reported), revocation is eventually consistent and does not by itself close the data channel, and there is no automatic browser reconnection on refresh.
+
+### Verification
+
+`npm test` 678/678; `npm run test:connect-agent` and `npm run test:host-site` PASS; `npm test --prefix packages/{mcp,agent,runtime}` 97/59/7 PASS; `npm run test:mcp-consent` PASS; `npm run build`, `npm run verify:docs` (38 pages) and `npm run format:check` PASS.
+
+## 0.12.0 - 2026-11-20
 
 ### Added
 
@@ -184,7 +211,7 @@
 - The wallet stacks its request and key panels below 900px, so the request text stays readable inside the 720px connect dialog.
 - Documentation matches the code: the session idle rule (local page activity counts), `resume()` on the agent runtime, the protocol section status labels, and the `degraded` state, which no code path enters yet.
 
-### Fixed
+### Fixed — delivery and budgets
 
 - Presence no longer starves chat. Heartbeats, hello, goodbye and cursor events have their own inbound budgets per source, per identity and per room. Cursor movement can no longer drop a site's messages, actions or receipts.
 - Delivery is per recipient. A broadcast used to skip a peer whose channel was briefly not open, with no error and no retry, so a message could stay "waiting for a receipt" forever. Each send now targets one peer, and a missed send is retried until the peer reopens or the signed event expires.

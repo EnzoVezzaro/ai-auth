@@ -1,6 +1,6 @@
 # AI Auth wire protocol v1
 
-This is the v1 contract used by `@enzovezzaro/ai-auth-wallet` 0.12.0. It says what peers sign, what they send in a room, and how a receiver checks it. These are AI Auth conventions. They are not WebMCP, OAuth, or a standards-body specification.
+This is the v1 contract used by `@enzovezzaro/ai-auth-wallet` 0.12.1. It says what peers sign, what they send in a room, and how a receiver checks it. These are AI Auth conventions. They are not WebMCP, OAuth, or a standards-body specification.
 
 ## Signed envelope
 
@@ -48,7 +48,7 @@ Each event is a signed envelope. The capability column is the scope the room req
 | `collab/attachment`       | `content.share` | transfer `id` (also the `messageId`), chunk fields, optional `target`                                   |
 | `ai-auth-receipt`         | none            | `v`, `messageId`, `sender`, `receiver`, `receivedAt`, plus the room fields above                        |
 | `agent/action`            | `tools.invoke`  | `kind` of `tool-catalog`, `tool-request`, `tool-cancel`, `tool-response`; or `name`, `state`, `summary` |
-| `membership/prove`        | `presence.read` | empty, plus the membership proof                                                                        |
+| `membership/prove`        | none            | empty, plus the membership proof (checked only in a restricted room)                                    |
 | `revocation/gossip`       | none            | one of `revocation`, `linkRevocation`, `epoch`                                                          |
 | `revocation/sync-request` | none            | empty                                                                                                   |
 | `revocation/sync`         | none            | `epoch`, `revocations`, `linkRevocations`; at most 32 records in each list                              |
@@ -67,7 +67,7 @@ Cursors are published as `presence/cursor` with `type: "ai-auth-cursor"` and `v:
 | `visible`, `scroll` | Optional. `visible` is a boolean. `scroll` is a fraction from 0 to 1.                                                                                       |
 | `selector`, `label` | Optional. `selector` is a stable element hint. `label` is a claim.                                                                                          |
 
-A peer is online while its heartbeat lease is fresh, shown offline after 16 seconds without a heartbeat, and removed with its cursor after 24 seconds or on `peer/goodbye`.
+A peer is online while its heartbeat lease is fresh, shown offline after 16 seconds without a heartbeat, and removed from the peer registry after 24 seconds or on `peer/goodbye`. The site's cursor overlay fades a stale cursor at 16 seconds and removes its DOM node after 60 seconds, so a late cursor can linger visually after the peer is gone.
 
 ## Chat types
 
@@ -89,18 +89,18 @@ The runtime value of `TOOL_ERROR_CODES` is defined in `packages/p2p/webmcp.js` a
 
 ## Standalone signed objects
 
-These are signed objects, not wallet envelopes. Each has a `type`, a `v`, a per-type domain string, and the same canonicalization and signature as above.
+Most standalone objects are signed with a per-type domain string, so a signature for one type cannot validate as another. They are not room envelopes. `ai-auth-link` and `ai-auth-link-revocation` are the exception: both are full signed envelopes produced by `signEnvelope` and carry `protocol`, `version` and `createdAt`; their type separation comes from the envelope `body.type`.
 
-| Type                       | Purpose                                                                 |
-| -------------------------- | ----------------------------------------------------------------------- |
-| `ai-auth-instance-binding` | Binds one running instance id to one wallet key                         |
-| `ai-auth-agent-descriptor` | Signed self-description attached to a v2 consent. All fields are claims |
-| `ai-auth-membership`       | Site-issued admission to a restricted room                              |
-| `ai-auth-execution-grant`  | Short-lived permission for a protected operation, at most 15 minutes    |
-| `ai-auth-revocation`       | Revokes a membership, link, or wallet id                                |
-| `ai-auth-epoch`            | Announces a new authorization epoch                                     |
-| `ai-auth-link`             | Binds a wallet to one site resource, at most 30 days                    |
-| `ai-auth-link-revocation`  | Wallet-signed revocation of a link                                      |
+| Type                                 | Purpose                                                                 |
+| ------------------------------------ | ----------------------------------------------------------------------- |
+| `ai-auth-instance-binding`           | Binds one running instance id to one wallet key                         |
+| `ai-auth-agent-descriptor`           | Signed self-description attached to a v2 consent. All fields are claims |
+| `ai-auth-membership`                 | Site-issued admission to a restricted room                              |
+| `ai-auth-execution-grant`            | Short-lived permission for a protected operation, at most 15 minutes    |
+| `ai-auth-revocation`                 | Revokes a membership, link, or wallet id                                |
+| `ai-auth-epoch`                      | Announces a new authorization epoch                                     |
+| `ai-auth-link` (envelope)            | Binds a wallet to one site resource, at most 30 days                    |
+| `ai-auth-link-revocation` (envelope) | Wallet-signed revocation of a link                                      |
 
 Revocation, epoch, and link records are checked against the verifier's local trust policy and an exact origin and room. There is no global revocation service. See [security boundaries](SECURITY.md).
 

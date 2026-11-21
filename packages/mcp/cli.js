@@ -6,6 +6,8 @@ import path from "node:path";
 import {
   createFileKeystore,
   createAgentRuntime,
+  installAgentIdentity,
+  promptSecret,
 } from "@enzovezzaro/ai-auth-agent";
 import {
   NonceGuard,
@@ -46,7 +48,13 @@ async function resolveSite(args) {
     throw new Error("Provide --connect (instruction or site URL) or --origin");
   if (site.discoveryOnly && !args.flags.has("no-manifest") && !args.caps) {
     try {
-      site = { ...(await fetchSiteManifest(site.origin)), source: "manifest" };
+      // Preserve the manifest source and provisional flag from discovery. The
+      // preview must not present a typeless fallback as a validated v1 doc.
+      // Pass the exact public base URL (when present) so a project-subpath host
+      // such as GitHub Pages /ai-auth/ is discovered explicitly, not guessed.
+      site = await fetchSiteManifest(site.origin, {
+        baseUrl: site.discoveryBaseUrl,
+      });
     } catch (error) {
       throw new Error(
         `${error.message}. Pass --caps to name the scopes explicitly`,
@@ -128,6 +136,105 @@ async function approveInBrowser({ site, asked, consentUrl, walletId }) {
 
 let pendingConsent = null;
 
+/**
+ * P0-04 bootstrap helpers. Importing a browser-generated identity is an
+ * explicit, named action: it never happens inside `serve` and never silently
+ * replaces an existing keystore. Only the public wallet id is ever printed;
+ * the passphrase and the encrypted backup never reach logs, URLs or a clipboard.
+ */
+async function readInstallPackage(fromInstall) {
+  if (typeof fromInstall !== "string" || !fromInstall.trim())
+    throw new Error("--from-install needs the install package file");
+  const file = path.resolve(
+    fromInstall.startsWith("@") ? fromInstall.slice(1) : fromInstall,
+  );
+  let text;
+  try {
+    text = await readFile(file, "utf8");
+  } catch (error) {
+    throw new Error(`Cannot read the install package: ${error.message}`);
+  }
+  let pkg;
+  try {
+    pkg = JSON.parse(text);
+  } catch {
+    throw new Error("The install package is not valid JSON");
+  }
+  if (
+    !pkg ||
+    pkg.format !== "ai-auth-agent-install" ||
+    pkg.version !== 1 ||
+    typeof pkg.walletId !== "string" ||
+    !pkg.walletId
+  )
+    throw new Error("Not an AI Auth agent install package (v1)");
+  return pkg;
+}
+
+async function importPassphrase() {
+  const fromEnv = process.env.AI_AUTH_PASSPHRASE;
+  if (fromEnv) return fromEnv;
+  if (interactive()) return promptSecret("Recovery passphrase: ");
+  throw new Error(
+    "Importing needs the recovery passphrase: set AI_AUTH_PASSPHRASE or run at a TTY",
+  );
+}
+
+async function bootstrapIdentity(args) {
+  const keystore = createFileKeystore({ dir: args.keystoreDir });
+  const existed = await keystore.exists();
+  if (!args.fromInstall) {
+    // Reuse is allowed, creation is not: a clean keystore needs an explicit
+    // install package. This is what keeps `serve`/`setup` from minting keys.
+    if (existed) return { action: "reused", id: null };
+    throw new Error(
+      "No keystore exists here; bootstrap needs --from-install <file> (nothing is created implicitly)",
+    );
+  }
+  const pkg = await readInstallPackage(args.fromInstall);
+  const passphrase = await importPassphrase();
+
+  if (existed && !args.flags.has("replace")) {
+    let existing;
+    try {
+      existing = await keystore.unlock();
+    } catch (error) {
+      throw new Error(
+        `An identity already exists here and could not be read (${error.message}); pass --replace to archive it explicitly`,
+      );
+    }
+    if (existing.id === pkg.walletId) {
+      err(`Identity reused (no import, no replacement): ${existing.id}`);
+      return { action: "reused", id: existing.id };
+    }
+    throw new Error(
+      "A different identity already exists in this keystore; re-run with --replace to archive it explicitly",
+    );
+  }
+
+  const result = await installAgentIdentity({
+    dir: args.keystoreDir,
+    installPackage: pkg,
+    passphrase,
+    replace: args.flags.has("replace") || existed,
+  });
+  if (existed) {
+    // A new identity must never inherit the previous identity's saved
+    // approvals or secret MCP endpoint: that would re-approve access without
+    // consent. Clear them so the next serve requires fresh explicit approval.
+    await Promise.all([
+      rm(grantPath(args.keystoreDir), { force: true }),
+      rm(path.join(args.keystoreDir, "runtime.json"), { force: true }),
+      rm(path.join(args.keystoreDir, "http-secret"), { force: true }),
+    ]);
+    err(
+      "Identity replaced. Saved grants and the local MCP endpoint secret were cleared; re-approve on the next serve.",
+    );
+  }
+  err(`Identity imported for this agent: ${result.id}`);
+  return { action: "imported", id: result.id };
+}
+
 async function serve(args) {
   const site = await resolveSite(args);
   const requested = requestedScopes(site);
@@ -144,6 +251,10 @@ async function serve(args) {
   );
   let bridge = null;
   let runtime = null;
+  // Declared before makeServer: its approval callback reads this when the MCP
+  // server is constructed. Creating it later was a temporal dead zone and made
+  // --open-wallet fail before the consent endpoint existed.
+  let http = null;
   // One agent runtime, however many MCP sessions connect (HTTP opens one per
   // client session). Approval runs once; later sessions reuse the grant.
   const makeServer = () =>
@@ -212,6 +323,12 @@ async function serve(args) {
           runtime,
           providedTools: provider ? [...provider.tools] : [],
         });
+        // HTTP mode approves on the first session, after serve() returned.
+        if (pendingStart) {
+          const start = pendingStart;
+          pendingStart = null;
+          start();
+        }
         await writeSavedGrant({
           dir: args.keystoreDir,
           origin: site.origin,
@@ -223,8 +340,11 @@ async function serve(args) {
         return approved;
       },
     }).then(({ server }) => server);
-  const server = await makeServer();
-  let http = null;
+  // In HTTP mode the MCP server must be built after the consent endpoint
+  // exists: approveCapabilities runs during construction and --open-wallet
+  // needs http.consentUrl. serveAIAuthMcpHttp calls createMcpServer on the
+  // first session, so pass a lazy factory there instead of an eager server.
+  let server = null;
   const shutdown = async () => {
     bridge?.close();
     await http?.close().catch(() => {});
@@ -239,7 +359,7 @@ async function serve(args) {
     const port = Number(args.http);
     if (!Number.isInteger(port) || port < 0 || port > 65_535)
       throw new Error("--http needs a port number");
-    let first = server;
+    let first = null;
     // The secret path is the credential. Keep it with the keystore so the same
     // agent keeps the same address across restarts (clients store the URL).
     const secretFile = path.join(args.keystoreDir, "http-secret");
@@ -267,23 +387,32 @@ async function serve(args) {
         return ready ?? makeServer();
       },
     });
+    // The runtime is approved on the first MCP session, not at startup.
     err(
-      `ai-auth-mcp ready: ${runtime.capabilities.join(", ")} for ${site.origin} (HTTP MCP; runs until stopped)\nMCP endpoint: ${http.url}\nThe URL is the credential for this agent. Share it only with the client you connect.`,
+      `ai-auth-mcp listening for ${site.origin} (HTTP MCP; approval completes on the first session)\nMCP endpoint: ${http.url}\nThe URL is the credential for this agent. Share it only with the client you connect.`,
     );
   } else {
+    server = await makeServer();
     process.stdin.once("end", shutdown);
     await connectAIAuthMcpStdio(server);
     err(
       `ai-auth-mcp ready: ${runtime.capabilities.join(", ")} for ${site.origin} (stdio MCP; not a background service)`,
     );
   }
-  const start = args.flags.has("resume")
-    ? runtime.resume()
-    : args.flags.has("auto-join")
-      ? runtime.join()
-      : null;
-  start?.catch((error) => err(`auto-join failed: ${error.message}`));
+  const startRuntime = () => {
+    const start = args.flags.has("resume")
+      ? runtime.resume()
+      : args.flags.has("auto-join")
+        ? runtime.join()
+        : null;
+    start?.catch((error) => err(`auto-join failed: ${error.message}`));
+  };
+  if (runtime) startRuntime();
+  else if (args.flags.has("resume") || args.flags.has("auto-join"))
+    pendingStart = startRuntime;
 }
+
+let pendingStart = null;
 
 async function unlink(args) {
   const yes = args.flags.has("yes") || (interactive() && (await askYes()));
@@ -311,8 +440,16 @@ async function main(argv) {
   if (args.flags.has("help")) return err(USAGE);
   const keystore = createFileKeystore({ dir: args.keystoreDir });
   if (args.command === "init") {
+    if (args.fromInstall) {
+      const imported = await bootstrapIdentity(args);
+      return process.stdout.write(`${imported.id}\n`);
+    }
     const wallet = await keystore.create({ name: args.name ?? "ai-auth-mcp" });
     return process.stdout.write(`${wallet.id}\n`);
+  }
+  if (args.command === "setup") {
+    await bootstrapIdentity(args);
+    return serve(args);
   }
   if (args.command === "whoami")
     return process.stdout.write(`${(await keystore.unlock()).id}\n`);

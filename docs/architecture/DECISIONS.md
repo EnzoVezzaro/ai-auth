@@ -1,6 +1,6 @@
 # Architecture decisions
 
-> Status: proposed decisions from the 2026-11-19 council. They take effect only when the implementation approval gate is passed. Existing behavior is unchanged.
+> Status: decisions from the 2026-11-19 council. ADR-002, ADR-011 and the optional subpaths they describe were ratified in v0.12.0; the remaining ADRs are still proposals. "Existing behavior is unchanged" applies to the wire format and root exports, not to the optional subpaths added in v0.12.0. See [the standards matrix](STANDARDS_MATRIX.md).
 
 ## ADR-001 — Keep `agent:` identity canonical
 

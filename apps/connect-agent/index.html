@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#080a0d" />
     <meta
       name="description"
-      content="Create an identity for your agent, download its backup, install it, then connect it to sites with a link."
+      content="Connect an agent: approve its local setup, then verify its signed identity before it shows as online."
     />
     <title>Connect an agent — AI Auth</title>
     <link
@@ -17,6 +17,7 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
+    <a class="skip-link" href="#connect-card">Skip to connect</a>
     <header class="bar">
       <a class="brand" href="../">
         <img class="brand-mark" src="../docs/assets/ai-auth-mark.svg" alt="" />
@@ -40,176 +41,189 @@
           <span class="satellite s3"></span>
         </div>
 
-        <p class="eyebrow" id="state-eyebrow">1 · CREATE IDENTITY</p>
-        <h1 id="state-title">Give your agent an identity</h1>
+        <p class="eyebrow" id="state-eyebrow">CONNECT AN AGENT</p>
+        <h1 id="state-title">Connect an agent</h1>
         <p class="lede" id="state-lede">
-          Create a self-custodied key with an encrypted backup, install it into
-          your agent, then share a link to connect it anywhere. All from the
-          SDK.
+          Approve your agent's local setup, then prove it controls its own
+          identity before anything is shown as connected.
         </p>
 
-        <ol class="stepper">
-          <li class="active" data-step="1">Create</li>
-          <li data-step="2">Backup</li>
-          <li data-step="3">Install</li>
-          <li data-step="4">Connected</li>
+        <ol class="stepper" id="stepper" aria-label="Connection steps">
+          <li id="chapter-choose" class="active"><b>1</b> Choose</li>
+          <li id="chapter-approve"><b>2</b> Approve / Install</li>
+          <li id="chapter-verify"><b>3</b> Verify &amp; Connect</li>
         </ol>
 
-        <div class="status-pill" id="status-pill">
-          <span class="dot"></span> WAITING
+        <div
+          class="status-pill"
+          id="status-pill"
+          role="status"
+          aria-live="polite"
+        >
+          <span class="dot" aria-hidden="true"></span>
+          <span id="status-text">NOT STARTED</span>
         </div>
 
-        <form id="setup" class="setup">
-          <label for="agent-name-input">Agent name</label>
-          <input
-            id="agent-name-input"
-            maxlength="60"
-            required
-            placeholder="E.g. Research assistant"
-          />
-          <label for="passphrase">Recovery passphrase</label>
-          <input
-            id="passphrase"
-            type="password"
-            minlength="12"
-            required
-            autocomplete="new-password"
-          />
-          <label for="confirm">Confirm passphrase</label>
-          <input
-            id="confirm"
-            type="password"
-            minlength="12"
-            required
-            autocomplete="new-password"
-          />
-          <small
-            >Use 12 or more characters. The backup is encrypted in this
-            browser.</small
-          >
-          <button id="create" class="primary" type="submit">
-            Create identity &amp; download backup
-          </button>
-        </form>
-
-        <div id="share-block" hidden>
-          <section class="install">
-            <p class="mini-label">2 · BACKUP DOWNLOADED</p>
-            <h2>Save these two files</h2>
-            <ul class="files">
-              <li>
-                <b>ai-auth-agent-install.json</b
-                ><span>identity, instance binding and encrypted backup</span>
-              </li>
-              <li>
-                <b>*-recovery.json</b
-                ><span>the encrypted key backup on its own</span>
-              </li>
-            </ul>
-            <p class="fine">
-              Keep the passphrase you chose. Neither file can be opened without
-              it.
-            </p>
-            <code class="new-id" id="new-id"></code>
-          </section>
-
-          <section class="install">
-            <p class="mini-label">3 · INSTALL INTO THE AGENT</p>
-            <h2>Run this in your agent repo</h2>
-            <pre id="snippet"></pre>
-            <ol class="steps">
-              <li>
-                <b>1</b
-                ><span
-                  >Put <em>ai-auth-agent-install.json</em> in the agent's
-                  working directory.</span
-                >
-              </li>
-              <li>
-                <b>2</b
-                ><span
-                  >Run the SDK call above with the passphrase you chose.</span
-                >
-              </li>
-              <li>
-                <b>3</b
-                ><span
-                  >Start the agent runtime. This page updates when it
-                  joins.</span
-                >
-              </li>
-            </ol>
-          </section>
-
-          <section class="install">
-            <p class="mini-label">ONE PASTE FOR YOUR AGENT</p>
-            <h2>Local MCP endpoint</h2>
-            <p class="fine">
-              Run this once. It prints a loopback MCP URL; paste that URL into
-              your agent. The first connect opens the wallet approval window.
-            </p>
-            <pre id="mcp-command"></pre>
-            <p class="fine">
-              Agent config — replace the URL with the one the command prints:
-            </p>
-            <pre id="mcp-config"></pre>
-          </section>
-
-          <div class="link-box">
+        <!-- Chapter 1: Choose -->
+        <div id="start" class="start">
+          <label class="field">
+            <span>Agent setup</span>
+            <select id="harness" class="control">
+              <option value="mcp">Local agent (MCP bridge)</option>
+              <option value="manual">Other / manual setup</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Expected agent wallet ID</span>
             <input
-              id="site-link"
-              readonly
-              aria-label="Connect link for other sites"
+              id="expected-wallet"
+              class="control"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Public wallet ID your agent prints after setup"
             />
-            <button id="copy-link" class="ghost small">Copy link</button>
-          </div>
-          <details class="details">
-            <summary>Exact connection details</summary>
-            <textarea id="instruction" readonly rows="6"></textarea>
-            <button id="copy-instruction" class="ghost small">
-              Copy instruction
-            </button>
-          </details>
-          <p class="fine">
-            On any other AI Auth site, this link (or a copied instruction) is
-            all the agent needs to connect.
-          </p>
+            <small>
+              Public ID only. Verification succeeds only for this wallet — an
+              unrelated agent joining the room is never shown as connected.
+            </small>
+          </label>
+          <label class="field">
+            <span>Expected instance ID <small>(required to verify)</small></span>
+            <input
+              id="expected-instance"
+              class="control"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="inst:… (printed by your agent)"
+            />
+          </label>
+          <button id="connect" class="primary" type="button">
+            Connect an agent
+          </button>
+          <small>
+            Copies the setup instructions to your clipboard. No keys,
+            passphrases or secrets are copied.
+          </small>
         </div>
 
+        <!-- Chapter 2: Approve / Install -->
+        <div id="waiting" class="waiting" hidden>
+          <h2>Approve / Install</h2>
+          <p>
+            Run these steps where your agent runs. The private key stays in the
+            agent's local encrypted keystore; this page never sees it.
+          </p>
+          <ol class="steps">
+            <li><b>1</b><span>Run the copied setup command locally.</span></li>
+            <li>
+              <b>2</b
+              ><span>Approve the wallet window that opens on first connect.</span>
+            </li>
+            <li>
+              <b>3</b><span>Copy the public wallet ID your agent prints.</span>
+            </li>
+            <li>
+              <b>4</b
+              ><span>Return here and choose Verify &amp; connect.</span>
+            </li>
+          </ol>
+          <p class="helper-note">
+            A static website cannot install a local process by itself. Manual
+            approval on your device is required — this is not a one-click
+            install.
+          </p>
+          <div class="button-row centered">
+            <button id="again" class="ghost small" type="button">
+              Copy instructions again
+            </button>
+            <button id="begin-verify" class="primary" type="button">
+              I installed it — Verify &amp; connect
+            </button>
+          </div>
+          <p class="error" id="error" role="alert" aria-live="polite"></p>
+        </div>
+
+        <!-- Chapter 3: Verify & Connect -->
         <section class="session" id="session" hidden>
           <div class="session-head">
-            <div class="agent-avatar" id="agent-avatar">A</div>
+            <div class="agent-avatar" id="agent-avatar" aria-hidden="true">A</div>
             <div>
-              <p class="mini-label">4 · CONNECTED AGENT</p>
-              <h2 id="agent-name">Agent</h2>
+              <p class="mini-label">EXPECTED AGENT</p>
+              <h2 id="agent-name">Not verified yet</h2>
               <code id="agent-id"></code>
             </div>
           </div>
-          <p class="cap-label">APPROVED CAPABILITIES</p>
-          <div class="cap-row" id="capabilities"></div>
-          <p class="session-note">
-            The connection stays open while this page is open.
-          </p>
-          <div class="button-row">
-            <button id="disconnect" class="danger">Disconnect</button
-            ><button id="reconnect" class="ghost" hidden>Start over</button>
+
+          <div class="status-card" id="status-card" aria-live="polite">
+            <div class="status-row" id="row-identity">
+              <span class="mark" id="identity-mark" aria-hidden="true">○</span>
+              <span class="row-label">Identity verified</span>
+              <span class="row-value" id="identity-status">Not verified</span>
+            </div>
+            <div class="status-row" id="row-access">
+              <span class="mark" id="access-mark" aria-hidden="true">○</span>
+              <span class="row-label">Access approved</span>
+              <span class="row-value" id="access-status">Not yet authorized</span>
+            </div>
+            <div class="status-row" id="row-connected">
+              <span class="mark" id="connected-mark" aria-hidden="true">○</span>
+              <span class="row-label">Connected now</span>
+              <span class="row-value" id="connected-status">Offline</span>
+            </div>
           </div>
-        </section>
 
-        <section class="activity" id="activity" hidden>
-          <p class="mini-label">LIVE ACTIVITY</p>
-          <ol id="activity-list"></ol>
-        </section>
+          <p class="diagnosis" id="diagnosis" role="status" aria-live="polite"></p>
+          <p class="action-hint" id="action-hint"></p>
 
-        <p class="error" id="error" aria-live="polite"></p>
+          <div class="cap-block">
+            <p class="cap-label" id="cap-label">Permissions requested</p>
+            <div class="cap-row" id="capabilities">
+              <span class="cap-note">Not yet authorized — effective permissions appear here after approval.</span>
+            </div>
+          </div>
+
+          <p class="session-note" id="session-note"></p>
+          <div class="button-row">
+            <button id="test-connection" class="ghost small" type="button">
+              Test connection
+            </button>
+            <button id="retry" class="ghost small" type="button">
+              Verify again
+            </button>
+            <button id="disconnect" class="ghost small" type="button">
+              Disconnect
+            </button>
+          </div>
+
+          <details class="advanced" id="advanced">
+            <summary>Advanced / Troubleshooting</summary>
+            <dl class="advanced-list" id="advanced-details">
+              <dt>Expected agent wallet (DID)</dt><dd id="adv-did">—</dd>
+              <dt>Expected instance ID</dt><dd id="adv-instance">—</dd>
+              <dt>Challenge ID / nonce</dt><dd id="adv-challenge">—</dd>
+              <dt>Proof (raw, verified)</dt><dd id="adv-proof">—</dd>
+              <dt>Last verification</dt><dd id="adv-verified-at">—</dd>
+              <dt>Room / origin</dt><dd id="adv-context">—</dd>
+              <dt>Transport status</dt><dd id="adv-transport">—</dd>
+              <dt>Diagnostics</dt><dd id="adv-diagnostics">—</dd>
+            </dl>
+            <p class="helper-note">
+              A wallet signature proves control of the expected key and
+              instance. It does not prove the model, vendor, physical device or
+              absence of key copies. Runtime details are self-reported claims.
+            </p>
+          </details>
+        </section>
       </section>
     </main>
 
     <footer class="foot">
-      <span
-        >Agents bring their own installed identity. No human identity is created
-        here.</span
-      >
+      <span>
+        Agents bring their own installed identity. No human identity is created
+        here.
+      </span>
       <a href="../wallet/">Owner wallet →</a>
     </footer>
 

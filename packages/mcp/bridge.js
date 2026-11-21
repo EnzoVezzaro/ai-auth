@@ -6,6 +6,7 @@ import {
   MAX_MESSAGE_CHARS,
   RECEIPT_TYPE,
   TOOL_ERROR_CODES,
+  isAddressedTo,
 } from "@enzovezzaro/ai-auth-wallet";
 import { TOOL_NAME_PATTERN } from "@enzovezzaro/ai-auth-wallet/webmcp";
 
@@ -208,6 +209,13 @@ export function createAgentBridge({
       return;
     seq += 1;
     const { type, issuer, payload } = envelope.body;
+    // A message signed for another wallet must never appear in this agent's
+    // event ring, even though the open room broadcasts it to every peer.
+    if (
+      (type?.startsWith("collab/") || type === "message/text") &&
+      !isAddressedTo(payload, runtime.identity?.id)
+    )
+      return;
     if (type === "presence/cursor") {
       const parsed = parseCursorPayload(payload);
       if (parsed.ok) {
@@ -731,7 +739,7 @@ const SPECS = [
       text: z.string().min(1).max(MAX_MESSAGE_CHARS),
       to: z.string().max(200).optional(),
     },
-    (b, i) => b.send(i),
+    (b, i, extra) => b.send(i, { signal: extra?.signal }),
   ],
   [
     "ai_auth_move",
@@ -796,7 +804,7 @@ const SPECS = [
       wallet: z.string().max(200).optional(),
       session: z.string().max(200).optional(),
     },
-    (b, i) => b.invoke(i),
+    (b, i, extra) => b.invoke(i, { signal: extra?.signal }),
   ],
   [
     "ai_auth_code",

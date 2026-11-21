@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import {
   DISCOVERY_CAPABILITIES,
@@ -197,6 +197,63 @@ await build({
   sourcemap: false,
 });
 
+// External integration reference site, served under /host-site/. Source lives
+// in examples/host-site. As with body4ai, site.js imports the SDK via relative
+// paths that esbuild resolves at build time, so the published bundle has no
+// runtime relative imports to break from dist-p2p/host-site/.
+const hostSiteSource = resolve(root, "examples/host-site");
+await mkdir(resolve(output, "host-site"), { recursive: true });
+await writeFile(
+  resolve(output, "host-site", "index.html"),
+  withNoindex(await readFile(resolve(hostSiteSource, "index.html"), "utf8")),
+);
+await cp(
+  resolve(hostSiteSource, "site.css"),
+  resolve(output, "host-site/site.css"),
+);
+await build({
+  entryPoints: [resolve(hostSiteSource, "site.js")],
+  outfile: resolve(output, "host-site/site.js"),
+  bundle: true,
+  format: "esm",
+  platform: "browser",
+  target: ["es2022"],
+  sourcemap: false,
+  // The site source uses ../../../packages/p2p/browser.js, an import depth that
+  // is correct for body4ai (three dirs deep) but overshoots from examples/
+  // host-site (two dirs deep). Resolve any packages/p2p/ specifier from the
+  // repo root so the SDK is bundled regardless of the leading ../ count.
+  plugins: [
+    {
+      name: "host-site-sdk",
+      setup(b) {
+        b.onResolve({ filter: /packages\/p2p\// }, (args) => {
+          const rel = args.path.match(/packages\/p2p\/.*$/u)?.[0];
+          return rel ? { path: resolve(root, rel) } : undefined;
+        });
+      },
+    },
+  ],
+});
+// The README is optional documentation, published as a plain file (not a doc
+// page) so /host-site/README.md resolves without touching DOC_PAGES.
+if (
+  await stat(resolve(hostSiteSource, "README.md")).then(
+    () => true,
+    () => false,
+  )
+)
+  await cp(
+    resolve(hostSiteSource, "README.md"),
+    resolve(output, "host-site/README.md"),
+  );
+// docs/site-integration.md links to this README; verify-docs rewrites .md
+// links to .html, so publish an .html copy that resolves to the plain file.
+await cp(
+  resolve(hostSiteSource, "README.md"),
+  resolve(output, "host-site/README.html"),
+);
+
 // Docs are rendered to styled HTML at .html URLs. The .md URLs are directories
 // with an index.html, so a static host redirects them to a styled page too
 // (browsers treat text/markdown as plain text). Raw Markdown moves to docs/raw/
@@ -208,6 +265,7 @@ const DOC_PAGES = [
   { file: "quickstart.md", label: "Quickstart", nav: true },
   { file: "site-integration.md", label: "Site integration", nav: true },
   { file: "agents.md", label: "Agents and MCP", nav: true },
+  { file: "AGENT_HARNESS_SUPPORT.md", label: "Agent harness support" },
   { file: "protocol.md", label: "Protocol", nav: true },
   { file: "SECURITY.md", label: "Security", nav: true },
   { file: "RECOVERY.md", label: "Recovery", nav: true },
@@ -227,6 +285,10 @@ const DOC_PAGES = [
   {
     file: "evidence/did-key-verification.md",
     label: "DID verification evidence",
+  },
+  {
+    file: "evidence/decentralized-plan.md",
+    label: "Decentralization evidence plan",
   },
   {
     file: "architecture/COUNCIL_REPORT.md",
@@ -275,6 +337,7 @@ for (const doc of DOC_PAGES) {
     name: doc.file,
     docs: navDocs,
     rawPath: `./raw/${doc.file}`,
+    version,
   });
   // renderDocPage emits links relative to docs/. Nested docs such as
   // architecture/REFERENCE_ARCHITECTURE.md need one extra ../ for their
@@ -317,21 +380,35 @@ for (const doc of DOC_PAGES) {
 // A few docs link outside docs/: publish those targets too so no page has a
 // dead link. They keep their original path so ../ links resolve as written.
 const EXTRA_PAGES = [
-  { source: "CHANGELOG.md", output: "CHANGELOG.html", title: "Changelog" },
+  {
+    source: "README.md",
+    output: "README.html",
+    title: "Readme",
+    depth: 0,
+  },
+  {
+    source: "CHANGELOG.md",
+    output: "CHANGELOG.html",
+    title: "Changelog",
+    depth: 0,
+  },
   {
     source: "packages/agent/README.md",
     output: "packages/agent/README.html",
     title: "Agent package",
+    depth: 2,
   },
   {
     source: "packages/mcp/README.md",
     output: "packages/mcp/README.html",
     title: "MCP package",
+    depth: 2,
   },
   {
     source: "packages/runtime/README.md",
     output: "packages/runtime/README.html",
     title: "Runtime package",
+    depth: 2,
   },
 ];
 for (const extra of EXTRA_PAGES) {
@@ -346,6 +423,10 @@ for (const extra of EXTRA_PAGES) {
       name: "",
       docs: [],
       rawPath: `https://github.com/EnzoVezzaro/ai-auth/blob/main/${extra.source}`,
+      cssPath: `${extra.depth === 0 ? "./" : "../".repeat(extra.depth)}docs/docs.css`,
+      brandPath: `${extra.depth === 0 ? "./" : "../".repeat(extra.depth)}index.html`,
+      assetPath: `${extra.depth === 0 ? "./" : "../".repeat(extra.depth)}docs/assets/ai-auth-mark.svg`,
+      version,
     }),
   );
 }
@@ -353,18 +434,6 @@ for (const extra of EXTRA_PAGES) {
 await cp(
   resolve(output, "docs", "README.html"),
   resolve(output, "docs", "index.html"),
-);
-// The root README is linked as ../README.html from the docs index.
-const rootReadme = await readFile(resolve(root, "README.md"), "utf8");
-await writeFile(
-  resolve(output, "README.html"),
-  renderDocPage({
-    markdown: rootReadme,
-    title: "AI Auth",
-    name: "",
-    docs: [],
-    rawPath: "https://github.com/EnzoVezzaro/ai-auth/blob/main/README.md",
-  }),
 );
 await cp(resolve(root, "docs", "assets"), resolve(output, "docs", "assets"), {
   recursive: true,

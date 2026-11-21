@@ -34,7 +34,7 @@ For the idle clock, local cursor or scroll publishing does call `lease.touch()` 
 
 ## Code Mode limits
 
-Code Mode is opt-in with `--code-mode` on `ai-auth-mcp`. It adds the `ai_auth_code` tool, which runs a short script in a worker thread against a restricted `aiAuth` API. A kill timeout stops a runaway script after 2 seconds, and the code is capped at 8 KiB. The worker thread and timeout are containment, not a security boundary. The MCP process keeps the host's privileges, and the sandbox is not a hard isolation layer. Do not run untrusted code with it.
+Code Mode is opt-in with `--code-mode` on `ai-auth-mcp`. It adds the `ai_auth_code` tool, which runs a short script in a worker thread against a restricted `aiAuth` API. A kill timeout stops a runaway script after 2 seconds, and the code is capped at 8,000 JavaScript characters. The worker thread and timeout are containment, not a security boundary. The MCP process keeps the host's privileges, and the sandbox is not a hard isolation layer. Do not run untrusted code with it.
 
 ## Revocation
 

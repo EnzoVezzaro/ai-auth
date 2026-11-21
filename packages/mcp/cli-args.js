@@ -1,7 +1,14 @@
 import os from "node:os";
 import path from "node:path";
 
-const COMMANDS = new Set(["serve", "init", "whoami", "preview", "unlink"]);
+const COMMANDS = new Set([
+  "serve",
+  "init",
+  "setup",
+  "whoami",
+  "preview",
+  "unlink",
+]);
 const VALUE_FLAGS = new Set([
   "keystore-dir",
   "connect",
@@ -12,6 +19,7 @@ const VALUE_FLAGS = new Set([
   "name",
   "http",
   "provide",
+  "from-install",
 ]);
 const BOOL_FLAGS = new Set([
   "auto-join",
@@ -21,6 +29,7 @@ const BOOL_FLAGS = new Set([
   "yes",
   "help",
   "open-wallet",
+  "replace",
 ]);
 
 const list = (value) =>
@@ -53,6 +62,7 @@ export function parseArgs(argv) {
       if (value === undefined || value.startsWith("--"))
         throw new Error(`--${flag} needs a value`);
       if (flag === "keystore-dir") out.keystoreDir = path.resolve(value);
+      else if (flag === "from-install") out.fromInstall = value;
       else if (flag === "approve")
         out.approve = [...(out.approve ?? []), ...list(value)];
       else if (flag === "caps") out.caps = list(value);
@@ -63,11 +73,18 @@ export function parseArgs(argv) {
   return out;
 }
 
-export const USAGE = `ai-auth-mcp [serve|init|whoami|preview|unlink] [options]
+export const USAGE = `ai-auth-mcp [serve|init|setup|whoami|preview|unlink] [options]
   --keystore-dir DIR   encrypted identity (default ~/.ai-auth/agent); passphrase from AI_AUTH_PASSPHRASE or a TTY prompt
-  --connect INPUT      connect instruction, its JSON, a site URL, or @file
+  --connect INPUT      connect instruction, its JSON, a public connect descriptor, a site URL, or @file
   --origin URL --room NAME --caps a,b   explicit alternative to --connect
   --approve a,b        exact scopes to grant without a TTY (never more than the site requested)
+  --from-install FILE  install package from the site (JSON, or @FILE for its path); init/setup only.
+                       Imports the generated identity with an explicit passphrase (AI_AUTH_PASSPHRASE
+                       or TTY). Nothing is created or replaced implicitly.
+  --replace            archive an existing identity before importing a *different* one (init/setup only).
+                       Never done automatically; clearing saved grants and the MCP endpoint secret follows.
+  setup                bootstrap then serve: reuse an existing keystore, otherwise import --from-install,
+                       then run the same MCP bridge as "serve" (all serve options apply)
   --auto-join | --resume   join the room at startup / restore the last room
   --code-mode          expose ai_auth_code: a sandboxed script tool that calls
                        the connection-checked aiAuth API (Cloudflare Code Mode)

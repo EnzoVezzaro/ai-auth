@@ -281,6 +281,7 @@ export async function approvePermissionRequest(
   // (never longer than the lifetime), even when the site set no idle limit.
   let idle =
     idleTimeoutMs === undefined &&
+    request?.idleTimeoutMs === undefined &&
     ttl !== null &&
     limits.maxIdleTimeoutMs === null
       ? Math.min(DEFAULT_IDLE_TIMEOUT_MS, ttl)

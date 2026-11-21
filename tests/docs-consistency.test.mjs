@@ -14,6 +14,7 @@ const versions = {
   wallet: (await json("package.json")).version,
   agent: (await json("packages/agent/package.json")).version,
   mcp: (await json("packages/mcp/package.json")).version,
+  runtime: (await json("packages/runtime/package.json")).version,
 };
 
 const tableVersion = (text, pkg) => {
@@ -26,21 +27,24 @@ const tableVersion = (text, pkg) => {
 test("DTC-01/DTC-02: install tables track the checked-in manifests", async () => {
   const readme = await read("README.md");
   const guide = await read("docs/site-integration.md");
-  assert.equal(
-    tableVersion(readme, "@enzovezzaro/ai-auth-wallet"),
-    versions.wallet,
-  );
   const packages = {
     wallet: "@enzovezzaro/ai-auth-wallet",
     agent: "@enzovezzaro/ai-auth-agent",
     mcp: "@enzovezzaro/ai-auth-mcp",
+    runtime: "@enzovezzaro/ai-auth-runtime",
   };
-  for (const [pkg, version] of Object.entries(versions))
+  for (const [pkg, version] of Object.entries(versions)) {
+    assert.equal(
+      tableVersion(readme, packages[pkg]),
+      version,
+      `README version for ${pkg}`,
+    );
     assert.equal(
       tableVersion(guide, packages[pkg]),
       version,
       `site-integration version for ${pkg}`,
     );
+  }
 });
 
 test("DTC-03: session records are described as localStorage-backed", async () => {

@@ -1,6 +1,6 @@
 # Conformance plan
 
-> Status: proposed test requirements. None of these tests exist yet unless a row cites an existing file. "Independent" means a worker who did not author the change.
+> Status: test requirements, some implemented. A row citing an existing test file is shipped; the rest remain proposed. "Independent" means a worker who did not author the change. See [the standards matrix](STANDARDS_MATRIX.md) for current implementation status.
 
 ## 1. Fixtures
 
@@ -90,7 +90,7 @@
 | Network failures visible and recoverable      | `docs/limits.md`, runtime tests (existing)          |
 | No mandatory blockchain or registry           | Existing design                                     |
 | Browser and headless runtime still functional | `npm run test:all`, E2E (existing)                  |
-| No website-specific logic in core SDK         | `tests/generic-*` and integration review (existing) |
+| No website-specific logic in core SDK         | `tests/boundary-guard.test.mjs`, `docs/GENERIC_INTEGRATION_REVIEW.md` (existing) |
 
 ## 8. Repeatability
 

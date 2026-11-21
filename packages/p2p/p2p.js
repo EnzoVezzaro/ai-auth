@@ -142,6 +142,7 @@ export class P2PRoom {
     this.leaseMs = leaseMs;
     this.onChannelLost = onChannelLost;
     this.closed = false;
+    this.closing = false;
     this.auditEntries = [];
   }
 
@@ -587,7 +588,8 @@ export class P2PRoom {
   }
 
   async close({ goodbye = true } = {}) {
-    if (this.closed) return;
+    if (this.closed || this.closing) return;
+    this.closing = true;
     if (goodbye && !this.privateMode) {
       try {
         await this.send("peer/goodbye", {});
@@ -699,6 +701,7 @@ export class NostrWebRTC {
     this.retryTimer = null;
     this.flushingOutbox = false;
     this.closed = false;
+    this.closing = false;
     this.lifecycle = createConnectionState();
   }
 

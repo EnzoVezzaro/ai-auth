@@ -3,7 +3,7 @@
 // or a raw .md URL that no longer serves Markdown. Run after `npm run build`.
 import assert from "node:assert/strict";
 import { access, readFile, readdir, stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const source = resolve(root, "docs");
@@ -18,9 +18,21 @@ const exists = async (path) => {
   }
 };
 
-const sourceDocs = (await readdir(source))
-  .filter((name) => name.endsWith(".md"))
-  .sort();
+const listMarkdown = async (dir, prefix = "") => {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const relative = `${prefix}${entry.name}`;
+    // docs/archive/ holds dated snapshots that are intentionally not rendered.
+    if (entry.isDirectory() && entry.name !== "archive")
+      files.push(
+        ...(await listMarkdown(resolve(dir, entry.name), `${relative}/`)),
+      );
+    else if (entry.name.endsWith(".md")) files.push(relative);
+  }
+  return files;
+};
+const sourceDocs = (await listMarkdown(source)).sort();
 
 assert.ok(sourceDocs.length > 0, "no source docs were found");
 assert.ok(await exists(output), "run npm run build before verifying docs");
@@ -44,6 +56,40 @@ for (const linked of [
     `a docs page links to ${linked} but it was not published`,
   );
 
+const checkLinks = async (
+  text,
+  base,
+  label,
+  { checkSrc = true, contentBase = null, nestedDir = "" } = {},
+) => {
+  for (const match of text.matchAll(/(?:href|src)="([^"]+)"/gu)) {
+    if (match[0].startsWith("src=") && !checkSrc) continue;
+    const href = match[1].split("#")[0];
+    if (!href || href.startsWith("/") || /^\w+:/u.test(href)) continue;
+    let target = resolve(base, href);
+    if (contentBase && !(await exists(target))) {
+      const withoutUp = href.replace(/^(?:\.\.\/)+/u, "");
+      for (const candidate of [
+        resolve(contentBase, withoutUp),
+        resolve(contentBase, nestedDir, withoutUp),
+      ])
+        if (await exists(candidate)) {
+          target = candidate;
+          break;
+        }
+    }
+    // A .md link is a directory serving an HTML index in the built site.
+    if (href.endsWith(".md") && !(await exists(target))) {
+      target = resolve(base, href.replace(/\.md$/u, ".html"));
+      if (!(await exists(target))) target = resolve(base, href);
+    }
+    assert.ok(
+      (await exists(target)) || (await exists(resolve(target, "index.html"))),
+      `${label}: broken ${match[0].split("=")[0]} reference to ${match[1]}`,
+    );
+  }
+};
+
 for (const name of sourceDocs) {
   const page = name.replace(/\.md$/u, ".html");
   const rawPath = resolve(output, "raw", name);
@@ -65,23 +111,24 @@ for (const name of sourceDocs) {
   const mdHtml = await readFile(mdIndex, "utf8");
   assert.match(
     mdHtml,
-    /<link rel="stylesheet" href="\.\.\/docs\.css">/u,
+    /<link rel="stylesheet" href="(?:\.\.\/)+docs\.css">/u,
     `${name}: the .md page has a broken stylesheet link`,
   );
-  for (const match of mdHtml.matchAll(/href="([^"]+)"/gu)) {
-    const href = match[1].split("#")[0];
-    if (!href || href.startsWith("/") || /^\w+:/u.test(href)) continue;
-    const target = resolve(mdUrl, href);
-    assert.ok(
-      (await exists(target)) || (await exists(resolve(target, "index.html"))),
-      `${name}: the .md page has a broken link to ${match[1]}`,
-    );
-  }
+  // The .md URL is a directory served by its index.html. Its links are rebased
+  // against that directory, so resolve from there; the raw asset paths are
+  // intentionally not checked here, only on the canonical .html page.
+  await checkLinks(mdHtml, mdUrl, `${name} (.md)`, {
+    checkSrc: false,
+    // The .md directory variant rebases content links one extra level; only
+    // nav links are checked here, against the canonical docs root.
+    contentBase: output,
+    nestedDir: dirname(name),
+  });
   assert.ok(await exists(pagePath), `${name}: the .html page was not built`);
   const html = await readFile(pagePath, "utf8");
   assert.match(
     html,
-    /<link rel="stylesheet" href="\.\/docs\.css">/u,
+    /<link rel="stylesheet" href="(?:\.\.\/)*\.\/docs\.css">|<link rel="stylesheet" href="(?:\.\.\/)+docs\.css">/u,
     `${page}: missing the docs stylesheet`,
   );
   assert.equal(
@@ -102,22 +149,34 @@ for (const name of sourceDocs) {
   assert.match(
     html,
     new RegExp(
-      `href="\\./raw/${name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}"`,
+      `href="(?:\\./|(?:\\.\\./)+)raw/${name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}"`,
       "u",
     ),
     `${page}: missing the raw Markdown link`,
   );
 
-  for (const match of html.matchAll(/href="([^"]+)"/gu)) {
-    const href = match[1].split("#")[0];
-    if (!href || href.startsWith("/") || /^\w+:/u.test(href)) continue;
-    const targetPath = resolve(output, href);
-    assert.ok(
-      (await exists(targetPath)) ||
-        (await exists(resolve(targetPath, "index.html"))),
-      `${page}: dead internal link to ${match[1]}`,
-    );
-  }
+  await checkLinks(html, resolve(output, dirname(name)), page, {
+    contentBase: output,
+    nestedDir: dirname(name),
+  });
+}
+
+for (const linked of [
+  "README.html",
+  "CHANGELOG.html",
+  "packages/agent/README.html",
+  "packages/mcp/README.html",
+  "packages/runtime/README.html",
+]) {
+  const page = resolve(root, "dist-p2p", linked);
+  const html = await readFile(page, "utf8");
+  const base = resolve(page, "..");
+  assert.match(
+    html,
+    /<link rel="stylesheet" href="[^"]*docs\.css">/u,
+    `${linked}: missing the docs stylesheet`,
+  );
+  await checkLinks(html, base, linked);
 }
 
 console.log(

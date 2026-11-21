@@ -1,6 +1,6 @@
 {
   "name": "@enzovezzaro/ai-auth-wallet",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "repository": {
     "type": "git",
     "url": "https://github.com/EnzoVezzaro/ai-auth.git"
@@ -111,7 +111,8 @@
     "format": "prettier --write \"packages/p2p/*.{js,d.ts}\" \"packages/runtime/**/*.{js,d.ts,mjs}\" packages/runtime/README.md packages/runtime/CHANGELOG.md \"packages/mcp/**/*.{js,d.ts,mjs}\" \"packages/agent/**/*.{js,d.ts,mjs}\" packages/agent/README.md \"scripts/*.mjs\" \"scripts/e2e/*.mjs\" \"tests/*.mjs\" \"docs/*.md\" README.md CHANGELOG.md index.html landing.css docs.css styles.css \"src/landing/**/*.{js,jsx}\" apps/p2p/app.js package.json",
     "format:check": "prettier --check \"packages/p2p/*.{js,d.ts}\" \"packages/runtime/**/*.{js,d.ts,mjs}\" packages/runtime/README.md packages/runtime/CHANGELOG.md \"packages/mcp/**/*.{js,d.ts,mjs}\" \"packages/agent/**/*.{js,d.ts,mjs}\" packages/agent/README.md \"scripts/*.mjs\" \"scripts/e2e/*.mjs\" \"tests/*.mjs\" \"docs/*.md\" README.md CHANGELOG.md index.html landing.css docs.css styles.css \"src/landing/**/*.{js,jsx}\" apps/p2p/app.js package.json",
     "prepublishOnly": "npm test && npm run build",
-    "test:e2e:body4ai": "npm run build && node scripts/test-body4ai-e2e.mjs"
+    "test:e2e:body4ai": "npm run build && node scripts/test-body4ai-e2e.mjs",
+    "test:host-site": "node scripts/test-host-site-e2e.mjs"
   },
   "devDependencies": {
     "@designcodeio/threeui": "^1.2.0",

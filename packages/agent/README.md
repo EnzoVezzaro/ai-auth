@@ -2,7 +2,7 @@
 
 A headless AI Auth agent for Node 22+. One keystore identity joins a signed room over a direct WebRTC data channel. Public Nostr relays carry signaling only. There is no AI Auth server, no database, no relay carried application data and no TURN server. If peer candidates are blocked, the connection stays in `waiting-for-peers`.
 
-Version 0.1.6. See the [agents guide](../../docs/agents.md) for tools, approval, reconnect and MCP setup.
+Version 0.1.9. See the [agents guide](../../docs/agents.md) for tools, approval, reconnect and MCP setup.
 
 ## Install
 

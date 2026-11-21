@@ -440,10 +440,17 @@ export function createAgentRuntime(options = {}) {
       // A provider's catalog is bound to the live room session, so a new
       // session (first join or reconnect) must be announced again.
       for (const provider of providers) provider.announce();
-      timer ??= setInterval(
-        () => void api.checkLeases().catch(() => {}),
-        Math.max(1_000, Math.min(leaseMs / 3, 5_000)),
-      );
+      // With authorization, the clock was already installed at construction
+      // to end expired leases; that timer also calls checkLeases. Replacing it
+      // here would drop the authorization clock, so only install one when no
+      // timer is present.
+      if (!timer) {
+        timer = setInterval(
+          () => void api.checkLeases().catch(() => {}),
+          Math.max(1_000, Math.min(leaseMs / 3, 5_000)),
+        );
+        timer.unref?.();
+      }
       timer.unref?.();
       return api.connectionState;
     })();
@@ -634,10 +641,14 @@ export function createAgentRuntime(options = {}) {
     close: () =>
       closed ? Promise.resolve() : stop({ forget: false, final: true }),
   };
-  // A granted lease has its own clock: expiry and idle end the session even if
-  // the harness never joined a room. The join interval reuses this timer.
+  // A granted lease needs its own clock: expiry and idle end the session even
+  // if the harness never joined a room. Join() must not replace this timer
+  // because it also stops peer leases and schedules rejoin, so it reuses the
+  // same handle and combines both jobs instead of skipping the lease check.
   if (authorization) {
-    timer ??= setInterval(endExpiredAuthorization, 1_000);
+    timer = setInterval(() => {
+      if (!endExpiredAuthorization()) void checkLeases().catch(() => {});
+    }, 1_000);
     timer.unref?.();
   }
   return Object.freeze(api);

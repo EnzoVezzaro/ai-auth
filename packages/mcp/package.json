@@ -1,6 +1,6 @@
 {
   "name": "@enzovezzaro/ai-auth-mcp",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "Locally approved AI Auth wallet actions exposed over MCP stdio",
   "type": "module",
   "main": "./index.js",

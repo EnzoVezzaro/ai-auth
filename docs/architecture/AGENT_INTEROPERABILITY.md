@@ -1,6 +1,6 @@
 # Agent interoperability
 
-> Status: boundary decision and proposed adapter classification. A2A, ACP and the historical ACP are not implemented in this repository. Research date: 2026-11-19.
+> Status: boundary decision and proposed adapter classification. No A2A/ACP protocol client, task state machine or session semantics are implemented. Additive classification helpers ship as the optional `./agent-interop` subpath; they treat Agent Cards and peer data as untrusted and deny task-derived tool authority. Research date: 2026-11-19.
 
 ## 1. Separation principle
 

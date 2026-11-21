@@ -911,6 +911,9 @@ export async function connectAIAuthModal({
       debug("sdk-rejected-signature", envelope?.body?.type);
       return;
     }
+    // Verification awaits crypto, so a second copy of the same event can pass
+    // the first has() while this one is in flight. Recheck before accepting.
+    if (seen.has(replayKey)) return;
     seen.note(replayKey, envelope.body.issuer, payload.expiresAt);
     if (announcement) bindSession(envelope.body.issuer, payload.session);
     if (envelope.body.type === "peer/goodbye")

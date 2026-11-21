@@ -71,7 +71,7 @@ Tool IDs are namespaced: `mcp:<server>:<tool>`, `webmcp:<origin>:<tool>`, `utcp:
 
 ### As-is
 
-No UTCP code exists in this repository.
+An optional UTCP adapter ships behind `packages/p2p/utcp-adapter.js` and the `./utcp-adapter` subpath. The official SDK is loaded only when a caller supplies it; the adapter enforces destination and credential policy above it, rechecks DNS before invocation, and fails closed when native cancellation is unavailable. See [the standards matrix](STANDARDS_MATRIX.md) and `tests/utcp-adapter.test.mjs`. The rules below remain proposed adapter contracts.
 
 ### Native behavior to reuse
 

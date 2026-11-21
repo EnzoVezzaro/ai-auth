@@ -23,7 +23,35 @@ function exactOrigin(value) {
     throw new TypeError(
       "The site origin must be HTTPS (HTTP only for localhost)",
     );
+  // A page URL is public location data, never a credential. Refuse embedded
+  // userinfo so an accidental secret cannot be pasted into a connect input.
+  if (url.username || url.password)
+    throw new TypeError("Connect URLs must not contain credentials");
   return url.origin;
+}
+
+/**
+ * A public page URL under the exact site origin is a *location hint* for
+ * discovery (e.g. GitHub Pages /ai-auth/), not a pairing token. It is accepted
+ * only when its origin matches exactly and it carries no credentials. The
+ * first path segment is used by the manifest fetcher as the project subpath;
+ * nothing is inferred from an unrelated origin.
+ */
+function exactDiscoveryBaseUrl(value, origin) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string")
+    throw new TypeError("discoveryBaseUrl must be a URL string");
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new TypeError("discoveryBaseUrl must be a valid URL");
+  }
+  if (url.origin !== origin)
+    throw new TypeError("discoveryBaseUrl must be under the exact site origin");
+  if (url.username || url.password)
+    throw new TypeError("discoveryBaseUrl must not contain credentials");
+  return url.href;
 }
 
 function capabilityList(values) {
@@ -47,6 +75,7 @@ function descriptor({
   source,
   discoveryOnly,
   walletUrl,
+  discoveryBaseUrl,
   allowEmptyCapabilities = false,
 }) {
   const exact = exactOrigin(origin);
@@ -63,6 +92,7 @@ function descriptor({
     origin,
     room,
     walletUrl: typeof walletUrl === "string" ? walletUrl : null,
+    discoveryBaseUrl: exactDiscoveryBaseUrl(discoveryBaseUrl, exact),
     capabilities: caps,
     source,
     discoveryOnly,
@@ -77,6 +107,8 @@ function fromInstructionText(text) {
     origin: field("Origin") ?? "",
     room: field("Room") ?? "default",
     walletUrl: field("Wallet"),
+    // Optional, explicit subpath hint for project-hosted sites.
+    discoveryBaseUrl: field("Discovery"),
     capabilities: caps ? caps.split(",").map((c) => c.trim()) : [],
     source: "instruction",
     discoveryOnly: false,
@@ -85,8 +117,10 @@ function fromInstructionText(text) {
 
 /**
  * Parse what a person pastes: a createAIAuthConnectInstruction() text, its JSON
- * descriptor, or a plain site URL. A URL yields only an origin: it starts
- * discovery and can never stand in for consent.
+ * descriptor (public { origin, room, walletUrl, capabilities, discoveryBaseUrl? }
+ * data), or a plain site URL. A URL yields an exact origin plus its public
+ * discovery location hint; it starts discovery and can never stand in for
+ * consent or act as a secret token.
  */
 export function parseConnectInput(input) {
   if (
@@ -110,6 +144,7 @@ export function parseConnectInput(input) {
     return descriptor({
       ...meta,
       room: meta.room ?? "default",
+      discoveryBaseUrl: meta.discoveryBaseUrl,
       source: "instruction",
       discoveryOnly: false,
     });
@@ -120,10 +155,32 @@ export function parseConnectInput(input) {
     origin,
     room: null,
     walletUrl: null,
+    discoveryBaseUrl: exactDiscoveryBaseUrl(text, origin),
     capabilities: Object.freeze([]),
     source: "url",
     discoveryOnly: true,
   });
+}
+
+/**
+ * Candidate manifest URLs for an exact origin. A public base URL may name a
+ * project subpath (GitHub Pages /ai-auth/); only its first path segment is
+ * used, and only when it belongs to this exact origin. No arbitrary URL is
+ * guessed and no credentials or query values are ever used.
+ */
+export function manifestCandidates(origin, baseUrl) {
+  const exact = exactOrigin(origin);
+  const urls = [`${exact}${DISCOVERY_PATH}`];
+  let prefix = "";
+  if (baseUrl) {
+    const checked = exactDiscoveryBaseUrl(baseUrl, exact);
+    try {
+      const segments = new URL(checked).pathname.split("/").filter(Boolean);
+      if (segments.length) prefix = `/${segments[0]}`;
+    } catch {}
+  }
+  if (prefix) urls.push(`${exact}${prefix}${DISCOVERY_PATH}`);
+  return urls;
 }
 
 /**
@@ -134,51 +191,61 @@ export function parseConnectInput(input) {
  */
 async function fetchProvisionalManifest(
   origin,
-  { fetch: fetchImpl, timeoutMs },
+  { fetch: fetchImpl, timeoutMs, baseUrl },
 ) {
   const exact = exactOrigin(origin);
-  const response = await fetchImpl(`${exact}${DISCOVERY_PATH}`, {
-    redirect: "error",
-    credentials: "omit",
-    headers: { accept: "application/json" },
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  if (!response.ok)
-    throw new Error(
-      `The site publishes no AI Auth discovery document (HTTP ${response.status})`,
-    );
-  const body = await response.text();
-  if (body.length > MAX_MANIFEST_BYTES)
-    throw new Error("The site manifest is too large");
-  let manifest;
-  try {
-    manifest = JSON.parse(body);
-  } catch {
-    throw new Error("The site manifest is not valid JSON");
+  let lastStatus = 0;
+  for (const url of manifestCandidates(exact, baseUrl)) {
+    const response = await fetchImpl(url, {
+      redirect: "error",
+      credentials: "omit",
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) {
+      lastStatus = response.status;
+      continue;
+    }
+    const body = await response.text();
+    if (body.length > MAX_MANIFEST_BYTES)
+      throw new Error("The site manifest is too large");
+    let manifest;
+    try {
+      manifest = JSON.parse(body);
+    } catch {
+      throw new Error("The site manifest is not valid JSON");
+    }
+    if (!manifest || typeof manifest !== "object" || Array.isArray(manifest))
+      throw new Error("The site manifest is not an object");
+    if (manifest.origin !== exact)
+      throw new Error(
+        "The site manifest does not match the origin it was served from",
+      );
+    // A strict document that failed for another reason must not be relabelled as
+    // legacy; only the old, typeless shape is eligible for this fallback.
+    if (manifest.type !== undefined || manifest.v !== undefined)
+      throw new Error(
+        "The site publishes an invalid AI Auth discovery document",
+      );
+    const upgraded = {
+      type: "ai-auth-discovery",
+      v: 1,
+      origin: manifest.origin,
+      ...(manifest.capabilities !== undefined && {
+        capabilities: manifest.capabilities,
+      }),
+      ...(manifest.walletUrl !== undefined && {
+        walletUrl: manifest.walletUrl,
+      }),
+    };
+    const check = validateDiscovery(upgraded, { origin: exact });
+    if (!check.ok)
+      throw new Error(`The legacy site manifest is invalid: ${check.reason}`);
+    return manifest;
   }
-  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest))
-    throw new Error("The site manifest is not an object");
-  if (manifest.origin !== exact)
-    throw new Error(
-      "The site manifest does not match the origin it was served from",
-    );
-  // A strict document that failed for another reason must not be relabelled as
-  // legacy; only the old, typeless shape is eligible for this fallback.
-  if (manifest.type !== undefined || manifest.v !== undefined)
-    throw new Error("The site publishes an invalid AI Auth discovery document");
-  const upgraded = {
-    type: "ai-auth-discovery",
-    v: 1,
-    origin: manifest.origin,
-    ...(manifest.capabilities !== undefined && {
-      capabilities: manifest.capabilities,
-    }),
-    ...(manifest.walletUrl !== undefined && { walletUrl: manifest.walletUrl }),
-  };
-  const check = validateDiscovery(upgraded, { origin: exact });
-  if (!check.ok)
-    throw new Error(`The legacy site manifest is invalid: ${check.reason}`);
-  return manifest;
+  throw new Error(
+    `The site publishes no AI Auth discovery document (HTTP ${lastStatus})`,
+  );
 }
 
 /**
@@ -191,13 +258,13 @@ async function fetchProvisionalManifest(
  */
 export async function fetchSiteManifest(
   origin,
-  { fetch: fetchImpl = globalThis.fetch, timeoutMs = 5_000 } = {},
+  { fetch: fetchImpl = globalThis.fetch, timeoutMs = 5_000, baseUrl } = {},
 ) {
   const exact = exactOrigin(origin);
   const strict = await fetchDiscovery(exact, {
     fetch: fetchImpl,
     timeoutMs,
-    baseUrl: origin,
+    baseUrl: baseUrl ?? origin,
   });
   if (strict.ok) {
     const doc = strict.discovery;
@@ -216,6 +283,7 @@ export async function fetchSiteManifest(
   const legacy = await fetchProvisionalManifest(exact, {
     fetch: fetchImpl,
     timeoutMs,
+    baseUrl,
   });
   const base = descriptor({
     origin: legacy.origin,

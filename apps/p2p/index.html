@@ -40,6 +40,53 @@
       .panel .key-id {
         color: inherit;
       }
+      /* Authorization must never look green unless a live peer is present.
+         The base .status-tag is green, so every non-online level overrides it. */
+      .status-tag.offline {
+        border-color: var(--line);
+        color: var(--muted);
+        background: transparent;
+      }
+      .status-tag.expired,
+      .status-tag.revoked {
+        border-color: rgba(245, 196, 81, 0.45);
+        color: #f5c451;
+        background: transparent;
+      }
+      .connection-orb.offline,
+      .connection-orb.expired,
+      .connection-orb.revoked {
+        background: var(--dim, #8b95a0);
+        box-shadow: none;
+      }
+      details.advanced {
+        border-top: 1px solid var(--line);
+        margin-top: 16px;
+        padding-top: 12px;
+      }
+      details.advanced > summary {
+        cursor: pointer;
+        color: var(--muted);
+        font: 11px var(--mono, monospace);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding: 8px 0;
+      }
+      details.advanced pre {
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 320px;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.001ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.001ms !important;
+        }
+      }
       @media (pointer: coarse), (max-width: 700px) {
         button,
         .button,
@@ -74,10 +121,10 @@
             <span class="nav-symbol" aria-hidden="true">◈</span> Owner identity
           </button>
           <button class="nav-item" data-view="connect">
-            <span class="nav-symbol" aria-hidden="true">↗</span> Site requests
+            <span class="nav-symbol" aria-hidden="true">↗</span> Requests
           </button>
           <button class="nav-item" data-view="permissions">
-            <span class="nav-symbol" aria-hidden="true">⌑</span> Grants
+            <span class="nav-symbol" aria-hidden="true">⌑</span> Access
           </button>
           <button class="nav-item" data-view="peer">
             <span class="nav-symbol" aria-hidden="true">⇄</span> Shared room

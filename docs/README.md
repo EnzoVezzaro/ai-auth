@@ -23,7 +23,7 @@ Start with the [quickstart](quickstart.md) or the [site integration guide](site-
 
 ## Proposed architecture
 
-These documents record research and a design decision. They describe proposed work, not shipped features. Implemented behavior remains in the sections above.
+These documents record research and design decisions. Each file carries its own status banner. Rows marked "implemented and tested" in the standards matrix refer to shipped v0.12.0 subpaths; proposed adapters and protocol clients are not shipped. Implemented behavior for the core product remains in the sections above.
 
 - [Council report](architecture/COUNCIL_REPORT.md) · [Reference architecture](architecture/REFERENCE_ARCHITECTURE.md) · [Standards matrix](architecture/STANDARDS_MATRIX.md)
 - [Tool protocols](architecture/TOOL_PROTOCOLS.md) · [Agent interoperability](architecture/AGENT_INTEROPERABILITY.md) · [Commerce and payments](architecture/COMMERCE_PAYMENTS.md)
@@ -37,5 +37,5 @@ The reusable worker-council prompt lives at `.agents/AI_AUTH_INTEROPERABILITY_CO
 
 - [Hosting policy](HOSTING.md) · [Wallet recovery](RECOVERY.md)
 - [End-to-end tests](E2E.md) · [Generic integration review](GENERIC_INTEGRATION_REVIEW.md)
-- [Traceability](TRACEABILITY.md) · [Verification evidence](evidence.md)
+- [Traceability](TRACEABILITY.md) · [Verification evidence](evidence.md) · [Decentralization evidence plan](evidence/decentralized-plan.md)
 - [Changelog](../CHANGELOG.md) · [Dated snapshots](https://github.com/EnzoVezzaro/ai-auth/tree/main/docs/archive)

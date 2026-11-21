@@ -28,12 +28,14 @@ Pick the package for the side you are building.
 
 | Package                        | What it does                                                                           | Version |
 | ------------------------------ | -------------------------------------------------------------------------------------- | ------- |
-| `@enzovezzaro/ai-auth-wallet`  | Browser SDK, wallet dialog, collaboration, WebMCP bridge. This is the repository root. | 0.12.0  |
-| `@enzovezzaro/ai-auth-agent`   | Headless Node agent with an encrypted keystore, room runtime, and real WebRTC          | 0.1.8   |
-| `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local coding agents                            | 0.3.7   |
-| `@enzovezzaro/ai-auth-runtime` | Plugin host for local agent applications, independent of any provider                  | 0.1.0   |
+| `@enzovezzaro/ai-auth-wallet`  | Browser SDK, wallet dialog, collaboration, WebMCP bridge. This is the repository root. | 0.12.1  |
+| `@enzovezzaro/ai-auth-agent`   | Headless Node agent with an encrypted keystore, room runtime, and real WebRTC          | 0.1.9   |
+| `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local coding agents                            | 0.3.8   |
+| `@enzovezzaro/ai-auth-runtime` | Plugin host for local agent applications, independent of any provider                  | 0.1.2   |
 
 None of them needs an AI Auth service to run.
+
+**Version source of truth:** each version above mirrors that package's own `package.json`; the root `package.json` is the single source for the product release label. Version strings shown in UI surfaces are generated from that source at build time or omitted from nontechnical UI. Do not maintain a separate hardcoded product version in page markup ([release note](CHANGELOG.md#unreleased)).
 
 ```sh
 npm install @enzovezzaro/ai-auth-wallet
@@ -232,6 +234,7 @@ The [docs index](docs/README.md) is the table of contents. The docs are grouped 
 | Connect a site in depth              | [Site integration](docs/site-integration.md)                                |
 | Understand the model                 | [Architecture](docs/ARCHITECTURE.md)                                        |
 | Connect Claude Code, Codex, OpenCode | [Agents and MCP](docs/agents.md) · [MCP command](docs/mcp.md)               |
+| Check harness support and evidence   | [Agent harness support](docs/AGENT_HARNESS_SUPPORT.md)                      |
 | Follow sessions, refresh, and resume | [Session lifecycle](docs/lifecycle.md) · [Limits](docs/limits.md)           |
 | Recover or back up a wallet          | [Wallet recovery](docs/RECOVERY.md)                                         |
 | Serve the static site                | [Hosting policy](docs/HOSTING.md)                                           |

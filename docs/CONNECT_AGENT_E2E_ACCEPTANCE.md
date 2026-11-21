@@ -4,7 +4,7 @@ Status: proposed testing contract; not evidence that all flows pass. Scope: AI A
 
 ## 1. User journey (product acceptance)
 
-**Persona:** a nontechnical visitor and their assistant. The visitor opens an AI Auth-enabled site on HTTPS, clicks **Connect Agent**, copies a public instruction/link, pastes “Connect to this website” into their assistant, reviews requested origin/room/scopes, approves, and sees the agent join a shared space with other humans and agents.
+**Persona:** a nontechnical visitor and their assistant. The visitor opens an AI Auth-enabled site on HTTPS, clicks **Connect Agent**, creates an agent identity with a recovery passphrase, downloads the encrypted backup and install package, pastes the printed install command into their assistant, then sees the agent join a shared space with other humans and agents. The site's own guided flow uses four phases — CREATE, BACKUP, INSTALL, CONNECTED; the headless agent creates its own key and needs no human wallet approval in this flow.
 
 1. **Discover:** Button is visible and understandable. Copy contains only public origin, room, wallet URL, and capabilities; optional `/.well-known/ai-auth.json` discovery. No private keys, MCP bearer secrets or session tokens in copyable/public URLs.
 2. **Choose harness:** Test Claude Code, Codex, OpenCode, ChatGPT desktop and ChatGPT web separately. Record whether each supports skill installation, local stdio MCP, remote MCP, or no supported path. A copied instruction cannot install tools or grant permissions by itself. Mark unsupported rather than silently claiming success.
@@ -14,6 +14,44 @@ Status: proposed testing contract; not evidence that all flows pass. Scope: AI A
 6. **Continuity:** Reconnect after temporary transport loss. Headless agent persists while its process lives, not after it stops. Refreshing a browser page requires explicit Resume; no invisible reauthorization. A new room requires fresh approval.
 7. **Exit:** Leave, expire, revoke membership/grant, close tab/process. Verify protected actions stop, stale peers disappear and rejoin cannot widen scopes.
 8. **Decentralization:** Demonstrate no AI Auth account, central key service, or mandatory application backend. Nostr relays are signaling dependencies, WebRTC transports direct traffic. When direct connectivity fails without TURN, report failure honestly; do not promise universal connectivity.
+
+## 1b. Audit-aligned flow and proof model (2026-11-20)
+
+This section **extends** the generic contract above; it does not replace section 1 and it introduces no new protocol. It reflects the flow and vocabulary of `docs/AGENT_IDENTITY_UX_AUDIT_2026_11_20.md`. Like the rest of this document, it is a testing contract, not evidence that the flows pass. The functional work referenced here is being implemented by other workers and is marked PENDING in the [changelog](../CHANGELOG.md#unreleased).
+
+### Three user-visible chapters
+
+| Chapter               | What the person does                                                                                                           | What must NOT be claimed here                                                                        | Relation to the four implementation phases |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| **Choose** (Connect)  | Press one primary action, pick a harness or the manual path, and reuse or create an identity with explicit permission.         | That a detected harness or a copied instruction is already authorized or installed.                  | CREATE (entry), harness selection          |
+| **Approve / Install** | Approve local setup on this device, create or import the encrypted identity with a recovery choice, and back it up.            | That an install package or a local keystore file alone proves a running agent controls the identity. | CREATE, BACKUP, INSTALL                    |
+| **Verify & Connect**  | The target instance signs a verifier-issued fresh challenge; the owner approves scoped site access; a live peer channel opens. | That a grant, a descriptor or endpoint reachability is the same as a live connection.                | CONNECTED, plus proof and authorization    |
+
+The four implementation phases CREATE / BACKUP / INSTALL / CONNECTED remain the page's internal vocabulary. The three chapters are the user-facing story; they are a superset of the phases, not a rename. A browser-only or unsupported client gets honest manual steps and an explicit proof action, never a fake one-click installation. The per-client evidence lives in [Agent harness support](AGENT_HARNESS_SUPPORT.md).
+
+### Five independent concepts
+
+Never collapse these into one overloaded `connected` boolean. Each row needs its own test and its own UI state.
+
+| Concept                     | What it is                                                                                      | What proves it                                                                                                                         | What does NOT prove it                                                                                 | Truthful UI state when satisfied     |
+| --------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------ |
+| **Identity**                | Persistent public agent wallet id; the agent controls a key.                                    | Key created or imported under explicit consent, with an installation receipt.                                                          | Creating a key alone; a saved grant; a self-asserted name or provider.                                 | Identity created / installed         |
+| **Installation / instance** | Intended runtime instance id and locally verified install receipt.                              | Signed instance binding checked on local import (`verifyInstanceBinding`).                                                             | A copied install package; a keystore file present on disk; a copied descriptor from another process.   | Identity installed on this device    |
+| **Proof of possession**     | Response to a verifier-issued nonce signed by the active instance key.                          | Fresh single-use nonce, expected wallet id and instance id, exact origin/room/request context, signing key and timestamp all verified. | An install receipt, a heartbeat, a message from a different peer, or a replayed/copied descriptor.     | Identity verified on this connection |
+| **Authorization**           | Owner-approved capabilities for a specific site/session, with duration, refusal and revocation. | Valid signed grant for the current origin, room, effective scopes and lifetime.                                                        | Requested or default scopes; a grant that is expired, revoked or for another site; transport liveness. | Access approved (effective scopes)   |
+| **Connection**              | Authenticated live peer data channel for the expected identity and current generation.          | Lifecycle reaching `direct-peer-connected` with the expected peer authenticated for this origin, room, session and nonce.              | MCP endpoint reachable, discovery, room membership, presence, or a key created earlier.                | Connected now                        |
+
+Trust/claim levels, lowest to highest: `Public claim` (name, provider, model, runtime — self-reported), `Key verified` (valid signature over the current verifier challenge by the expected key), `Instance matched` (expected instance binding and challenge context), `Authorized` (signed site grant valid for current origin, room, scopes and lifetime), `Online` (authenticated data channel open now for that identity). No level attests a vendor's model software or a physical machine.
+
+### Additional acceptance assertions
+
+- A peer arriving before, during or after a pairing never completes another pairing; mismatched wallet, instance, nonce, origin, room, signature or stale generation fails closed.
+- Key creation, key import, saved grant, discovery, room registration, an endpoint answering, or wallet consent alone never produce a "Connected" state.
+- Requested and default capabilities are never displayed as approved. Show exactly the verified effective scopes; if they cannot be determined, show "Permissions not verified".
+- "Identity verified" may remain as a historical fact when the peer goes offline; "Connected now" must clear immediately on transport loss, expiry or revocation.
+- A locally imported backup without a fresh signed response is "installed", not "online". Runtime/provider/model claims are labeled self-reported.
+- Deny, cancel and revoke have no side effects on scopes and widen nothing; a signed safe test ping cannot invoke arbitrary site tools.
+- Harness results follow the evidence rules in [Agent harness support](AGENT_HARNESS_SUPPORT.md); ChatGPT web is tested independently from desktop, and no result is inferred from a listed MCP server.
 
 ## 2. Automated tests (code perspective)
 

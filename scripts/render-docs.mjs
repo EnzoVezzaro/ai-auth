@@ -247,7 +247,20 @@ function toc(headings) {
 }
 
 /** Wrap rendered Markdown in the shared docs page shell. */
-export function renderDocPage({ markdown, title, name, docs, rawPath }) {
+export function renderDocPage({
+  markdown,
+  title,
+  name,
+  docs,
+  rawPath,
+  // Pages outside docs/ need explicit roots so assets and the brand link do
+  // not resolve against their own directory. docs pages use the rebase step
+  // applied by build-p2p-static.mjs and keep these defaults.
+  cssPath = "./docs.css",
+  brandPath = "../index.html",
+  assetPath = "./assets/ai-auth-mark.svg",
+  version = "0.12.1",
+}) {
   // The shell already renders the document title as the page h1. The README
   // has its banner and badge block before the title, so find the first h1
   // anywhere near the top rather than assuming it is the first line.
@@ -265,7 +278,7 @@ export function renderDocPage({ markdown, title, name, docs, rawPath }) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)} — AI Auth docs</title>
-<link rel="stylesheet" href="./docs.css">
+<link rel="stylesheet" href="${cssPath}">
 </head>
 <body>
 <a class="skip-link" href="#content">Skip to content</a>
@@ -274,7 +287,7 @@ export function renderDocPage({ markdown, title, name, docs, rawPath }) {
 </svg>
 <div class="agents-stage" aria-hidden="true"><span class="agent green" id="doc-agent"><svg class="ptr"><use href="#cursor-arrow"></use></svg><b>o87xdo83</b><em class="agent-note">verified this page</em></span></div>
 <header class="site-header">
-  <a class="brand" href="../index.html"><img class="mark" src="./assets/ai-auth-mark.svg" alt="" />AI Auth<span class="brand-dim">/ docs</span></a>
+  <a class="brand" href="${brandPath}"><img class="mark" src="${assetPath}" alt="" />AI Auth<span class="brand-dim">/ docs</span></a>
   <nav class="primary" aria-label="Documentation">
 ${nav}
   </nav>
@@ -283,7 +296,7 @@ ${nav}
 <div class="layout">
   <main id="content" class="article">
     <div class="doc-hero">
-      <p class="eyebrow"><span class="live-dot"></span>DOCUMENTATION · v0.12.0</p>
+      <p class="eyebrow"><span class="live-dot"></span>DOCUMENTATION · v${version}</p>
       <h1 class="page-title">${escapeHtml(title)}<span class="caret" aria-hidden="true"></span></h1>
     </div>
     <div class="doc-body">

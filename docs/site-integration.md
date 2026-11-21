@@ -8,10 +8,12 @@ This guide is for a website that wants to connect a wallet, show presence and cu
 
 | Package                        | What it does                                                | Version |
 | ------------------------------ | ----------------------------------------------------------- | ------- |
-| `@enzovezzaro/ai-auth-wallet`  | Browser SDK, wallet dialog, collaboration, WebMCP bridge    | 0.12.0  |
-| `@enzovezzaro/ai-auth-agent`   | Headless Node agent with an encrypted keystore and WebRTC   | 0.1.8   |
-| `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local coding agents | 0.3.7   |
-| `@enzovezzaro/ai-auth-runtime` | Plugin host for local agent applications                    | 0.1.0   |
+| `@enzovezzaro/ai-auth-wallet`  | Browser SDK, wallet dialog, collaboration, WebMCP bridge    | 0.12.1  |
+| `@enzovezzaro/ai-auth-agent`   | Headless Node agent with an encrypted keystore and WebRTC   | 0.1.9   |
+| `@enzovezzaro/ai-auth-mcp`     | `ai-auth-mcp` command and MCP tools for local coding agents | 0.3.8   |
+| `@enzovezzaro/ai-auth-runtime` | Plugin host for local agent applications                    | 0.1.2   |
+
+The version numbers above mirror each package's own `package.json`. The root `package.json` is the single source for the product release label; any version rendered in UI is generated from that source at build time or omitted from nontechnical UI.
 
 The site is hosted on [GitHub Pages](HOSTING.md) only; a CI script enforces this.
 
@@ -43,29 +45,33 @@ connection.close();
 
 Use HTTPS outside local development. The default room name is `default`. Peers find each other by the exact site origin and room name, combined into a shared topic hash. Pass `room` to use a separate space.
 
+For a runnable, minimal version of this exact flow — one **Connect agent** button, a real in-page wallet approval, effective scopes only, peers and signed events — see the [minimal host site example](/host-site/README.html) and its real end-to-end test (`npm run test:host-site`). It covers only the external wallet connection; identity setup is a separate flow documented in the [Connect Agent acceptance plan](CONNECT_AGENT_E2E_ACCEPTANCE.md).
+
 ### Connect options
 
 These are the fields of `AIAuthConnectOptions` from the public type declarations.
 
-| Option            | Type                   | Meaning                                                                          |
-| ----------------- | ---------------------- | -------------------------------------------------------------------------------- |
-| `walletUrl`       | `string`               | Required. URL of the wallet page.                                                |
-| `capabilities`    | `string[]`             | Required. Capability names to request.                                           |
-| `room`            | `string`               | Room name. Defaults to `default`.                                                |
-| `origin`          | `string`               | Site origin used for the request. Defaults to the current origin.                |
-| `timeoutMs`       | `number`               | Approval window timeout in milliseconds.                                         |
-| `windowObject`    | `Window`               | Window to use for the modal.                                                     |
-| `sessionTtlMs`    | `number \| null`       | Fixed session lifetime, or `null` for Never. Omit to let the wallet offer Never. |
-| `idleTimeoutMs`   | `number \| null`       | Inactivity limit, or `null` for none.                                            |
-| `participation`   | `{ policy, now? }`     | Gate remote tool requests through a participation policy.                        |
-| `sessionStore`    | `AIAuthSessionStore`   | Store for resumable session records.                                             |
-| `storage`         | `AIAuthSessionStorage` | Backing for the default session store.                                           |
-| `resumeRecord`    | `AIAuthSessionRecord`  | Internal. Resume this record instead of asking for fresh consent.                |
-| `resumeTimeoutMs` | `number`               | Timeout while confirming a resume.                                               |
+| Option            | Type                   | Meaning                                                                                                                   |
+| ----------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `walletUrl`       | `string`               | Required. URL of the wallet page.                                                                                         |
+| `capabilities`    | `string[]`             | Required. Capability names to request.                                                                                    |
+| `room`            | `string`               | Room name. Defaults to `default`.                                                                                         |
+| `origin`          | `string`               | Site origin used for the request. Defaults to the current origin.                                                         |
+| `timeoutMs`       | `number`               | Approval window timeout in milliseconds.                                                                                  |
+| `windowObject`    | `Window`               | Window to use for the modal.                                                                                              |
+| `sessionTtlMs`    | `number \| null`       | Fixed session lifetime, or `null` for Never. Omit to let the wallet offer a bounded default and an explicit Never choice. |
+| `idleTimeoutMs`   | `number \| null`       | Inactivity limit, or `null` for none.                                                                                     |
+| `participation`   | `{ policy, now? }`     | Gate remote tool requests through a participation policy.                                                                 |
+| `sessionStore`    | `AIAuthSessionStore`   | Store for resumable session records.                                                                                      |
+| `storage`         | `AIAuthSessionStorage` | Backing for the default session store.                                                                                    |
+| `resumeRecord`    | `AIAuthSessionRecord`  | Internal. Resume this record instead of asking for fresh consent.                                                         |
+| `resumeTimeoutMs` | `number`               | Timeout while confirming a resume.                                                                                        |
 
 ## Session lifetime
 
-A session with no lifetime set by the site is Never by default, and the wallet shows the choice. Never has no fixed end; it lasts until the visitor ends it, the site ends it, or someone revokes it. The wallet also offers 5, 15, 30, and 60 minute choices. A numeric cap rules out Never. A numeric session with no idle setting ends after 10 minutes without authorized activity. `connection.renew()` asks the owner to approve again; it can keep or narrow capabilities, never widen them.
+At the protocol level a session with no lifetime is Never: no fixed end, until the visitor ends it, the site ends it, or someone revokes it. In the wallet approval UI, first use pre-selects a bounded 30-minute session (or the site's smaller cap). The owner can choose 5, 15, 30, or 60 minutes, or the explicit "Until I disconnect" choice, which has no time or idle limit. A numeric cap rules out Never. Explicit `sessionTtlMs: null` still means Never when the site permits it and the owner chooses it. A numeric session with no idle setting ends after 10 minutes without authorized activity. `connection.renew()` asks the owner to approve again; it can keep or narrow capabilities, never widen them.
+
+The first-use default decision is resolved (P1-15); see [Session and connection lifecycle](lifecycle.md#design-decision-bounded-first-use-default-p1-15). Saved grants, renewals, signature verification and the protocol meaning of `null` are unchanged.
 
 ## Resume after a refresh
 

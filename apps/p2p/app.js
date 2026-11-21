@@ -111,6 +111,10 @@ const state = {
   externalPendingEvents: [],
   error: "",
   connectionLabel: "",
+  // Set briefly after a form starts so a second click cannot issue a duplicate
+  // consent or grant. Unlike create/restore, these forms do not go through a
+  // view change, so the submit button is re-enabled in a finally block.
+  pendingForm: false,
   // Set synchronously at the start of wallet create/restore so a second
   // submit cannot generate a second key or download a second recovery file.
   submitting: false,
@@ -158,18 +162,49 @@ function sessionTtlChoices(request) {
   const sorted = [...timed].sort((a, b) => a - b);
   return maxSessionTtlMs === null ? [...sorted, null] : sorted;
 }
-// The wallet pre-selects Never when the site allows it, otherwise the usual
-// 30 minutes or the site's cap, whichever is shorter.
-function defaultSessionTtl(limits) {
-  return limits.maxSessionTtlMs === null
-    ? null
-    : Math.min(limits.maxSessionTtlMs, DEFAULT_SESSION_TTL_MS);
+// The usual pre-selection is 30 minutes, or the site's cap if it is shorter.
+// A saved origin+room+scopes relationship keeps its historical pre-selection
+// (Never when the site allows it); first use never pre-selects an unbounded
+// session. Callers that handle renewal omit firstUse, so renewal is unchanged.
+function defaultSessionTtl(limits, firstUse = false) {
+  const cap = limits?.maxSessionTtlMs ?? null;
+  if (cap === null && !firstUse) return null;
+  return cap === null
+    ? DEFAULT_SESSION_TTL_MS
+    : Math.min(cap, DEFAULT_SESSION_TTL_MS);
+}
+// First use means no open saved grant for this exact origin, room and scopes.
+// Only the wallet's open grants count; revoked or expired records are gone from
+// state.grants, so a fresh approval for them gets the bounded default.
+function hasSavedGrantForRequest(request) {
+  const audience = state.externalOrigin || request?.audience;
+  const room = request?.room ?? "default";
+  const scopes = [...new Set(request?.capabilities ?? [])].sort();
+  if (!audience || !scopes.length) return false;
+  return (state.grants ?? []).some((grant) => {
+    if (grant?.audience !== audience || (grant?.room ?? "default") !== room)
+      return false;
+    if (grant?.ended === true) return false;
+    if (
+      grant?.expiresAt !== null &&
+      Number.isFinite(grant?.expiresAt) &&
+      grant.expiresAt <= Date.now()
+    )
+      return false;
+    const issuer = grant?.consent?.body?.issuer;
+    if (state.wallet?.id && issuer && issuer !== state.wallet.id) return false;
+    const saved = [...new Set(grant?.capabilities ?? [])].sort();
+    return (
+      saved.length === scopes.length &&
+      scopes.every((scope, index) => scope === saved[index])
+    );
+  });
 }
 function parseSessionTtl(value) {
   return value === "never" ? null : Number(value);
 }
 function sessionLimitCopy(request) {
-  return "Choose how long this session may last. Shorter sessions also end after the idle time shown, up to 10 minutes. Never has no time or idle limit: the session stays active and resumable after a refresh until you end it or the site stops it.";
+  return 'Choose how long this session may last. Shorter sessions also end after the idle time shown, up to 10 minutes. "Until I disconnect" has no time or idle limit: the session stays active and resumable after a refresh until you end it or the site stops it.';
 }
 // A grant with no fixed end (Never) stays open until it is ended or revoked.
 function grantOpen(payload) {
@@ -177,6 +212,31 @@ function grantOpen(payload) {
     Boolean(payload) &&
     (payload.expiresAt === null || payload.expiresAt > Date.now())
   );
+}
+
+// A stored grant is an AUTHORIZATION, not proof of a live connection. Only an
+// active external session whose authenticated transport is open for that exact
+// audience, room and nonce may be labelled Online. Everything else is
+// explicitly offline, expired or revoked — never a green "connected site".
+function grantLiveState(grant, now = Date.now()) {
+  if (grant?.ended === true) return { label: "Revoked", level: "revoked" };
+  if (
+    grant?.expiresAt !== null &&
+    Number.isFinite(grant?.expiresAt) &&
+    grant.expiresAt <= now
+  )
+    return { label: "Expired", level: "expired" };
+  const sessionId =
+    state.externalRequest?.nonce ?? state.consent?.body?.payload?.requestNonce;
+  const live =
+    externalSessionActive() &&
+    grant?.audience === state.externalOrigin &&
+    grant?.requestNonce === sessionId &&
+    state.rtc?.connectionState?.status === "direct-peer-connected" &&
+    state.room?.session != null;
+  return live
+    ? { label: "Online now", level: "online" }
+    : { label: "Authorized · Not connected", level: "offline" };
 }
 
 function toast(message) {
@@ -187,6 +247,15 @@ function toast(message) {
   toast.timer = setTimeout(() => {
     element.hidden = true;
   }, 3200);
+}
+
+async function copyText(value, successMessage) {
+  try {
+    await navigator.clipboard.writeText(value);
+    toast(successMessage);
+  } catch {
+    toast("Could not copy. Select the text and copy it manually.");
+  }
 }
 
 function fail(error) {
@@ -235,22 +304,27 @@ function walletView() {
   const hue = [...id].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 360;
   const grants = state.grants ?? [];
   const activity = state.activity ?? [];
+  const now = Date.now();
+  const onlineCount = grants.filter(
+    (grant) => grantLiveState(grant, now).level === "online",
+  ).length;
   const connections = grants.length
     ? grants
-        .map(
-          (grant) => `<div class="connection-card">
-            <div class="connection-head"><span class="connection-orb" aria-hidden="true"></span><div><strong>${esc(grant.audience)}</strong><small>${esc(grant.room ?? "default")}</small></div><span class="status-tag"><span class="state-dot"></span> ACTIVE</span></div>
+        .map((grant) => {
+          const live = grantLiveState(grant, now);
+          return `<div class="connection-card">
+            <div class="connection-head"><span class="connection-orb ${esc(live.level)}" aria-hidden="true"></span><div><strong>${esc(grant.audience)}</strong><small>${esc(grant.room ?? "default")}</small></div><span class="status-tag ${esc(live.level)}" role="status">${esc(live.label)}</span></div>
             <div class="cap-row">${(grant.capabilities ?? [])
               .map(
                 (capability) =>
                   `<span class="cap-chip">${esc(capabilityCopy(capability).title)}</span>`,
               )
               .join("")}</div>
-            <small class="help">${esc(sessionEndText(grant.expiresAt, Date.now()))}</small>
-          </div>`,
-        )
+            <small class="help">${esc(sessionEndText(grant.expiresAt, now))}</small>
+          </div>`;
+        })
         .join("")
-    : `<div class="empty-state"><h3>No connected sites</h3><p>A site appears here after it asks to connect an agent and you approve its permissions.</p><a class="button secondary small" href="../connect-agent/">Connect an agent →</a></div>`;
+    : `<div class="empty-state"><h3>No authorized sites yet</h3><p>A site appears here after it asks to connect an agent and you approve its permissions. Authorization is not the same as being online.</p><a class="button secondary small" href="../connect-agent/">Connect an agent →</a></div>`;
   const recent = activity.length
     ? activity
         .slice(-3)
@@ -270,20 +344,29 @@ function walletView() {
         <span class="status-tag"><span class="state-dot"></span> LOCAL KEY</span>
       </section>
       <div class="stat-grid">
-        <div class="stat"><b>${grants.length}</b><span>connected sites</span></div>
-        <div class="stat"><b>${state.room?.peers.size ?? 0}</b><span>agents nearby</span></div>
+        <div class="stat"><b>${grants.length}</b><span>authorized sites</span></div>
+        <div class="stat"><b>${onlineCount}</b><span>online now</span></div>
         <div class="stat"><b>${activity.length}</b><span>signed entries</span></div>
         <div class="stat"><b>ECDSA</b><span>P-256 · local</span></div>
       </div>
       <div class="grid-main">
         <div class="stack">
-          <section class="panel"><div class="panel-head"><div><p class="mini-label">CONNECTIONS</p><h2>Where this key is used</h2><p class="panel-copy">Each entry is a signed approval for one exact site. Your key never leaves this browser.</p></div></div><div class="connection-list">${connections}</div></section>
+          <section class="panel"><div class="panel-head"><div><p class="mini-label">AUTHORIZED SITES</p><h2>Where this key is approved</h2><p class="panel-copy">An approval can outlive a live connection. "Online" appears only while an authenticated direct peer for that exact grant is open.</p></div></div><div class="connection-list">${connections}</div></section>
           <section class="panel"><div class="panel-head"><div><p class="mini-label">RECENT ACTIVITY</p><h2>Signed by this key</h2></div><button class="button quiet small" data-go-view="activity">View all</button></div><div class="event-list">${recent}</div></section>
         </div>
         <aside class="stack">
-          <section class="panel"><div class="panel-head"><div><p class="mini-label">QUICK ACTIONS</p><h2>What next?</h2></div></div><div class="overview-actions"><a class="button secondary" href="../connect-agent/">Connect an agent</a><button class="button secondary" data-go-view="connect">Review a request</button><button class="button secondary" data-go-view="permissions">Grant access</button><button class="button quiet" data-go-view="peer">Shared room</button></div></section>
+          <section class="panel"><div class="panel-head"><div><p class="mini-label">QUICK ACTIONS</p><h2>What next?</h2></div></div><div class="overview-actions"><a class="button secondary" href="../connect-agent/">Connect an agent</a><button class="button secondary" data-go-view="connect">Review a request</button><button class="button secondary" data-go-view="permissions">Review access</button><button class="button quiet" data-go-view="peer">Shared room</button></div></section>
           <section class="panel"><div class="panel-head"><div><p class="mini-label">KEY DETAILS</p><h3>Stored on this device</h3></div></div><div class="metric-line"><span>Created</span><strong>${esc(dateText(state.wallet.createdAt))}</strong></div><div class="metric-line"><span>Exportability</span><strong>Private key: no</strong></div><div class="button-row"><button class="button secondary small" id="download-backup">Download recovery file</button><button class="button quiet small" id="copy-agent-id">Copy ID</button></div></section>
           <section class="panel"><div class="danger-zone"><div><h3>Remove this key</h3><p>Clears the local key and activity. Restore from the recovery file later.</p></div><button class="button danger small" id="forget-wallet">Remove</button></div></section>
+          <details class="advanced">
+            <summary>Advanced / Troubleshooting</summary>
+            <div class="metric-line"><span>Owner DID (public)</span><strong>${esc(id)}</strong></div>
+            <div class="metric-line"><span>Instance ID</span><strong>${esc(pageInstanceId)}</strong></div>
+            <div class="metric-line"><span>Room / origin</span><strong>${esc(state.room?.roomName ?? "default")} · ${esc(location.origin)}</strong></div>
+            <div class="metric-line"><span>Transport</span><strong>${esc(connectionStatusLabel(state.rtc?.connectionState?.status ?? "idle"))}</strong></div>
+            <p class="panel-copy">Raw signed grants (public envelopes only):</p>
+            <pre>${esc(JSON.stringify(grants, null, 2))}</pre>
+          </details>
         </aside>
       </div>
     </div>`;
@@ -318,10 +401,14 @@ function connectView() {
   const result = state.consent
     ? `<section class="panel"><div class="panel-head"><div><p class="mini-label">SIGNATURE VERIFIED</p><h2>Approval created</h2><p class="panel-copy">The wallet approved these permissions for ${esc(state.request.audience)}. The check confirmed the wallet, the site, the permissions and the lifetime you chose.</p></div><span class="status-tag"><span class="state-dot"></span> VERIFIED</span></div><div class="fingerprint">${esc(JSON.stringify(state.consent, null, 2))}</div><div class="button-row"><button class="button secondary" id="copy-consent">Copy signed approval</button><button class="button quiet" id="new-request">New request</button></div><div class="callout top-gap">This sample verifier runs in the wallet page. A real relying website must issue its own challenge and enforce its own authorization policy.</div></section>`
     : "";
-  return `${pageHead("SIGN-IN WITH AGENT", "Choose what this site may ask for.", "A one-use, origin-bound request is signed by your wallet. Permission is explicit and lasts only as long as you choose.")}
+  return `${pageHead("REQUESTS", "Approvals happen in the site's request window.", "When a site asks you to connect an agent, this wallet opens directly with the request and its exact origin. The playground below is for developers and is hidden by default.")}
+    <section class="panel"><div class="panel-head"><div><p class="mini-label">NORMAL FLOW</p><h2>Waiting for a site request</h2><p class="panel-copy">No action is needed here. Return to the site that asked you to connect an agent and approve the request in the window it opens.</p></div><a class="button secondary" href="../connect-agent/">Connect an agent →</a></div></section>
+    <details class="advanced">
+      <summary>Advanced / Developer lab — permission playground</summary>
     <div class="grid-main"><div class="stack"><section class="panel"><div class="panel-head"><div><h2>Permission request</h2><p class="panel-copy">Only this exact website receives the approval.</p></div><span class="status-tag pending">REVIEW REQUIRED</span></div>
       <form id="permission-form"><div class="field"><label for="request-origin">Website origin</label><input class="control" id="request-origin" type="url" required value="${esc(location.origin)}"/><small>Use an origin only: scheme, host and optional port. No paths or wildcard hosts.</small></div><p class="scope-label">REQUESTED PERMISSIONS</p><div class="scope-list">${scopes}</div>${setupFormError()}<button class="button" type="submit">Review and approve selection</button></form>
-      </section>${result}</div><aside class="stack"><section class="panel"><div class="panel-head"><div><p class="mini-label">WHAT GETS SIGNED</p><h3>One site. A few actions. A short expiry.</h3></div></div><div class="metric-line"><span>Origin</span><strong>Exact match</strong></div><div class="metric-line"><span>Challenge</span><strong>One use</strong></div><div class="metric-line"><span>Lifetime</span><strong>60 seconds</strong></div><div class="metric-line"><span>Permissions</span><strong>Only selected</strong></div></section><section class="panel"><p class="panel-copy">The signature proves this wallet approved a request. It does not prove a human reviewed it unless a human actually confirms the selection.</p></section></aside></div>`;
+      </section>${result}</div><aside class="stack"><section class="panel"><div class="panel-head"><div><p class="mini-label">WHAT GETS SIGNED</p><h3>One site, a few actions, for a lifetime you choose.</h3></div></div><div class="metric-line"><span>Origin</span><strong>Exact match</strong></div><div class="metric-line"><span>Challenge</span><strong>One use</strong></div><div class="metric-line"><span>Lifetime</span><strong>lasts only as long as you choose</strong></div><div class="metric-line"><span>Permissions</span><strong>Only selected</strong></div></section><section class="panel"><p class="panel-copy">The signature proves this wallet approved a request. It does not prove a human reviewed it unless a human actually confirms the selection.</p></section></aside></div>
+    </details>`;
 }
 
 function externalPermissionView() {
@@ -369,6 +456,11 @@ function externalPermissionView() {
       return `<label class="checkbox-row"><input type="checkbox" name="external-capability" value="${esc(capability)}"/><span><strong>${esc(title)}</strong><small><code>${esc(capability)}</code> · ${esc(detail)}</small></span></label>`;
     })
     .join("");
+  // First use gets a bounded pre-selection; a saved relationship keeps its
+  // previous default. The signed lifetime still comes from the owner's actual
+  // select value, never from this pre-selection.
+  const firstUse = !hasSavedGrantForRequest(request);
+  const preselectedTtl = defaultSessionTtl(sessionLimits(request), firstUse);
   return `${pageHead("SITE REQUEST", "Review before you allow.", "Your wallet sends a public ID and only the permissions you allow. Your private key never leaves this browser.")}
     <div class="grid-main"><section class="panel"><div class="panel-head"><div><p class="mini-label">REQUESTING SITE</p><h2>${esc(displayOrigin)}</h2><p class="panel-copy">${esc(requestEndText(request.expiresAt))} It works only for this website and this one connection attempt.</p></div><span class="status-tag pending">REVIEW REQUIRED</span></div>
       <form id="external-permission-form"><p class="scope-label">REQUESTED PERMISSIONS</p><div class="scope-list">${scopes}</div>${request.version === 1 ? `<p class="help">This site uses an older version of the connection code, so this connection lasts only until ${esc(dateText(request.expiresAt))} (under two minutes). Ask the site to upgrade for longer sessions.</p>` : ""}<div class="field"${request.version === 1 ? " hidden" : ""}><label for="session-ttl">Session lasts</label><select class="control" id="session-ttl" name="session-ttl">${sessionTtlChoices(
@@ -376,7 +468,7 @@ function externalPermissionView() {
       )
         .map(
           (ms) =>
-            `<option value="${ms === null ? "never" : ms}"${ms === defaultSessionTtl(sessionLimits(request)) ? " selected" : ""}>${esc(durationText(ms))}</option>`,
+            `<option value="${ms === null ? "never" : ms}"${ms === preselectedTtl ? " selected" : ""}>${esc(ms === null ? "Until I disconnect — no automatic expiry" : durationText(ms))}</option>`,
         )
         .join(
           "",
@@ -388,13 +480,34 @@ function walletRequired() {
   return `<section class="empty-state"><h3>No owner key in this browser</h3><p>An owner key is created when a site asks you to approve its tools. Agents create their own identity and do not need this.</p><a class="button" href="../connect-agent/">Connect an agent →</a></section>`;
 }
 
+function externalRequestPending() {
+  return Boolean(state.externalRequest && !state.externalStatus);
+}
+
 function permissionsView() {
   if (!state.wallet)
-    return `${pageHead("GRANT ACCESS", "Grant another agent limited access.", "Create a signed record that gives another agent limited access. The site decides whether to honor it.")}${walletRequired()}`;
-  return `${pageHead("LIMITED ACCESS", "Grant only what the other agent needs.", "The grant names who receives it, what it covers and when it ends. Your wallet signs it, and anyone can check the signature.")}
-    <div class="grid-main"><section class="panel"><div class="panel-head"><div><h2>New access grant</h2><p class="panel-copy">This wallet issues the grant. Cancelling a grant is not supported yet, so use short expiry times.</p></div><span class="status-tag pending">EXPLICIT SCOPE</span></div>
-      <form id="grant-form"><div class="field"><label for="grant-recipient">Other agent's ID</label><input class="control" id="grant-recipient" required placeholder="Paste their agent ID"/></div><div class="field"><label for="grant-resource">What it can use</label><input class="control" id="grant-resource" required maxlength="512" placeholder="site:example.com/room:research"/></div><div class="field"><label for="grant-capabilities">Allowed actions</label><input class="control" id="grant-capabilities" required placeholder="messages.send, presence.read"/><small>Separate with commas. Wildcards are not allowed.</small></div><div class="field"><label for="grant-hours">Ends in hours</label><input class="control" id="grant-hours" type="number" min="1" max="720" value="24" required/></div>${setupFormError()}<button class="button" type="submit">Sign grant</button></form>
-    </section><aside class="stack"><section class="panel"><div class="panel-head"><div><p class="mini-label">AUTHORITY BOUNDARY</p><h3>A signature is not site permission</h3></div></div><p class="panel-copy">The site must trust this wallet, check the recipient and limits, and honor the end time before it acts.</p></section><section id="grant-result"></section></aside></div>`;
+    return `${pageHead("ACCESS", "Review what you have approved.", "Approved site access is created when a site asks you to connect an agent.")}${walletRequired()}`;
+  const grants = state.grants ?? [];
+  const now = Date.now();
+  const relationships = grants.length
+    ? `<div class="event-list">${grants
+        .map((grant) => {
+          const live = grantLiveState(grant, now);
+          return `<div class="event-row"><div><div class="event-title">${esc(grant.audience)}</div><div class="event-detail">${esc(grant.room ?? "default")} · ${esc(sessionEndText(grant.expiresAt, now))}</div><div class="event-detail">${esc((grant.capabilities ?? []).map((capability) => capabilityCopy(capability).title).join(", "))}</div></div><div class="overview-actions"><span class="status-tag ${esc(live.level)}">${esc(live.label)}</span><button class="button quiet small" type="button" data-revoke-grant="${esc(grant.audience)}" data-revoke-nonce="${esc(grant.requestNonce)}">Revoke</button></div></div>`;
+        })
+        .join("")}</div>`
+    : `<div class="empty-state"><h3>Nothing approved yet</h3><p>Site access appears here after you approve a request. An approval can be reviewed, disconnected or revoked at any time.</p></div>`;
+  return `${pageHead("ACCESS", "Review what you have approved.", "See who is authorized, for which site, until when — and disconnect or revoke. Authorization is separate from being online.")}
+    <div class="stack">
+      <section class="panel"><div class="panel-head"><div><p class="mini-label">APPROVED RELATIONSHIPS</p><h2>Review access</h2><p class="panel-copy">Revoke marks the signed grant as ended in this wallet. A site may take time to notice; it is not silently re-approved.</p></div></div>${relationships}</section>
+      <details class="advanced">
+        <summary>Advanced / Developer lab — raw grant editor</summary>
+        <section class="panel"><div class="panel-head"><div><h2>New access grant (manual)</h2><p class="panel-copy">Protocol-level tool. Cancelling a manually created grant is not wired to site policy, so use short expiry times. Normal users should approve a site request instead.</p></div><span class="status-tag pending">ADVANCED</span></div>
+          <form id="grant-form"><div class="field"><label for="grant-recipient">Other agent's ID</label><input class="control" id="grant-recipient" required placeholder="Paste their agent ID"/></div><div class="field"><label for="grant-resource">What it can use</label><input class="control" id="grant-resource" required maxlength="512" placeholder="site:example.com/room:research"/></div><div class="field"><label for="grant-capabilities">Allowed actions</label><input class="control" id="grant-capabilities" required placeholder="messages.send, presence.read"/><small>Separate with commas. Wildcards are not allowed.</small></div><div class="field"><label for="grant-hours">Ends in hours</label><input class="control" id="grant-hours" type="number" min="1" max="720" value="24" required/></div>${setupFormError()}<button class="button" type="submit">Sign grant</button></form>
+        </section>
+        <section id="grant-result"></section>
+      </details>
+    </div>`;
 }
 
 function peerRows() {
@@ -525,6 +638,13 @@ async function render() {
               ? activityView()
               : connectPeerView();
   root.setAttribute("aria-busy", "false");
+  // Errors raised outside a form (for example a wallet load failure) used to
+  // be stored on state but never shown. Show them once, above the view.
+  if (state.error && !$("#form-error"))
+    root.insertAdjacentHTML(
+      "afterbegin",
+      `<p class="error-text" id="view-error" role="alert">${esc(state.error)}</p>`,
+    );
   bindView();
 }
 
@@ -837,6 +957,13 @@ function bindView() {
         await file.text(),
         $("#restore-passphrase").value,
       );
+      // A restored wallet may already have grants in this browser. Refresh the
+      // in-memory list so first-use detection sees the saved relationship.
+      // Best effort: a blocked store must not block restoring the wallet.
+      if (typeof grantStore !== "undefined")
+        try {
+          state.grants = await grantStore.list();
+        } catch {}
       if (!externalConnectMode) await startRoom();
       state.view = state.externalRequest ? "connect" : "wallet";
       if (externalConnectMode && state.externalRequest) {
@@ -858,10 +985,9 @@ function bindView() {
   $("#download-backup")?.addEventListener("click", () =>
     downloadJson("ai-auth-wallet-recovery.json", downloadBackup(state.wallet)),
   );
-  $("#copy-agent-id")?.addEventListener("click", async () => {
-    await navigator.clipboard.writeText(state.wallet.id);
-    toast("Public identity copied.");
-  });
+  $("#copy-agent-id")?.addEventListener("click", () =>
+    copyText(state.wallet.id, "Public identity copied."),
+  );
   $("#forget-wallet")?.addEventListener("click", async () => {
     if (
       !window.confirm(
@@ -881,10 +1007,14 @@ function bindView() {
   });
   $("#permission-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (state.pendingForm) return;
+    const submitButton = event.currentTarget.querySelector('[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
+    state.pendingForm = true;
     state.error = "";
     state.consent = null;
-    if (!state.wallet) return fail(new Error(WALLET_REQUIRED_MESSAGE));
     try {
+      if (!state.wallet) throw new Error(WALLET_REQUIRED_MESSAGE);
       const originField = $("#request-origin");
       const origin = new URL(originField.value).origin;
       if (origin !== originField.value)
@@ -894,10 +1024,12 @@ function bindView() {
           "input[name=capability]:checked",
         ),
       ].map((input) => input.value);
+      if (!requested.length)
+        throw new Error("Select at least one permission to approve.");
       const request = await createPermissionRequest(origin, requested);
       if (!(await verifyPermissionRequest(request, { expectedOrigin: origin })))
         throw new Error(
-          "Demo website challenge failed verification. Refresh the site and click Connect agent to try again.",
+          "This sample request could not be verified. Start a new request and try again.",
         );
       const approval = await approvePermissionRequest(
         state.wallet,
@@ -934,6 +1066,9 @@ function bindView() {
       render();
     } catch (error) {
       fail(error);
+    } finally {
+      state.pendingForm = false;
+      if (submitButton) submitButton.disabled = false;
     }
   });
   $("#external-permission-form")?.addEventListener("submit", async (event) => {
@@ -1111,6 +1246,8 @@ function bindView() {
     render();
   });
   $("#end-session")?.addEventListener("click", async () => {
+    if (!window.confirm("End this session? You can reconnect from the site."))
+      return;
     await expireExternalSession("ended");
   });
   $("#reject-external-request")?.addEventListener("click", () => {
@@ -1126,10 +1263,9 @@ function bindView() {
     clearTimeout(state.externalExpiryTimer);
     render();
   });
-  $("#copy-consent")?.addEventListener("click", async () => {
-    await navigator.clipboard.writeText(JSON.stringify(state.consent));
-    toast("Signed consent copied.");
-  });
+  $("#copy-consent")?.addEventListener("click", () =>
+    copyText(JSON.stringify(state.consent), "Signed consent copied."),
+  );
   $("#new-request")?.addEventListener("click", () => {
     state.request = null;
     state.consent = null;
@@ -1138,6 +1274,10 @@ function bindView() {
   });
   $("#grant-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (state.pendingForm) return;
+    const submitButton = event.currentTarget.querySelector('[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
+    state.pendingForm = true;
     state.error = "";
     try {
       const input = {
@@ -1170,12 +1310,14 @@ function bindView() {
       });
       $("#grant-result").innerHTML =
         `<section class="panel"><div class="panel-head"><div><p class="mini-label">VERIFIED LOCALLY</p><h3>Signed grant</h3></div></div><div class="fingerprint">${esc(JSON.stringify(grant, null, 2))}</div><div class="button-row"><button class="button secondary small" id="copy-grant">Copy grant</button></div></section>`;
-      $("#copy-grant").addEventListener("click", async () => {
-        await navigator.clipboard.writeText(JSON.stringify(grant));
-        toast("Signed grant copied.");
-      });
+      $("#copy-grant").addEventListener("click", () =>
+        copyText(JSON.stringify(grant), "Signed grant copied."),
+      );
     } catch (error) {
       fail(error);
+    } finally {
+      state.pendingForm = false;
+      if (submitButton) submitButton.disabled = false;
     }
   });
   document.querySelectorAll("[data-grant-peer]").forEach((button) =>
@@ -1231,6 +1373,31 @@ function bindView() {
     state.view = "wallet";
     render();
   });
+  // Real, durable revocation of a signed grant — not a row-hiding fake. The
+  // site may keep acting until it observes the revoked record, and we say so.
+  document.querySelectorAll("[data-revoke-grant]").forEach((button) =>
+    button.addEventListener("click", async () => {
+      const audience = button.dataset.revokeGrant;
+      const nonce = button.dataset.revokeNonce;
+      if (!audience || !nonce) return;
+      if (
+        !window.confirm(
+          `Revoke this wallet's approval for ${audience}? The site may keep acting until it notices. You can approve a new connection from the site.`,
+        )
+      )
+        return;
+      button.disabled = true;
+      try {
+        await grantStore.markEnded(audience, nonce);
+        state.grants = await grantStore.list();
+        toast("Grant revoked in this wallet.");
+      } catch (error) {
+        fail(error);
+      } finally {
+        render();
+      }
+    }),
+  );
 }
 
 function externalSessionActive() {
@@ -1713,6 +1880,12 @@ if (externalConnectMode) {
 
 document.querySelectorAll("[data-view]").forEach((button) =>
   button.addEventListener("click", async () => {
+    // A site is waiting on this popup's approval. Letting the owner wander to
+    // another view hides the request without declining it, so keep it in focus.
+    if (externalRequestPending()) {
+      toast("Review or decline the site request before leaving this page.");
+      return;
+    }
     state.view = button.dataset.view;
     state.error = "";
     render();

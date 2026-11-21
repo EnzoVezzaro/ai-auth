@@ -21,7 +21,7 @@ flowchart TB
   P3 --> S
 ```
 
-Three independent catalogs share only a wire convention. There is no registry, no protocol field and no source tracking. Evidence: `packages/p2p/webmcp.js`, `packages/mcp/bridge.js`, `packages/agent/tool-provider.js`, `packages/p2p/p2p.js`.
+Three independent catalogs share only a wire convention. A protocol-neutral descriptor, a default-deny registry with source tracking and a bounded audit now ship as optional `./tool-descriptor`, `./tool-registry` and `./tool-audit` subpaths; they are not yet wired into all three live catalogs. This paragraph was accurate at the `v0.11.1` snapshot. Evidence: `packages/p2p/webmcp.js`, `packages/mcp/bridge.js`, `packages/agent/tool-provider.js`, `packages/p2p/tool-registry.js`, [standards matrix](STANDARDS_MATRIX.md).
 
 ## 3. Proposed layering
 

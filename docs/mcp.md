@@ -1,6 +1,6 @@
 # The ai-auth-mcp command
 
-`@enzovezzaro/ai-auth-mcp` (0.3.7) is a local MCP server. It lets a coding agent drive an AI Auth wallet identity through MCP tools. It speaks stdio by default, or Streamable HTTP on loopback. It does not connect to a hosted service. For the runtime, keystore and lifecycle details, see the [agents guide](agents.md).
+`@enzovezzaro/ai-auth-mcp` (0.3.8) is a local MCP server. It lets a coding agent drive an AI Auth wallet identity through MCP tools. It speaks stdio by default, or Streamable HTTP on loopback. It does not connect to a hosted service. For the runtime, keystore and lifecycle details, see the [agents guide](agents.md).
 
 ## Install and run
 
@@ -24,22 +24,23 @@ The passphrase comes from `AI_AUTH_PASSPHRASE` or a terminal prompt. `init` crea
 
 ## Flags
 
-| Flag                       | Meaning                                                                                                                         |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `--keystore-dir DIR`       | Identity directory. Default `~/.ai-auth/agent`.                                                                                 |
-| `--connect INPUT`          | Connect instruction, its JSON, a site URL, or `@file`.                                                                          |
-| `--origin URL --room NAME` | Explicit alternative to `--connect`.                                                                                            |
-| `--caps a,b`               | Capabilities to request, when not discovered from the site.                                                                     |
-| `--approve a,b`            | Exact scopes to grant without a TTY. Never more than the site requested.                                                        |
-| `--auto-join`              | Join the room at startup.                                                                                                       |
-| `--resume`                 | Restore the last room saved for this origin.                                                                                    |
-| `--code-mode`              | Add the `ai_auth_code` tool.                                                                                                    |
-| `--provide room`           | Publish `agent.ping` and `agent.self`. Needs `tools.invoke`.                                                                    |
-| `--no-manifest`            | Do not fetch `/.well-known/ai-auth.json` for a URL.                                                                             |
-| `--http PORT`              | Serve Streamable HTTP on `127.0.0.1:PORT` instead of stdio. `0` picks a free port.                                              |
-| `--open-wallet`            | When approval is needed, open the wallet in a browser and wait for its signed consent on the loopback callback. Needs `--http`. |
-| `--yes`                    | Confirm `unlink` without a prompt.                                                                                              |
-| `--help`                   | Print usage.                                                                                                                    |
+| Flag                       | Meaning                                                                                                                                 |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `--keystore-dir DIR`       | Identity directory. Default `~/.ai-auth/agent`.                                                                                         |
+| `--connect INPUT`          | Connect instruction, its JSON, a site URL, or `@file`.                                                                                  |
+| `--origin URL --room NAME` | Explicit alternative to `--connect`.                                                                                                    |
+| `--caps a,b`               | Capabilities to request, when not discovered from the site.                                                                             |
+| `--approve a,b`            | Exact scopes to grant without a TTY. Never more than the site requested.                                                                |
+| `--auto-join`              | Join the room at startup.                                                                                                               |
+| `--resume`                 | Restore the last room saved for this origin. Use with `--connect` or `--origin`; the saved room must match that origin's approved room. |
+| `--code-mode`              | Add the `ai_auth_code` tool.                                                                                                            |
+| `--provide room`           | Publish `agent.ping` and `agent.self`. Needs `tools.invoke`.                                                                            |
+| `--no-manifest`            | Do not fetch `/.well-known/ai-auth.json` for a URL.                                                                                     |
+| `--http PORT`              | Serve Streamable HTTP on `127.0.0.1:PORT` instead of stdio. `0` picks a free port.                                                      |
+| `--open-wallet`            | When approval is needed, open the wallet in a browser and wait for its signed consent on the loopback callback. Needs `--http`.         |
+| `--name NAME`              | Wallet and descriptor name. Default `ai-auth-mcp`.                                                                                      |
+| `--yes`                    | Confirm `unlink` without a prompt.                                                                                                      |
+| `--help`                   | Print usage.                                                                                                                            |
 
 ### Choosing a site
 
@@ -74,7 +75,7 @@ Code Mode is opt in. Start the server with `--code-mode` and it adds `ai_auth_co
 
 A script may call `aiAuth.status()`, `aiAuth.listTools()`, `aiAuth.events()`, `aiAuth.send()`, `aiAuth.move()` and `aiAuth.invoke()`. It may not call `join`, `leave` or `act`. Use the MCP tools for those.
 
-The code is capped at 8 KB. It runs in a worker thread that the host terminates after 2 seconds. Guest code has no network, filesystem, process or imports. This is not a security boundary by itself, because the MCP process keeps the host's privileges. Do not run hostile code here.
+The code is capped at 8,000 JavaScript characters. It runs in a worker thread that the host terminates after 2 seconds. Guest code has no network, filesystem, process or imports. This is not a security boundary by itself, because the MCP process keeps the host's privileges. Do not run hostile code here.
 
 ## HTTP mode
 

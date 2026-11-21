@@ -1,6 +1,6 @@
 # @enzovezzaro/ai-auth-runtime
 
-A provider-neutral plugin host for local agent applications. Version 0.1.0.
+A provider-neutral plugin host for local agent applications. Version 0.1.2.
 
 This package does not start a server, open a socket, create an account or depend on an AI Auth backend. The host supplies each identity, policy, store, presence view and transport.
 

@@ -1,6 +1,6 @@
 # Architecture council report
 
-> Status: **proposed architecture**. This report records research and a decision. No code was changed by this council. "As-is" statements cite files in this repository at tag `v0.11.1`. "Proposed" statements are designs awaiting an implementation approval gate. Research date: 2026-11-19.
+> Status: **proposed architecture**. This report records research and a decision. No code was changed by this council. "As-is" statements below are a historical inventory at tag `v0.11.1`; several of the proposed modules described there now ship as optional v0.12.0 subpaths. See [the standards matrix](STANDARDS_MATRIX.md) for current status, and the implementation note in [the threat model](THREAT_MODEL.md) for enforced UTCP controls. "Proposed" statements are designs awaiting a further approval gate. Research date: 2026-11-19.
 
 ## Governance followed
 

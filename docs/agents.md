@@ -1,6 +1,6 @@
 # Agents and MCP
 
-Three packages can run an AI Auth agent without a browser tab. `@enzovezzaro/ai-auth-agent` (0.1.8) is the room runtime. `@enzovezzaro/ai-auth-mcp` (0.3.7) exposes it as MCP tools. `@enzovezzaro/ai-auth-runtime` (0.1.1) is a separate plugin host for local applications. For the command and its flags, see the [MCP command guide](mcp.md).
+Three packages can run an AI Auth agent without a browser tab. `@enzovezzaro/ai-auth-agent` (0.1.9) is the room runtime. `@enzovezzaro/ai-auth-mcp` (0.3.8) exposes it as MCP tools. `@enzovezzaro/ai-auth-runtime` (0.1.2) is a separate plugin host for local applications. For the command and its flags, see the [MCP command guide](mcp.md). These numbers mirror each package's `package.json`; the root `package.json` is the single release source, and any version shown in UI is generated from it or omitted.
 
 ## Connecting from a chat app
 
@@ -12,7 +12,7 @@ A desktop chat app is a manual flow: the user must bring the app window forward 
 
 - The wallet key stays in an encrypted file on the agent's machine. No AI Auth server holds keys.
 - Public Nostr relays carry signaling. They do not carry application messages.
-- Messages go over a direct WebRTC data channel. There is no TURN server. If peer candidates are blocked, the connection stays in `waiting-for-peers`.
+- Messages go over a direct WebRTC data channel. There is no TURN server. If peer candidates are blocked, the connection waits in `waiting-for-peers` and moves to `reconnecting` when the rejoin timer fires.
 - Data received from a peer is untrusted. Do not treat it as instructions.
 
 ## The ai_auth_* tools
@@ -75,7 +75,7 @@ The CLI shows a preview of the origin, room, wallet id and requested scopes befo
 
 ## Joining and reconnect
 
-- Joining is explicit with `ai_auth_join`. `--auto-join` joins at startup. `--resume` rejoins the room saved for the same origin.
+- Joining is explicit with `ai_auth_join`. `--auto-join` joins at startup. `--resume` rejoins the room saved for the same origin; pass `--connect` or `--origin` too, and it only succeeds when the saved room matches that origin's approved room.
 - Presence lasts only while the agent process runs. There is no background daemon.
 - In stdio mode the server exits when the harness closes stdin. In `--http` mode it runs until stopped.
 - Peers see the agent leave when its heartbeat lease lapses or when it says goodbye. To reconnect, run the harness again or call `ai_auth_join`. The identity is stable because it lives in the keystore.
@@ -101,11 +101,15 @@ Each agent needs its own keystore directory. In HTTP mode each also needs its ow
 
 ## Harness notes
 
-These are dated manual observations, not a claim about current behavior.
+These are dated manual observations, not a claim about current behavior. The evidence-based matrix with OS, version, date, transport, result and evidence — including the desktop/web distinction and the items marked not verified — lives in [Agent harness support](AGENT_HARNESS_SUPPORT.md). Do not claim automatic local installation: there is no local component that performs and confirms an install by itself.
 
 - Claude Code (2026-11-15): a tool call reached a peer over WebRTC.
-- Codex and OpenCode (2026-11-15): the server registered and listed tools, but no tool call completed.
+- Codex and OpenCode (2026-11-15): the server registered and listed tools, but no tool call completed. Listing tools is not a completed call.
 - ChatGPT desktop (2026-11-16): three agents shared a room over HTTP endpoints. One endpoint change required a manual re-add in the client.
+- ChatGPT web and other clients: no dated evidence in this repository; treat as not verified and test separately.
+- OpenCode (live automated check, 2026-11-20 local EST / 2026-11-21 UTC): from this harness's terminal, the repository's own tests started `ai-auth-mcp` over stdio and HTTP, listed tools and completed an `ai_auth_status` call with `connection=idle`. This was not an interactive harness session and not a call that reached a peer, so it does not upgrade the 2026-11-15 note above.
+
+The live check ran `npm run test:mcp-consent`, `npm run test:connect-agent` and `npm test --prefix packages/mcp` (97/97 passing) on macOS with Node v22.23.4. No chat-app UI was driven, no harness MCP config was edited, and no CI result is claimed. These commands show that this repository can bootstrap and verify a local agent from this environment; they do not verify an interactive session in OpenCode, Claude Code, Codex, ChatGPT desktop or ChatGPT web. Exact commands, output and environment are recorded in [Agent harness support](AGENT_HARNESS_SUPPORT.md).
 
 ## Limits
 

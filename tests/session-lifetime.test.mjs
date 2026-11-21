@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { webcrypto } from "node:crypto";
 import {
+  appSource,
+  extractFunction,
+  runFragment,
+} from "./helpers/app-source.mjs";
+import {
   DEFAULT_SESSION_TTL_MS,
   MAX_SESSION_TTL_MS,
   NonceGuard,
@@ -207,6 +212,89 @@ test("a numeric site cap bounds the grant; only an uncapped site may choose Neve
     }),
     RangeError,
   );
+});
+
+// P1-15 changed only the wallet's first-use pre-selection. These tests pin the
+// two helpers it uses, so a later edit cannot silently relax the bounded default
+// or change the one-argument behavior used by renewals.
+const app = await appSource();
+
+function ttlHelpers(grants = []) {
+  return runFragment(
+    [
+      extractFunction(app, "defaultSessionTtl"),
+      extractFunction(app, "hasSavedGrantForRequest"),
+    ].join("\n"),
+    {
+      DEFAULT_SESSION_TTL_MS,
+      state: {
+        wallet: { id: "wallet:owner" },
+        externalOrigin: ORIGIN,
+        grants,
+      },
+    },
+  );
+}
+
+test("P1-15 the first-use pre-selection is bounded; one-argument and renewal defaults stay unchanged", () => {
+  const ttl = ttlHelpers();
+  const unlimited = { maxSessionTtlMs: null, maxIdleTimeoutMs: null };
+  assert.equal(ttl.defaultSessionTtl(unlimited), null);
+  assert.equal(ttl.defaultSessionTtl(unlimited, true), DEFAULT_SESSION_TTL_MS);
+  assert.equal(
+    ttl.defaultSessionTtl({ maxSessionTtlMs: 5 * MINUTE }, true),
+    5 * MINUTE,
+  );
+  assert.equal(
+    ttl.defaultSessionTtl({ maxSessionTtlMs: 5 * MINUTE }),
+    5 * MINUTE,
+  );
+  assert.equal(ttl.defaultSessionTtl({}, true), DEFAULT_SESSION_TTL_MS);
+});
+
+test("P1-15 first use is keyed to the exact origin, room and scopes of an open grant", () => {
+  const request = {
+    audience: ORIGIN,
+    room: "default",
+    capabilities: ["presence.read", "messages.send"],
+  };
+  const grant = {
+    audience: ORIGIN,
+    room: "default",
+    capabilities: ["messages.send", "presence.read"],
+    expiresAt: null,
+    consent: { body: { issuer: "wallet:owner" } },
+  };
+  assert.equal(ttlHelpers([grant]).hasSavedGrantForRequest(request), true);
+  assert.equal(
+    ttlHelpers([{ ...grant, room: "other" }]).hasSavedGrantForRequest(request),
+    false,
+  );
+  assert.equal(
+    ttlHelpers([
+      { ...grant, capabilities: ["presence.read"] },
+    ]).hasSavedGrantForRequest(request),
+    false,
+  );
+  assert.equal(
+    ttlHelpers([
+      { ...grant, audience: "https://other.example" },
+    ]).hasSavedGrantForRequest(request),
+    false,
+  );
+});
+
+test("P1-15 an explicit Never choice still signs a valid Never grant", async () => {
+  const { wallet, request } = await handshake();
+  const consent = await approvePermissionRequest(
+    wallet,
+    request,
+    request.capabilities,
+    { sessionTtlMs: null },
+  );
+  assert.equal(consent.body.payload.expiresAt, null);
+  assert.equal(consent.body.payload.sessionTtlMs, null);
+  assert.equal(await verify(consent, request, wallet), true);
 });
 
 test("a request from an SDK that predates Never keeps the 30 minute default", async () => {

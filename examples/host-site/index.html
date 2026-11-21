@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Auth — Host site example</title>
+    <link rel="stylesheet" href="./site.css" />
+  </head>
+  <body>
+    <main class="card">
+      <h1>AI Auth — host site example</h1>
+      <p class="intro">
+        This page shows only the external wallet integration. Choose
+        <strong>Connect agent</strong> to open the AI Auth wallet as an in-page
+        modal; the wallet owner decides which capabilities to allow. This site
+        creates no identity — you and your agent bring your own.
+      </p>
+
+      <div class="actions">
+        <button id="connect" type="button">Connect agent</button>
+        <button id="disconnect" type="button" disabled>Disconnect</button>
+      </div>
+
+      <p id="status" class="status" role="status" aria-live="polite">
+        Not connected
+      </p>
+
+      <section aria-labelledby="scopes-heading">
+        <h2 id="scopes-heading">Approved scopes</h2>
+        <p id="scopes" class="empty" data-empty="No approved scopes yet.">
+          No approved scopes yet.
+        </p>
+      </section>
+
+      <section aria-labelledby="peers-heading">
+        <h2 id="peers-heading">Peers in this room</h2>
+        <ul id="peers" data-empty="No peers connected yet.">
+          <li class="empty">No peers connected yet.</li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="events-heading">
+        <h2 id="events-heading">Recent signed events</h2>
+        <ul id="events" data-empty="No signed events yet.">
+          <li class="empty">No signed events yet.</li>
+        </ul>
+      </section>
+
+      <noscript>
+        <p class="empty">JavaScript is required to run this example.</p>
+      </noscript>
+    </main>
+
+    <script type="module" src="./site.js"></script>
+  </body>
+</html>

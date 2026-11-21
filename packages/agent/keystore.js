@@ -415,7 +415,10 @@ export function createFileKeystore({
       const pass = await secret({ confirmLength: true });
       const previous = await openDocument(text, pass);
       const material = await generateMetadata(name ?? previous.metadata.name);
-      const archive = path.join(root, `identity.${Date.now()}.rotated.json`);
+      const archive = path.join(
+        root,
+        `identity.${Date.now()}.${randomUUID()}.rotated.json`,
+      );
       await writePrivate(archive, text);
       await writePrivate(file, await seal(material, pass));
       return buildWallet(material);

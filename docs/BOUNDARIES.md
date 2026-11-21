@@ -21,7 +21,9 @@ allowed in this repo lives under clearly marked examples (`examples/`,
 `packages/*/examples/`) and test fixtures (`tests/fixtures/`,
 `packages/*/test/`). `tests/boundary-guard.test.mjs` fails when SDK package
 source (`packages/**/*.js`, `*.mjs`, `*.ts`, outside examples and fixtures)
-contains a site-specific name or origin.
+contains the site identifier `body4ai` (case-insensitive). Other site names or
+origins are not currently detected by that guard, so this is a guardrail against
+a known regression rather than a proof of general site-neutrality.
 
 **Website rule.** A website consumes the SDK through the public API only. It
 supplies its own origin, room name, capability set, tool catalog, authorization
