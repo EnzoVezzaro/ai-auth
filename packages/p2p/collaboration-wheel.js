@@ -168,7 +168,6 @@ class Wheel {
   close() {
     this.stopPicking();
     this.cancelRecording(true);
-    this.discardStaged();
     this.capture.cancel();
     this.ui.panel.hidden = true;
     this.ui.toggle.setAttribute("aria-expanded", "false");
