@@ -216,3 +216,43 @@ export declare class NodeRTCPeerConnection {
 export declare function withNodeRtc<
   T extends (config: any, topic: string) => any,
 >(joinRoom: T): T;
+
+export interface LinkedSite {
+  origin: string;
+  room: string;
+  name: string;
+  capabilities: string[];
+  linkedAt: number;
+  /** Shared with that site only; authenticates reconnects both ways. */
+  secret: string;
+}
+export interface LinkedSitesStore {
+  list(): Promise<LinkedSite[]>;
+  get(origin: string, room?: string): Promise<LinkedSite | null>;
+  latest(): Promise<LinkedSite | null>;
+  put(site: LinkedSite): Promise<void>;
+  remove(origin: string, room: string): Promise<void>;
+}
+export declare function linkedSitesPath(dir: string): string;
+export declare function createLinkedSitesStore(options: {
+  dir: string;
+}): LinkedSitesStore;
+export interface AgentLinkStatus {
+  readonly site: { name: string; origin: string; room: string } | null;
+  readonly linked: boolean;
+  /** True only while the site that verified this agent is still present. */
+  readonly connected: boolean;
+  readonly via: "link" | "challenge" | null;
+  readonly capabilities: string[];
+  readonly lastVerifiedAt: number | null;
+  readonly error: string | null;
+  readonly pending: boolean;
+}
+export declare function createAgentLinkResponder(options: {
+  runtime: AgentRuntime;
+  link?:
+    import("@enzovezzaro/ai-auth-wallet/agent-link").AIAuthAgentLink | null;
+  saved?: LinkedSite | null;
+  store?: LinkedSitesStore;
+  now?: () => number;
+}): { status(): AgentLinkStatus; close(): void };

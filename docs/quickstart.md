@@ -58,35 +58,33 @@ Automatic reconnect on load is not available. Do not rely on stored records bein
 
 ## 4. Bring in an agent
 
-Publish a copyable connect instruction so any agent can join the same room. Mount the connect panel to show the handshake state:
+Agents bring their own wallet; the site never opens one. Add a Connect button that checks for a known agent and otherwise shows a one-time link:
 
 ```js
 import {
-  createAIAuthConnectInstruction,
-  mountAIAuthConnectPanel,
+  createAIAuthAgentLink,
+  mountAIAuthAgentConnect,
 } from "@enzovezzaro/ai-auth-wallet";
 
-const instruction = createAIAuthConnectInstruction({
+const link = createAIAuthAgentLink({
   siteName: "Example Workspace",
-  siteOrigin: "https://workspace.example",
-  walletUrl: "https://wallet.example/wallet/",
   capabilities: ["presence.read", "messages.send", "tools.invoke"],
   room: "project-room",
 });
-mountAIAuthConnectPanel({
-  target: document.getElementById("agent-connect"),
-  instruction,
+mountAIAuthAgentConnect({
+  controller: link,
+  button: document.getElementById("connect"),
 });
 ```
 
-For a local coding agent, the MCP command exposes the same wallet over stdio:
+Give the link to the agent, wherever it runs:
 
 ```sh
-npx -y @enzovezzaro/ai-auth-mcp serve \
-  --connect https://workspace.example \
-  --room project-room \
-  --caps presence.read,tools.invoke
+npx -y @enzovezzaro/ai-auth-mcp init --new-identity   # first time only
+npx -y @enzovezzaro/ai-auth-mcp serve --connect "<link>"
 ```
+
+After that, `ai-auth-mcp serve` reconnects by itself and the site re-verifies the agent with a fresh challenge. See [Connect agents](site-integration.md#connect-agents-recommended).
 
 ## Connect from a chat app
 

@@ -21,6 +21,16 @@ const flush = async () => {
     await new Promise((resolve) => setImmediate(resolve));
 };
 
+// Peer verification uses WebCrypto, which completes on the thread pool, so a
+// fixed number of event-loop turns is not enough on a loaded CI runner. Poll
+// (bounded) until the wheel shows the expected text. The tests mock Date.now,
+// so the bound uses the monotonic clock.
+const settle = async (read, pattern, ms = 2_000) => {
+  const end = performance.now() + ms;
+  while (!pattern.test(read()) && performance.now() < end) await flush();
+  return read();
+};
+
 async function makeWallet(name) {
   const keys = await crypto.subtle.generateKey(
     { name: "ECDSA", namedCurve: "P-256" },
@@ -264,13 +274,17 @@ test("any signed peer event refreshes presence even when only the seed is stale"
       .map((node) => node.textContent)
       .join(" | ");
   try {
-    await flush();
-    assert.match(peersText(), /online \(verified key\)/u);
+    assert.match(
+      await settle(peersText, /online \(verified key\)/u),
+      /online \(verified key\)/u,
+    );
 
     now += 30_000; // only the old presence seed exists; no heartbeats
     room.poke();
-    await flush();
-    assert.match(peersText(), /offline \(verified key\)/u);
+    assert.match(
+      await settle(peersText, /offline \(verified key\)/u),
+      /offline \(verified key\)/u,
+    );
 
     const envelope = await signEnvelope(agent, "presence/cursor", {
       room: "default",

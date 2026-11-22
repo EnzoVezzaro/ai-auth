@@ -56,7 +56,39 @@ npm run dev
 
 The site root is the landing page. `/wallet/` is the local wallet, and `/docs/ARCHITECTURE.md` is the architecture document. The dev command only builds and serves static files. The wallet starts in private mode. Switch on public collaboration when you want to join the current page's shared space.
 
-## Put AI Auth on a site
+## Connect agents to a site
+
+The site never opens or picks a wallet. The agent carries its own, on the machine where it runs. The site adds a **Connect** button:
+
+```js
+import {
+  createAIAuthAgentLink,
+  mountAIAuthAgentConnect,
+} from "@enzovezzaro/ai-auth-wallet";
+
+const link = createAIAuthAgentLink({
+  siteName: "Example Workspace",
+  capabilities: ["presence.read", "messages.send", "tools.invoke"],
+  room: "agents",
+});
+mountAIAuthAgentConnect({
+  controller: link,
+  button: document.getElementById("connect"),
+});
+```
+
+Pressing Connect opens a popup that checks for an agent this browser connected before. If one is in the room, it answers a fresh signed challenge and is connected. If not, the popup shows a one-time link. Give that link to your agent, on this computer or another one:
+
+```sh
+npx -y @enzovezzaro/ai-auth-mcp init --new-identity   # once: the agent creates its identity on its own machine
+npx -y @enzovezzaro/ai-auth-mcp serve --connect "<link>"
+```
+
+The agent's owner approves the scopes in the agent's terminal. The site shows the agent as connected, and the agent's `ai_auth_status` names the site it is connected to. Next time, `ai-auth-mcp serve` reconnects on its own, with no new link. Site tools published with `mountAIAuthInPageAgent({ connection: link.toolConnection(), ... })` answer only connected agents. Details: [Connect agents](docs/site-integration.md#connect-agents-recommended) and the [agent connect example](https://enzovezzaro.github.io/ai-auth/agent-link/).
+
+## Show a person's browser wallet on a site
+
+This is a separate, optional flow for a person (not an agent) who brings a browser wallet for presence and cursors. Agents use connect links above.
 
 The build writes the browser bundle to `dist-p2p/ai-auth.js`. You can bundle the SDK as an ES module or load that file from your wallet host.
 
@@ -121,6 +153,8 @@ The default room name is the literal `default`. The site's exact origin still ma
 The details are in the [architecture](docs/ARCHITECTURE.md), [security boundaries](docs/SECURITY.md), [wire protocol](docs/protocol.md), and [wallet recovery](docs/RECOVERY.md) documents.
 
 ## Hand an agent a connect instruction
+
+For new sites, prefer the [connect link](#connect-agents-to-a-site) above: it needs no wallet on the site and reconnects on its own. The instruction below is the older, copyable form.
 
 You can publish a connect instruction that an agent can copy, along with a panel that shows what happens during the handshake.
 

@@ -17,7 +17,71 @@ The version numbers above mirror each package's own `package.json`. The root `pa
 
 The site is hosted on [GitHub Pages](HOSTING.md) only; a CI script enforces this.
 
-## Connect a site
+## Connect agents (recommended)
+
+A site never opens, hosts or picks a wallet. The agent carries its own wallet, on the machine where it runs. The site only needs a **Connect** button:
+
+1. The visitor presses **Connect**. A popup checks whether an agent this browser connected before is in the site's room. That agent answers a fresh signed challenge and is connected straight away.
+2. If no agent answers, the popup shows a **one-time connect link**. The visitor gives it to their agent, on this computer or another one.
+3. The agent runs `npx -y @enzovezzaro/ai-auth-mcp serve --connect "<link>"`. If it has no identity yet, it first creates one on its own machine (`ai-auth-mcp init --new-identity`). Its owner approves the scopes in the agent's terminal (or with `--approve`). The site shows it as connected.
+4. Both sides remember each other. Next time, the agent runs `ai-auth-mcp serve` with no arguments and reconnects; the site re-verifies it with a fresh challenge. No new link is needed.
+
+```js
+import {
+  createAIAuthAgentLink,
+  mountAIAuthAgentConnect,
+  mountAIAuthInPageAgent,
+} from "@enzovezzaro/ai-auth-wallet";
+
+const link = createAIAuthAgentLink({
+  siteName: "Example Workspace",
+  capabilities: ["presence.read", "messages.send", "tools.invoke"],
+  room: "agents",
+});
+mountAIAuthAgentConnect({
+  controller: link,
+  button: document.getElementById("connect"),
+});
+
+// Optional: site tools that only connected agents can call.
+await link.start();
+await mountAIAuthInPageAgent({
+  connection: link.toolConnection(),
+  actions: [
+    {
+      name: "site.whoami",
+      description: "Tell the calling agent which site this is.",
+      inputSchema: { type: "object", properties: {} },
+      requiredCapability: "tools.invoke",
+      readOnly: true,
+      execute: async (_input, { requester }) => ({
+        site: location.origin,
+        agent: link.agent(requester?.id),
+      }),
+    },
+  ],
+  authorize: async (action, input, { requester }) =>
+    Boolean(link.agent(requester?.id)) && (await askTheVisitor(action, input)),
+});
+```
+
+`link.state` has `phase` (`idle`, `checking`, `needs-link`, `connected`), the connected `agents` with the scopes both sides allowed, and the current `link`. `link.onChange(fn)` reports every change, and `link.forget(agentId)` stops trusting an agent in this browser.
+
+What the link is and is not:
+
+- **A one-time pass.** It admits one agent, expires after 10 minutes (at most 30), and belongs to one page session. Its secret sits in the URL fragment, which browsers never send to a server. Share it only with your own agent.
+- **Never a wallet URL.** It names the site's origin, room, a short-lived site key and the scopes the site offers. The agent grants only scopes that its owner approves and the site offers.
+- **The secret never enters the room.** The agent proves it holds the link with an HMAC over the site key, its own signed id and a fresh nonce. Both sides then derive a pair secret from the link code mixed with an ephemeral ECDH key exchange, so neither another peer in the room nor someone who later finds the used link can compute it. Reconnect challenges are authenticated with it in both directions: another peer in the open room can neither pose as the site to the agent nor as the agent to the site.
+- **A claim by whoever shared it.** The link URL's origin must match the origin inside it, but nothing else proves who made it. Use links from the site's own Connect popup only. The site's tool catalog, like everything in an open room, is visible to every peer in the room; only connected agents can call the tools.
+- **Remembered per browser.** The site keeps each agent's public id, name, scopes and pair secret in its origin's `localStorage`. The agent keeps the site in `linked-sites.json` (mode `0600`) next to its keystore.
+
+A runnable version is the [agent connect example](/agent-link/), and its real end-to-end test (`npm run test:agent-link`): real Chromium, the real `ai-auth-mcp` CLI, and real Nostr/WebRTC.
+
+## Connect a person's browser wallet
+
+`connectAIAuthModal` below is a different flow: a person brings a browser wallet so the site can show their presence and cursor. Agents do not need it; use connect links above.
+
+### Connect a site
 
 Bundle the SDK as an ES module, or load the browser bundle written to `dist-p2p/ai-auth.js`. Call `connectAIAuthModal` from a user gesture. The SDK does not enforce a gesture check, so this is a convention. The wallet appears as an in-page modal, shows the requested capabilities, and signs only the ones the visitor allows.
 

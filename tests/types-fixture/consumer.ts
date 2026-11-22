@@ -539,3 +539,35 @@ export const fixtureVersion = {
   transfers: CollaborationTransfers,
   lease: SessionLease,
 };
+
+// Agent connect links: the site never opens a wallet.
+import {
+  createAIAuthAgentLink,
+  mountAIAuthAgentConnect,
+  parseAgentLink,
+  type AIAuthAgentLinkState,
+} from "@enzovezzaro/ai-auth-wallet";
+import { agentLinkProof } from "@enzovezzaro/ai-auth-wallet/agent-link";
+
+const agentLink = createAIAuthAgentLink({
+  siteName: "Example",
+  capabilities: ["presence.read", "tools.invoke"],
+  room: "agents",
+});
+agentLink.onChange((state: AIAuthAgentLinkState) => {
+  const phase: "idle" | "checking" | "needs-link" | "connected" = state.phase;
+  void phase;
+});
+mountAIAuthAgentConnect({
+  controller: agentLink,
+  button: document.createElement("button"),
+});
+const parsedLink = parseAgentLink("https://site.example/#ai-auth-link=x");
+void agentLinkProof({
+  code: parsedLink.code,
+  origin: parsedLink.origin,
+  room: parsedLink.room,
+  site: parsedLink.site,
+  agent: "agent:x",
+  linkNonce: "n",
+});
