@@ -325,6 +325,26 @@ const DOC_PAGES = [
     file: "CONNECT_AGENT_E2E_ACCEPTANCE.md",
     label: "Connect Agent E2E acceptance",
   },
+  {
+    file: "AGENT_CONNECTION_PRESENCE_VERIFICATION.md",
+    label: "Agent connection presence verification",
+  },
+  {
+    file: "AGENT_IDENTITY_UX_AUDIT_2026_11_20.md",
+    label: "Agent identity UX audit",
+  },
+  {
+    file: "APPROVED_AI_AUTH_BEHAVIOR_CONTRACT.md",
+    label: "Approved AI Auth behavior contract",
+  },
+  {
+    file: "INTERACTION_WHEEL_REVIEW.md",
+    label: "Interaction wheel review",
+  },
+  {
+    file: "PER_SESSION_AGENT_IDENTITIES.md",
+    label: "Per-session agent identities",
+  },
 ];
 const navDocs = DOC_PAGES.filter((doc) => doc.nav);
 await mkdir(resolve(output, "docs", "raw"), { recursive: true });
@@ -430,6 +450,14 @@ for (const extra of EXTRA_PAGES) {
     }),
   );
 }
+// AGENT_CONNECTION_PRESENCE_VERIFICATION.md links to the source file it
+// reviewed. Publish that source at the same relative path so the link resolves
+// on the static site instead of 404ing.
+await mkdir(resolve(output, "packages", "p2p"), { recursive: true });
+await cp(
+  resolve(root, "packages/p2p/connection-state.js"),
+  resolve(output, "packages/p2p/connection-state.js"),
+);
 // /docs/ serves the same index as /docs/README.html.
 await cp(
   resolve(output, "docs", "README.html"),

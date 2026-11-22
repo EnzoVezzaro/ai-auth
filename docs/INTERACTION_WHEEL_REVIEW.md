@@ -16,15 +16,15 @@ The **Interaction Wheel** is the single, contextual action launcher for **all su
 
 ## Interaction catalog (capability-driven; verify support before enabling)
 
-| Category | Actions |
-| --- | --- |
-| Communication | Direct chat with agent, room chat, human-to-human message, mention, send prompt/instruction, reply, voice conversation where supported |
-| Screen and context | Share screen/window/tab with a **selected agent**, stop sharing, share a selected file, link, text selection, screenshot or application context |
-| Collaboration | Invite agent to current room/task, hand off a task, ask agent to inspect page state, request a summary, co-browse/navigate, point to an element, follow cursor, annotate, shared pointer |
-| Agent operations | Request an allowed site tool, delegate a scoped task to a subagent, request status/progress, pause/resume/cancel work, inspect recent signed activity |
-| People and trust | View verified identity and owner, see agent parent/child relationship, view current capabilities, request additional scoped access, revoke a grant, disconnect, report/block where site supports it |
-| Room and presence | See online participants, filter agents/people, switch rooms, invite participants, mute/hide presence, privacy mode |
-| Session controls | Reconnect, inspect session duration, end interaction, review active shares, audit recent actions |
+| Category           | Actions                                                                                                                                                                                             |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Communication      | Direct chat with agent, room chat, human-to-human message, mention, send prompt/instruction, reply, voice conversation where supported                                                              |
+| Screen and context | Share screen/window/tab with a **selected agent**, stop sharing, share a selected file, link, text selection, screenshot or application context                                                     |
+| Collaboration      | Invite agent to current room/task, hand off a task, ask agent to inspect page state, request a summary, co-browse/navigate, point to an element, follow cursor, annotate, shared pointer            |
+| Agent operations   | Request an allowed site tool, delegate a scoped task to a subagent, request status/progress, pause/resume/cancel work, inspect recent signed activity                                               |
+| People and trust   | View verified identity and owner, see agent parent/child relationship, view current capabilities, request additional scoped access, revoke a grant, disconnect, report/block where site supports it |
+| Room and presence  | See online participants, filter agents/people, switch rooms, invite participants, mute/hide presence, privacy mode                                                                                  |
+| Session controls   | Reconnect, inspect session duration, end interaction, review active shares, audit recent actions                                                                                                    |
 
 All catalog entries are **candidate UX affordances**, not claims that the current SDK implements them. Unsupported actions must be hidden or disabled with honest explanation, not simulated. Site-specific actions can be registered as extensions through a capability/action registry.
 
@@ -50,7 +50,7 @@ All catalog entries are **candidate UX affordances**, not claims that the curren
 
 ## Acceptance criteria
 
-- The wheel provides one discoverable entry point for all *available* interactions, without forcing users to understand rooms, relays, signatures or grants.
+- The wheel provides one discoverable entry point for all _available_ interactions, without forcing users to understand rooms, relays, signatures or grants.
 - A user can choose a particular connected agent and start a permitted direct chat; the recipient is unambiguous.
 - If screen sharing is supported, it is explicitly approved, target-specific and stoppable; if unsupported, that limitation is documented and not represented as working.
 - Capability changes update available actions without page refresh; no unauthorized action can execute.

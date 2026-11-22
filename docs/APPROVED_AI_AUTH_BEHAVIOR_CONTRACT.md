@@ -27,14 +27,14 @@ AI Auth is the generic **agent identity, connection and authorization layer** fo
 
 ## Known mismatches / verification priorities
 
-| Requirement | Current documented behavior / gap to verify |
-| --- | --- |
-| Per-session identity | Architecture currently describes one agent signing identity per process; verify chat/subagent identity and delegation before claiming support. See PR #17. |
-| Connection persistence | Page reload requires explicit Resume; page-hosted tools stop when page closes; no TURN fallback. Verify the secure automatic recovery and unattended action-host requirements. See PR #18. |
-| Autonomous authorized tool calls | Existing site page actions require site-side approval per call. Review how to honor an approved scope for ordinary actions without bypassing sensitive site policy. |
-| Agent tool owner approval | `tool-provider.js` supports peer tool calls and an authorization callback. Verify that a real owner-facing connection approval occurs **before** exposing/invoking tools, that denied requests fail closed, and that approvals are scoped and revocable. Do not assume callback existence proves UX compliance. |
-| Interaction Wheel | Audit visible actions, permission state, presence privacy, targeted sharing and screen-share stop behavior; see PR #19. |
-| A2A | Do not introduce A2A as a mandatory transport or dependency; document optional future interoperability separately if needed. |
+| Requirement                      | Current documented behavior / gap to verify                                                                                                                                                                                                                                                                     |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Per-session identity             | Architecture currently describes one agent signing identity per process; verify chat/subagent identity and delegation before claiming support. See PR #17.                                                                                                                                                      |
+| Connection persistence           | Page reload requires explicit Resume; page-hosted tools stop when page closes; no TURN fallback. Verify the secure automatic recovery and unattended action-host requirements. See PR #18.                                                                                                                      |
+| Autonomous authorized tool calls | Existing site page actions require site-side approval per call. Review how to honor an approved scope for ordinary actions without bypassing sensitive site policy.                                                                                                                                             |
+| Agent tool owner approval        | `tool-provider.js` supports peer tool calls and an authorization callback. Verify that a real owner-facing connection approval occurs **before** exposing/invoking tools, that denied requests fail closed, and that approvals are scoped and revocable. Do not assume callback existence proves UX compliance. |
+| Interaction Wheel                | Audit visible actions, permission state, presence privacy, targeted sharing and screen-share stop behavior; see PR #19.                                                                                                                                                                                         |
+| A2A                              | Do not introduce A2A as a mandatory transport or dependency; document optional future interoperability separately if needed.                                                                                                                                                                                    |
 
 ## Implementation and acceptance
 

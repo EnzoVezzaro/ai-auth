@@ -180,6 +180,55 @@ async function importPassphrase() {
   );
 }
 
+function clearReplacedIdentityState(dir) {
+  // A new identity must never inherit the previous identity's saved approvals
+  // or secret MCP endpoint: that would re-approve access without consent.
+  // Clear them so the next serve requires fresh explicit approval.
+  return Promise.all([
+    rm(grantPath(dir), { force: true }),
+    rm(path.join(dir, "runtime.json"), { force: true }),
+    rm(path.join(dir, "http-secret"), { force: true }),
+  ]);
+}
+
+const REPLACE_NOTICE =
+  "Identity replaced. Saved grants and the local MCP endpoint secret were cleared; re-approve on the next serve.";
+
+async function archiveExistingIdentity(dir) {
+  const file = path.join(dir, "identity.json");
+  const archive = path.join(
+    dir,
+    `identity.${Date.now()}.${randomBytes(6).toString("hex")}.replaced.json`,
+  );
+  await writeFile(archive, await readFile(file, "utf8"), { mode: 0o600 });
+  await chmod(archive, 0o600);
+  await rm(file);
+}
+
+/**
+ * Explicit, opt-in clean-machine path: create a brand new local identity.
+ * Never runs from `serve`. Never overwrites an existing keystore unless the
+ * caller passes --replace, which archives the old identity and clears its
+ * saved grants, room and MCP endpoint secret. The passphrase comes from
+ * AI_AUTH_PASSPHRASE or a TTY prompt; no key material is printed.
+ */
+async function createNewIdentity(args) {
+  const keystore = createFileKeystore({ dir: args.keystoreDir });
+  const existed = await keystore.exists();
+  if (existed && !args.flags.has("replace"))
+    throw new Error(
+      "An identity already exists in this keystore; pass --replace to archive it and create a new one explicitly",
+    );
+  if (existed) {
+    await archiveExistingIdentity(args.keystoreDir);
+    await clearReplacedIdentityState(args.keystoreDir);
+  }
+  const wallet = await keystore.create({ name: args.name ?? "ai-auth-mcp" });
+  if (existed) err(REPLACE_NOTICE);
+  err(`Identity created for this agent: ${wallet.id}`);
+  return { action: existed ? "replaced" : "created", id: wallet.id };
+}
+
 async function bootstrapIdentity(args) {
   const keystore = createFileKeystore({ dir: args.keystoreDir });
   const existed = await keystore.exists();
@@ -219,27 +268,31 @@ async function bootstrapIdentity(args) {
     replace: args.flags.has("replace") || existed,
   });
   if (existed) {
-    // A new identity must never inherit the previous identity's saved
-    // approvals or secret MCP endpoint: that would re-approve access without
-    // consent. Clear them so the next serve requires fresh explicit approval.
-    await Promise.all([
-      rm(grantPath(args.keystoreDir), { force: true }),
-      rm(path.join(args.keystoreDir, "runtime.json"), { force: true }),
-      rm(path.join(args.keystoreDir, "http-secret"), { force: true }),
-    ]);
-    err(
-      "Identity replaced. Saved grants and the local MCP endpoint secret were cleared; re-approve on the next serve.",
-    );
+    await clearReplacedIdentityState(args.keystoreDir);
+    err(REPLACE_NOTICE);
   }
   err(`Identity imported for this agent: ${result.id}`);
   return { action: "imported", id: result.id };
 }
 
 async function serve(args) {
+  if (args.flags.has("new-identity"))
+    throw new Error(
+      "--new-identity is an 'init' option; serve never creates an identity. Run 'ai-auth-mcp init --new-identity' first",
+    );
   const site = await resolveSite(args);
   const requested = requestedScopes(site);
   const keystore = createFileKeystore({ dir: args.keystoreDir });
-  const wallet = await keystore.unlock();
+  let wallet;
+  try {
+    wallet = await keystore.unlock();
+  } catch (error) {
+    if (error.code === "KEYSTORE_MISSING")
+      throw new Error(
+        `No identity exists in this keystore yet (${args.keystoreDir}). Serve never creates one: run \`ai-auth-mcp init --new-identity --keystore-dir "${args.keystoreDir}"\` first`,
+      );
+    throw error;
+  }
   err(
     renderPreview({
       origin: site.origin,
@@ -440,6 +493,14 @@ async function main(argv) {
   if (args.flags.has("help")) return err(USAGE);
   const keystore = createFileKeystore({ dir: args.keystoreDir });
   if (args.command === "init") {
+    if (args.flags.has("new-identity")) {
+      if (args.fromInstall)
+        throw new Error(
+          "--new-identity cannot be combined with --from-install; use one setup path",
+        );
+      const created = await createNewIdentity(args);
+      return process.stdout.write(`${created.id}\n`);
+    }
     if (args.fromInstall) {
       const imported = await bootstrapIdentity(args);
       return process.stdout.write(`${imported.id}\n`);

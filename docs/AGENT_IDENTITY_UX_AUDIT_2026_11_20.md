@@ -260,7 +260,7 @@ No level here proves that a vendor's model software or a particular physical mac
 
 ### Selected agent setup
 
-> **Connect Claude Code** *(example; only if supported and tested)*  
+> **Connect Claude Code** _(example; only if supported and tested)_  
 > Identity: [Reuse existing] [Create new]  
 > Local setup: Needs approval on this device  
 > [Continue]  
