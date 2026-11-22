@@ -47,11 +47,13 @@ against a live import of each package entry on 2026-11-16. Type-only
 declarations (interfaces and type aliases) are part of the typed contract but
 are not runtime imports, so they are not in these lists.
 
-### `@enzovezzaro/ai-auth-wallet` — 143 runtime exports (entry `packages/p2p/index.js`)
+### `@enzovezzaro/ai-auth-wallet` — 155 runtime exports (entry `packages/p2p/index.js`)
 
 ```text
 AGENT_DESCRIPTOR_TYPE
 AGENT_DESCRIPTOR_VERSION
+AGENT_LINK_EVENTS
+AGENT_LINK_PARAM
 AGENT_PROTOCOL_VERSION
 CATCHUP_MAX_AGE_MS
 CATCHUP_MAX_RECORDS
@@ -63,6 +65,7 @@ CONSENT_VERSION
 CURSOR_TYPE
 CURSOR_VERSION
 CollaborationTransfers
+DEFAULT_AGENT_LINK_TTL_MS
 DEFAULT_DESCRIPTOR_TTL_MS
 DEFAULT_EXECUTION_GRANT_TTL_MS
 DEFAULT_IDLE_TIMEOUT_MS
@@ -77,6 +80,7 @@ EPOCH_VERSION
 EXECUTION_GRANT_TYPE
 INSTANCE_BINDING_TYPE
 LINK_POLICY
+MAX_AGENT_LINK_TTL_MS
 MAX_DESCRIPTOR_TTL_MS
 MAX_EVENT_AGE_MS
 MAX_EXECUTION_GRANT_TTL_MS
@@ -108,6 +112,7 @@ SESSION_RECORD_VERSION
 SessionLease
 TOOL_ERROR_CODES
 agentKeyFor
+agentLinkUrl
 appendActivity
 approveLink
 approvePermissionRequest
@@ -121,9 +126,11 @@ canonicalize
 connectAIAuthModal
 connectAIAuthPopup
 createAIAuthAgentClient
+createAIAuthAgentLink
 createAIAuthConnectController
 createAIAuthConnectInstruction
 createAgentDescriptor
+createAgentLinkPayload
 createCapabilityGrant
 createCloneDetector
 createConnectionState
@@ -145,6 +152,7 @@ deriveLinkId
 didKeyForPublicJwk
 didKeyMatchesJwk
 downloadBackup
+encodeAgentLinkToken
 extractSafeText
 fetchDiscovery
 forgetWallet
@@ -152,16 +160,19 @@ identityFor
 importWalletBackup
 inlineCreateWalletForm
 isAddressedTo
+isAgentLink
 isSensitiveElement
 issueExecutionGrant
 issueMembership
 listLinks
 listResumableSessions
 loadWallet
+mountAIAuthAgentConnect
 mountAIAuthCollaboration
 mountAIAuthConnectPanel
 mountAIAuthInPageAgent
 mountCollaborationWheel
+parseAgentLink
 parseCursorPayload
 publicJwkFromDid
 randomNonce
@@ -175,6 +186,7 @@ resumeAIAuthSession
 sessionLimits
 signEnvelope
 unlink
+validateAgentLink
 validateCursor
 validateDiscovery
 verifyAgentDescriptor
@@ -195,14 +207,20 @@ verifyRevocation
 verifyStoredConsent
 ```
 
-### `@enzovezzaro/ai-auth-agent` — 6 runtime exports (entry `packages/agent/index.js`)
+### `@enzovezzaro/ai-auth-agent` — 12 runtime exports (entry `packages/agent/index.js`)
 
 ```text
 KeystoreError
 NodeRTCPeerConnection
+agentKeystoreFromWalletBackup
+createAgentLinkResponder
 createAgentRuntime
 createFileKeystore
+createLinkedSitesStore
 createToolProvider
+installAgentIdentity
+linkedSitesPath
+promptSecret
 withNodeRtc
 ```
 

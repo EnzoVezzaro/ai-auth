@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent connect example</title>
+    <link rel="stylesheet" href="../host-site/site.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Agent connect example</h1>
+      <p>
+        Agents connect to this site with their own AI Auth identity. The site
+        never opens or picks a wallet: the agent carries it. Press Connect to
+        check for an agent you connected before, or to get a one-time link to
+        give your agent.
+      </p>
+      <p>
+        <button id="connect" type="button">Connect</button>
+      </p>
+      <p id="status" role="status" aria-live="polite">Not connected</p>
+      <h2>Connected agents</h2>
+      <ul id="agents"></ul>
+      <h2>Activity</h2>
+      <ul id="events"></ul>
+    </main>
+    <script type="module" src="./site.js"></script>
+  </body>
+</html>

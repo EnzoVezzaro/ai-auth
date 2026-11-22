@@ -73,6 +73,10 @@
     "./commerce-boundary": {
       "types": "./packages/p2p/commerce-boundary.d.ts",
       "import": "./packages/p2p/commerce-boundary.js"
+    },
+    "./agent-link": {
+      "types": "./packages/p2p/agent-link.d.ts",
+      "import": "./packages/p2p/agent-link.js"
     }
   },
   "files": [
@@ -112,7 +116,8 @@
     "format:check": "prettier --check \"packages/p2p/*.{js,d.ts}\" \"packages/runtime/**/*.{js,d.ts,mjs}\" packages/runtime/README.md packages/runtime/CHANGELOG.md \"packages/mcp/**/*.{js,d.ts,mjs}\" \"packages/agent/**/*.{js,d.ts,mjs}\" packages/agent/README.md \"scripts/*.mjs\" \"scripts/e2e/*.mjs\" \"tests/*.mjs\" \"docs/*.md\" README.md CHANGELOG.md index.html landing.css docs.css styles.css \"src/landing/**/*.{js,jsx}\" apps/p2p/app.js package.json",
     "prepublishOnly": "npm test && npm run build",
     "test:e2e:body4ai": "npm run build && node scripts/test-body4ai-e2e.mjs",
-    "test:host-site": "node scripts/test-host-site-e2e.mjs"
+    "test:host-site": "node scripts/test-host-site-e2e.mjs",
+    "test:agent-link": "node scripts/test-agent-link-e2e.mjs"
   },
   "devDependencies": {
     "@designcodeio/threeui": "^1.2.0",

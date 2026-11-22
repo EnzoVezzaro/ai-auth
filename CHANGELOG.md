@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Agents carry their wallet; sites never open one
+
+A site no longer needs a wallet to connect an agent, and the CLI never opens a wallet that a site named.
+
+- **Connect links (new, `@enzovezzaro/ai-auth-wallet`):** `createAIAuthAgentLink` and `mountAIAuthAgentConnect` give a site a Connect button. The popup re-verifies an agent this browser connected before with a fresh signed challenge; otherwise it shows a one-time link (10 min by default, single use, secret in the URL fragment). `link.toolConnection()` lets `mountAIAuthInPageAgent` publish site tools that only connected agents can call; others get `DENIED`. The link format and proofs live in the new `@enzovezzaro/ai-auth-wallet/agent-link` entry.
+- **Agent side (`@enzovezzaro/ai-auth-agent`, `@enzovezzaro/ai-auth-mcp`):** `serve --connect "<link>"` approves scopes at startup on the agent's machine, joins at once and proves it holds the link with an HMAC; the link secret never enters the room. The site is saved in `linked-sites.json` (mode `0600`), and later `serve` with no `--connect` reconnects automatically. Both sides derive a pair secret from the link code and an ephemeral ECDH exchange; it is never sent, and someone who later finds the used link cannot compute it. Reconnect challenges are authenticated with it in both directions, so another peer in the open room cannot pose as the site or the agent. `ai_auth_status` gains `site` (`name`, `origin`, `room`, `connected`, `via`).
+- **Breaking (`ai-auth-mcp`):** `unlink` and `init --replace` also remove `linked-sites.json`. An expired link in a client config falls back to the saved pairing for that site. `--open-wallet` now needs `--wallet-url <your wallet page>` and never opens a wallet named by the site (instruction or manifest). The connect-agent page's copied command no longer uses `--open-wallet`; scopes are approved in the agent's terminal.
+- New example at `/agent-link/` (`examples/agent-link-site`) and a real end-to-end test, `npm run test:agent-link`: real Chromium, the real CLI, real Nostr/WebRTC, a link-based connect, `site.whoami` answered by signed id, then automatic reconnect after an agent restart and a page reload.
+- `connectAIAuthModal` is unchanged and is now documented as the optional flow for a person's own browser wallet, not for agents.
+
 ## 0.12.2 - 2026-11-21
 
 Correctness, privacy and accessibility fixes from two review passes over 0.12.1: the parallel reviewer wave and the principal Codex Sol E2E review. **No protocol or wire-format change and no new compatibility claim.** The findings are bug fixes to already-shipped surfaces; limitations stay documented as limitations. Published as `@enzovezzaro/ai-auth-wallet` 0.12.2, `@enzovezzaro/ai-auth-runtime` 0.1.3, `@enzovezzaro/ai-auth-agent` 0.2.0 and `@enzovezzaro/ai-auth-mcp` 0.3.9.

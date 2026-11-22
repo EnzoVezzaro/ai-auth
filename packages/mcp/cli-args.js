@@ -20,6 +20,7 @@ const VALUE_FLAGS = new Set([
   "http",
   "provide",
   "from-install",
+  "wallet-url",
 ]);
 const BOOL_FLAGS = new Set([
   "auto-join",
@@ -76,7 +77,10 @@ export function parseArgs(argv) {
 
 export const USAGE = `ai-auth-mcp [serve|init|setup|whoami|preview|unlink] [options]
   --keystore-dir DIR   encrypted identity (default ~/.ai-auth/agent); passphrase from AI_AUTH_PASSPHRASE or a TTY prompt
-  --connect INPUT      connect instruction, its JSON, a public connect descriptor, a site URL, or @file
+  --connect INPUT      a site's one-time AI Auth connect link, a connect instruction, its JSON,
+                       a public connect descriptor, a site URL, or @file. A link connects at
+                       startup; the site then remembers this agent and later runs of "serve"
+                       (with no --connect) reconnect to the last linked site automatically
   --origin URL --room NAME --caps a,b   explicit alternative to --connect
   --approve a,b        exact scopes to grant without a TTY (never more than the site requested)
   --from-install FILE  install package from the site (JSON, or @FILE for its path); init/setup only.
@@ -101,6 +105,8 @@ export const USAGE = `ai-auth-mcp [serve|init|setup|whoami|preview|unlink] [opti
   --yes                confirm unlink without a prompt
   --http PORT          serve MCP over Streamable HTTP on 127.0.0.1:PORT (0 picks a free port) instead of stdio;
                        the printed URL contains a secret and is the credential for this agent
-  --open-wallet        when approval is needed, open the wallet in a browser and wait for its
-                       signed consent on the local HTTP callback; needs --http
+  --open-wallet        when approval is needed, open YOUR wallet page (--wallet-url) in a browser
+                       and wait for its signed consent on the local HTTP callback; needs --http.
+                       A wallet URL named by the site is never opened
+  --wallet-url URL     your own wallet page for --open-wallet
 `;

@@ -313,7 +313,7 @@ try {
   assert.match(copied, /Origin: http:\/\//mu);
   assert.match(copied, /Room: default/u);
   assert.match(copied, /Capabilities:.*presence\.read/u);
-  assert.match(copied, /--open-wallet/u);
+  assert.doesNotMatch(copied, /--open-wallet/u);
   assert.match(copied, /--auto-join/u);
   assert.match(copied, /init --new-identity/u);
   assert.match(copied, /does not create an identity/iu);

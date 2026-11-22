@@ -235,6 +235,23 @@ await build({
     },
   ],
 });
+// Agent connect-link example, served under /agent-link/. The site never opens
+// a wallet: agents bring their own identity and connect with a one-time link.
+const agentLinkSource = resolve(root, "examples/agent-link-site");
+await mkdir(resolve(output, "agent-link"), { recursive: true });
+await writeFile(
+  resolve(output, "agent-link", "index.html"),
+  withNoindex(await readFile(resolve(agentLinkSource, "index.html"), "utf8")),
+);
+await build({
+  entryPoints: [resolve(agentLinkSource, "site.js")],
+  outfile: resolve(output, "agent-link/site.js"),
+  bundle: true,
+  format: "esm",
+  platform: "browser",
+  target: ["es2022"],
+  sourcemap: false,
+});
 // The README is optional documentation, published as a plain file (not a doc
 // page) so /host-site/README.md resolves without touching DOC_PAGES.
 if (

@@ -6,9 +6,16 @@ import path from "node:path";
 import {
   createFileKeystore,
   createAgentRuntime,
+  createAgentLinkResponder,
+  createLinkedSitesStore,
   installAgentIdentity,
+  linkedSitesPath,
   promptSecret,
 } from "@enzovezzaro/ai-auth-agent";
+import {
+  isAgentLink,
+  parseAgentLink,
+} from "@enzovezzaro/ai-auth-wallet/agent-link";
 import {
   NonceGuard,
   createPermissionRequest,
@@ -38,14 +45,87 @@ const TOOL_SCOPES = ["messages.send", "presence.read", "tools.invoke"];
 const err = (text) => process.stderr.write(`${text}\n`);
 const interactive = () => Boolean(process.stdin.isTTY && process.stderr.isTTY);
 
+// A damaged linked-sites file must not block flows that do not need it.
+async function savedSite(linked, read) {
+  try {
+    return await read(linked);
+  } catch (error) {
+    err(`Ignoring saved linked sites: ${error.message}`);
+    return null;
+  }
+}
+
 async function resolveSite(args) {
   let raw = args.connect;
-  if (raw?.startsWith("@")) raw = await readFile(raw.slice(1), "utf8");
+  if (raw?.startsWith("@")) raw = (await readFile(raw.slice(1), "utf8")).trim();
+  const linked = createLinkedSitesStore({ dir: args.keystoreDir });
+  if (raw && isAgentLink(raw)) {
+    // A one-time connect link from the site. It carries origin, room and the
+    // scopes the site offers; the code inside it never leaves this process.
+    let link;
+    try {
+      link = parseAgentLink(raw);
+    } catch (error) {
+      if (error.code !== "AGENT_LINK_EXPIRED") throw error;
+      // A link kept in an MCP client config expires within minutes. If this
+      // agent already linked with that site, reconnect with the saved pairing.
+      const stale = parseAgentLink(raw, { allowExpired: true });
+      const saved = await savedSite(linked, (l) =>
+        l.get(stale.origin, stale.room),
+      );
+      if (!saved)
+        throw new Error(
+          `${error.message} This agent has not linked with ${stale.origin} yet.`,
+        );
+      err(
+        `The connect link expired; reconnecting to ${saved.name} with this agent's saved pairing. You can drop --connect from your config: "serve" alone reconnects.`,
+      );
+      return {
+        origin: saved.origin,
+        room: saved.room,
+        name: saved.name,
+        capabilities: [...saved.capabilities].sort(),
+        source: "linked site",
+        saved,
+      };
+    }
+    if (args.room && args.room !== link.room)
+      throw new Error(
+        `--room ${args.room} does not match the link's room (${link.room})`,
+      );
+    const capabilities = args.caps
+      ? args.caps.filter((cap) => link.capabilities.includes(cap))
+      : [...link.capabilities];
+    return {
+      origin: link.origin,
+      room: link.room,
+      name: link.name,
+      capabilities: capabilities.sort(),
+      // A link is a claim by whoever handed it over; say so in the preview.
+      source: "connect link (use links from the site's own Connect popup only)",
+      link,
+      saved: await savedSite(linked, (l) => l.get(link.origin, link.room)),
+    };
+  }
+  if (!raw && !args.origin) {
+    // No site named: reconnect to the site this agent linked with last.
+    const saved = await savedSite(linked, (l) => l.latest());
+    if (saved)
+      return {
+        origin: saved.origin,
+        room: saved.room,
+        name: saved.name,
+        capabilities: [...saved.capabilities].sort(),
+        source: "linked site",
+        saved,
+      };
+    throw new Error(
+      "Provide --connect (the site's connect link, an instruction or a site URL) or --origin",
+    );
+  }
   let site;
   if (raw) site = parseConnectInput(raw);
-  else if (args.origin) site = parseConnectInput(args.origin);
-  else
-    throw new Error("Provide --connect (instruction or site URL) or --origin");
+  else site = parseConnectInput(args.origin);
   if (site.discoveryOnly && !args.flags.has("no-manifest") && !args.caps) {
     try {
       // Preserve the manifest source and provisional flag from discovery. The
@@ -63,7 +143,12 @@ async function resolveSite(args) {
   }
   const room = args.room ?? site.room ?? "default";
   const capabilities = args.caps ?? site.capabilities;
-  return { ...site, room, capabilities: [...capabilities].sort() };
+  return {
+    ...site,
+    room,
+    capabilities: [...capabilities].sort(),
+    saved: await savedSite(linked, (l) => l.get(site.origin, room)),
+  };
 }
 
 function requestedScopes(site) {
@@ -92,15 +177,34 @@ function openBrowser(url) {
   } catch {}
 }
 
-async function approveInBrowser({ site, asked, consentUrl, walletId }) {
+async function approveInBrowser({
+  site,
+  asked,
+  consentUrl,
+  walletId,
+  ownWalletUrl,
+}) {
   if (!consentUrl)
     throw new Error("--open-wallet needs --http for the consent callback");
+  // The wallet belongs to whoever runs the agent. A wallet URL that came from
+  // the site (instruction, manifest) is never opened.
+  if (!ownWalletUrl)
+    throw new Error(
+      "--open-wallet needs --wallet-url with your own wallet page; a wallet named by the site is never opened",
+    );
   const request = await createPermissionRequest(site.origin, asked, {
     room: site.room,
   });
   const encoded = Buffer.from(JSON.stringify(request)).toString("base64url");
-  const walletBase = site.walletUrl ?? new URL("/wallet/", site.origin).href;
-  const walletUrl = new URL(walletBase);
+  const walletUrl = new URL(ownWalletUrl);
+  if (
+    walletUrl.protocol !== "https:" &&
+    !(
+      walletUrl.protocol === "http:" &&
+      ["localhost", "127.0.0.1", "[::1]"].includes(walletUrl.hostname)
+    )
+  )
+    throw new Error("--wallet-url must use https (http only for localhost)");
   walletUrl.searchParams.set("connect", "1");
   walletUrl.searchParams.set("connect-request", encoded);
   walletUrl.searchParams.set("callback", consentUrl);
@@ -188,6 +292,8 @@ function clearReplacedIdentityState(dir) {
     rm(grantPath(dir), { force: true }),
     rm(path.join(dir, "runtime.json"), { force: true }),
     rm(path.join(dir, "http-secret"), { force: true }),
+    // Pairings belong to the old identity's id; a new one must link again.
+    rm(linkedSitesPath(dir), { force: true }),
   ]);
 }
 
@@ -304,6 +410,18 @@ async function serve(args) {
   );
   let bridge = null;
   let runtime = null;
+  let linkResponder = null;
+  // A connect link, or a site this agent already linked with, connects at
+  // startup: approve now and join, instead of waiting for an MCP client.
+  if (site.link && args.flags.has("open-wallet"))
+    throw new Error(
+      "--open-wallet is not used with a connect link; approve with --approve or the terminal prompt",
+    );
+  // With --open-wallet the approval waits for the wallet window, so a saved
+  // site keeps the lazy, first-session approval instead of connecting now.
+  const connectNow = Boolean(
+    site.link || (site.saved && !args.flags.has("open-wallet")),
+  );
   // Declared before makeServer: its approval callback reads this when the MCP
   // server is constructed. Creating it later was a temporal dead zone and made
   // --open-wallet fail before the consent endpoint existed.
@@ -349,6 +467,7 @@ async function serve(args) {
                 asked,
                 consentUrl: http.consentUrl,
                 walletId: wallet.id,
+                ownWalletUrl: args["wallet-url"],
               })
             : await resolveApproval({
                 requested: asked,
@@ -364,6 +483,12 @@ async function serve(args) {
           descriptor: { name: args.name ?? "ai-auth-mcp" },
           authorization: createApprovalLease(lifetime),
         });
+        linkResponder = createAgentLinkResponder({
+          runtime,
+          link: site.link ?? null,
+          saved: site.saved ?? null,
+          store: createLinkedSitesStore({ dir: args.keystoreDir }),
+        });
         const wantsRoomTools = (args.provide ?? []).includes("room");
         if (wantsRoomTools && !approved.includes("tools.invoke"))
           throw new Error(
@@ -375,6 +500,7 @@ async function serve(args) {
         bridge = createAgentBridge({
           runtime,
           providedTools: provider ? [...provider.tools] : [],
+          siteLink: () => linkResponder?.status() ?? null,
         });
         // HTTP mode approves on the first session, after serve() returned.
         if (pendingStart) {
@@ -399,6 +525,7 @@ async function serve(args) {
   // first session, so pass a lazy factory there instead of an eager server.
   let server = null;
   const shutdown = async () => {
+    linkResponder?.close();
     bridge?.close();
     await http?.close().catch(() => {});
     await runtime?.close().catch(() => {});
@@ -412,7 +539,9 @@ async function serve(args) {
     const port = Number(args.http);
     if (!Number.isInteger(port) || port < 0 || port > 65_535)
       throw new Error("--http needs a port number");
-    let first = null;
+    // With a link, approval and the runtime are created now, and the first MCP
+    // client session reuses this server.
+    let first = connectNow ? await makeServer() : null;
     // The secret path is the credential. Keep it with the keystore so the same
     // agent keeps the same address across restarts (clients store the URL).
     const secretFile = path.join(args.keystoreDir, "http-secret");
@@ -455,7 +584,7 @@ async function serve(args) {
   const startRuntime = () => {
     const start = args.flags.has("resume")
       ? runtime.resume()
-      : args.flags.has("auto-join")
+      : args.flags.has("auto-join") || connectNow
         ? runtime.join()
         : null;
     start?.catch((error) => err(`auto-join failed: ${error.message}`));
@@ -463,6 +592,12 @@ async function serve(args) {
   if (runtime) startRuntime();
   else if (args.flags.has("resume") || args.flags.has("auto-join"))
     pendingStart = startRuntime;
+  if (connectNow)
+    err(
+      site.link
+        ? `Connecting to ${site.name} (${site.origin}) with its connect link…`
+        : `Reconnecting to ${site.name} (${site.origin}); the site verifies this agent with a fresh challenge.`,
+    );
 }
 
 let pendingStart = null;
@@ -477,6 +612,8 @@ async function unlink(args) {
   await rm(path.join(args.keystoreDir, "runtime.json"), { force: true });
   await rm(grantPath(args.keystoreDir), { force: true });
   await rm(path.join(args.keystoreDir, "http-secret"), { force: true });
+  // Linked sites hold pair secrets for this identity; they go with it.
+  await rm(linkedSitesPath(args.keystoreDir), { force: true });
   err(
     "Keystore removed. Remove the server from your harness config to stop it; revoke grants in the site's wallet UI.",
   );

@@ -45,7 +45,10 @@ test("connect page serve command is accepted by the CLI parser and options align
   const args = parseArgs(argv);
   assert.equal(args.command, "serve");
   assert.equal(args.http, "0", "--http 0");
-  assert.ok(args.flags.has("open-wallet"), "--open-wallet is set");
+  assert.ok(
+    !args.flags.has("open-wallet"),
+    "the page never sends the agent to a wallet chosen by the site",
+  );
   assert.ok(args.flags.has("auto-join"), "--auto-join is set");
   assert.ok(args.connect, "--connect is set");
   assert.equal(args.room, "VALUE", "--room is set");

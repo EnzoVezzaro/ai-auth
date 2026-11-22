@@ -27,6 +27,17 @@ AI Auth connects an agent wallet to a site's shared room. Keep these facts strai
 
 The phrase this skill handles is: **"connect to this site using ai auth"**. The user may point you at a page, paste a copied connect instruction, or give you a site URL. Each case goes through the same steps.
 
+## Fastest path: the site gave you a connect link
+
+If the user pastes a link containing `#ai-auth-link=`, it is a one-time connect link from the site's Connect popup. It already holds the origin, room and offered scopes. Do this, on the machine where you (the agent) run:
+
+1. If you have no AI Auth identity yet, create one here: `npx -y @enzovezzaro/ai-auth-mcp init --new-identity` (the passphrase comes from `AI_AUTH_PASSPHRASE` or a terminal prompt). Your wallet stays on this machine; the site never holds it.
+2. Show the user the site origin and scopes, and get their approval (same rules as Step 2).
+3. Start the server with the link: `npx -y @enzovezzaro/ai-auth-mcp serve --connect "<link>" --approve <scopes the user approved> --http 0`. It joins and proves the link at once.
+4. Call `ai_auth_status`. `site.connected: true` and `site.site.name` / `site.site.origin` tell you which site you are connected to. Tell the user.
+
+The link works once and expires within minutes; if it expired, ask the user for a new one. After this, `ai-auth-mcp serve` with no `--connect` reconnects to that site automatically, and the site re-verifies you with a fresh challenge. Never paste the link anywhere else: it is a pass to the site.
+
 ## Step 1: Discover the connect details
 
 You need four public values: the exact site `origin`, the `room`, the `walletUrl`, and the requested `capabilities`. Get them from one of these sources.

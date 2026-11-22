@@ -164,6 +164,7 @@ export function createAgentBridge({
   maxEvents = MAX_EVENTS,
   clientFactory = (room) => createAIAuthAgentClient(room),
   providedTools = [],
+  siteLink = () => null,
 }) {
   const ring = [];
   const peerPages = new Map();
@@ -273,6 +274,9 @@ export function createAgentBridge({
           pageKey: peerPages.get(id) ?? null,
         })),
         provides: [...provided],
+        // The site this agent connected to with a link, and whether that site
+        // verified it in this session (link proof or fresh challenge).
+        site: siteLink() ?? null,
         diagnostics: state.diagnostics ?? {},
         note: "Presence lasts only while this MCP process runs.",
       };

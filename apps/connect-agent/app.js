@@ -566,7 +566,6 @@ function buildInstructions() {
   --http 0 \
   --connect "${setupPage}" \
   --room "${room}" \
-  --open-wallet \
   --auto-join`;
 
   return `${instruction.instruction}
@@ -581,7 +580,7 @@ ${serveCommand}
 
 Steps:
 1. Run command 1 once. It prints a public wallet ID; "serve" does not create an identity.
-2. Run command 2. It prints a loopback MCP URL, and the wallet window on first connect asks you to approve the exact scopes.
+2. Run command 2 where the agent runs. It asks you, in that terminal, to approve the exact scopes (or pass --approve), then prints a loopback MCP URL. No site wallet is opened: the identity stays with the agent.
 3. Paste the printed MCP URL into your agent's MCP config and start the agent runtime.
 4. Copy the public wallet ID printed by command 1, paste it into "Expected agent wallet ID" on this page, then choose Verify & connect.
 

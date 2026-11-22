@@ -996,3 +996,26 @@ export {
   didKeyMatchesJwk,
 } from "./did.js";
 export type { DidKey, DidP256PublicJwk } from "./did.js";
+export {
+  AGENT_LINK_PARAM,
+  AGENT_LINK_EVENTS,
+  DEFAULT_AGENT_LINK_TTL_MS,
+  MAX_AGENT_LINK_TTL_MS,
+  createAgentLinkPayload,
+  agentLinkUrl,
+  encodeAgentLinkToken,
+  isAgentLink,
+  parseAgentLink,
+  validateAgentLink,
+} from "./agent-link.js";
+export type { AIAuthAgentLink } from "./agent-link.js";
+export {
+  createAIAuthAgentLink,
+  mountAIAuthAgentConnect,
+} from "./agent-link-site.js";
+export type {
+  AIAuthAgentLinkController,
+  AIAuthAgentLinkPhase,
+  AIAuthAgentLinkState,
+  AIAuthLinkedAgent,
+} from "./agent-link-site.js";
