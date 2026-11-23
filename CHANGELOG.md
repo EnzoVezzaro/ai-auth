@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Product analytics on the hosted site
+
+The published landing page and wallet at `enzovezzaro.github.io/ai-auth/` now send anonymous product analytics to PostHog: page views, landing call-to-action clicks, and wallet actions (`wallet_created`, `wallet_restored`, `wallet_forgotten`, `site_connection_approved`, `site_connection_rejected`, `grant_issued`, `grant_revoked`, `session_ended`). Events carry no wallet IDs, names, site origins or capabilities, only counts; query strings and fragments are stripped from URLs. Autocapture, session replay and surveys are off, the slim build never loads remote scripts, and nothing is sent from localhost or automated browsers. The npm packages do not include or load analytics.
+
 ### Agents carry their wallet; sites never open one
 
 A site no longer needs a wallet to connect an agent, and the CLI never opens a wallet that a site named.

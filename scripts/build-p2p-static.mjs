@@ -114,6 +114,18 @@ await build({
   minify: true,
   sourcemap: false,
 });
+// Product analytics (page views and call-to-action clicks), kept out of the
+// React island so the first paint does not wait on it.
+await build({
+  entryPoints: [resolve(root, "src/landing/analytics.js")],
+  outfile: resolve(output, "landing/analytics.js"),
+  bundle: true,
+  format: "esm",
+  platform: "browser",
+  target: ["es2022"],
+  minify: true,
+  sourcemap: false,
+});
 // Footer physics pile, also independent of the React island.
 await build({
   entryPoints: [resolve(root, "src/landing/footer.js")],

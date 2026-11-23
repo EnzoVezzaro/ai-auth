@@ -42,7 +42,8 @@ export function extractIfContaining(source, needle) {
 }
 
 export function runFragment(code, context = {}) {
-  const sandbox = vm.createContext({ console, ...context });
+  // Analytics is a no-op in fragments unless a test supplies its own `track`.
+  const sandbox = vm.createContext({ console, track() {}, ...context });
   vm.runInContext(code, sandbox);
   return sandbox;
 }
