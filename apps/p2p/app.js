@@ -11,6 +11,7 @@ import {
   sessionEndText,
 } from "../../packages/p2p/copy.js";
 import { inlineCreateWalletForm } from "../../packages/p2p/wallet-setup-copy.js";
+import { initAnalytics, track } from "../../src/analytics.js";
 import { canResumeStoredSession } from "../../packages/p2p/resume-verification.js";
 import {
   createGrantStore,
@@ -46,6 +47,8 @@ import {
 } from "../../packages/p2p/webmcp.js";
 
 const $ = (selector) => document.querySelector(selector);
+
+initAnalytics("wallet");
 const externalConnectMode =
   new URLSearchParams(location.search).get("connect") === "1";
 const externalHost =
@@ -953,6 +956,7 @@ function bindView() {
         );
       }
       render();
+      track("wallet_created");
       toast("Wallet created. Save the encrypted recovery file.");
     } catch (error) {
       fail(error);
@@ -997,6 +1001,7 @@ function bindView() {
         );
       }
       render();
+      track("wallet_restored");
       toast("Wallet restored in this browser.");
     } catch (error) {
       fail(error);
@@ -1026,6 +1031,7 @@ function bindView() {
     state.rtc = null;
     state.activity = [];
     render();
+    track("wallet_forgotten");
     toast("Wallet removed from this browser.");
   });
   $("#permission-form")?.addEventListener("submit", async (event) => {
@@ -1183,6 +1189,9 @@ function bindView() {
           `Your approval was sent, but finding other agents failed: ${error.message} Reload the wallet to try again.`,
         );
       });
+      track("site_connection_approved", {
+        capability_count: approved.length,
+      });
       await appendActivity(state.wallet, "connect/external-consent", {
         origin: state.externalOrigin,
         capabilities: approved,
@@ -1271,6 +1280,7 @@ function bindView() {
   $("#end-session")?.addEventListener("click", async () => {
     if (!window.confirm("End this session? You can reconnect from the site."))
       return;
+    track("session_ended");
     await expireExternalSession("ended");
   });
   $("#reject-external-request")?.addEventListener("click", () => {
@@ -1283,6 +1293,7 @@ function bindView() {
         state.externalOrigin,
       );
     state.externalStatus = "rejected";
+    track("site_connection_rejected");
     clearTimeout(state.externalExpiryTimer);
     render();
   });
@@ -1325,6 +1336,7 @@ function bindView() {
         throw new Error(
           "The signed grant failed local verification. Check the recipient and capabilities, then try again.",
         );
+      track("grant_issued", { capability_count: input.capabilities.length });
       await appendActivity(state.wallet, "capability/grant-issued", {
         recipient: input.recipient,
         resource: input.resource,
@@ -1413,6 +1425,7 @@ function bindView() {
       try {
         await grantStore.markEnded(audience, nonce);
         state.grants = await grantStore.list();
+        track("grant_revoked");
         toast("Grant revoked in this wallet.");
       } catch (error) {
         fail(error);
